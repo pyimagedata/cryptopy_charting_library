@@ -1,0 +1,988 @@
+import { ChartModel } from '../model/chart-model';
+import { Series, SeriesType } from '../model/series';
+import { CandlestickSeries } from '../model/candlestick-series';
+import { LineSeries } from '../model/line-series';
+import { AreaSeries } from '../model/area-series';
+import { CandlestickRenderer } from '../renderers/candlestick-renderer';
+import { LineRenderer } from '../renderers/line-renderer';
+import { AreaRenderer } from '../renderers/area-renderer';
+import { GridRenderer } from '../renderers/grid-renderer';
+import { WatermarkRenderer } from '../renderers/watermark-renderer';
+import { TimePointIndex, coordinate } from '../model/coordinate';
+import { isBarData } from '../model/data';
+import { OverlayIndicatorRenderer } from '../indicators/overlay-indicator-renderer';
+import { OverlayIndicator } from '../indicators/indicator';
+import { Drawing, TrendLineDrawing } from '../drawings';
+import { FibRetracementDrawing } from '../drawings/fibonacci-retracement-drawing';
+import { HorizontalLineDrawing } from '../drawings/horizontal-line-drawing';
+import { VerticalLineDrawing } from '../drawings/vertical-line-drawing';
+import { InfoLineDrawing } from '../drawings/info-line-drawing';
+
+/** Disposable interface for cleanup */
+interface Disposable {
+    dispose(): void;
+}
+
+// Re-export BitmapCoordinatesScope for renderers
+export interface BitmapCoordinatesScope {
+    readonly context: CanvasRenderingContext2D;
+    readonly mediaSize: { width: number; height: number };
+    readonly bitmapSize: { width: number; height: number };
+    readonly horizontalPixelRatio: number;
+    readonly verticalPixelRatio: number;
+}
+
+/**
+ * Pane widget - renders a single chart pane with series
+ */
+export class PaneWidget implements Disposable {
+    private readonly _model: ChartModel;
+    private _element: HTMLElement | null = null;
+    private _canvas: HTMLCanvasElement | null = null;
+    private _ctx: CanvasRenderingContext2D | null = null;
+    private _width: number = 0;
+    private _height: number = 0;
+
+    private _legendElement: HTMLElement | null = null;
+    private _loadingElement: HTMLElement | null = null;
+    private readonly _gridRenderer: GridRenderer;
+    private readonly _watermarkRenderer: WatermarkRenderer;
+    private readonly _seriesRenderers: Map<Series, CandlestickRenderer | LineRenderer | AreaRenderer> = new Map();
+    private readonly _overlayRenderer: OverlayIndicatorRenderer;
+
+    constructor(container: HTMLElement, model: ChartModel) {
+        this._model = model;
+        this._gridRenderer = new GridRenderer(model.options.grid);
+        this._watermarkRenderer = new WatermarkRenderer(model.options.watermark);
+        this._overlayRenderer = new OverlayIndicatorRenderer();
+        this._createElement(container);
+    }
+
+    get element(): HTMLElement | null {
+        return this._element;
+    }
+
+    get canvas(): HTMLCanvasElement | null {
+        return this._canvas;
+    }
+
+    /**
+     * Set overlay indicators to render on the main chart
+     */
+    setOverlayIndicators(indicators: readonly OverlayIndicator[]): void {
+        this._overlayRenderer.setIndicators([...indicators]);
+    }
+
+    /**
+     * Show or hide loading overlay
+     */
+    setLoading(loading: boolean, message: string = 'Loading data...'): void {
+        if (!this._loadingElement) return;
+
+        if (loading) {
+            this._loadingElement.innerHTML = `
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+                    <div style="
+                        width: 40px;
+                        height: 40px;
+                        border: 3px solid rgba(41, 98, 255, 0.2);
+                        border-top-color: #2962ff;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    "></div>
+                    <span style="color: #787b86; font-size: 13px;">${message}</span>
+                </div>
+                <style>
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                </style>
+            `;
+            this._loadingElement.style.display = 'flex';
+        } else {
+            this._loadingElement.style.display = 'none';
+        }
+    }
+
+    setSize(width: number, height: number): void {
+        this._width = width;
+        this._height = height;
+
+        if (this._element) {
+            this._element.style.width = `${width}px`;
+            this._element.style.height = `${height}px`;
+        }
+        if (this._canvas) {
+            const dpr = window.devicePixelRatio || 1;
+            this._canvas.style.width = `${width}px`;
+            this._canvas.style.height = `${height}px`;
+            this._canvas.width = width * dpr;
+            this._canvas.height = height * dpr;
+        }
+    }
+
+    render(): void {
+        if (!this._ctx || !this._canvas) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const { _width: width, _height: height } = this;
+
+        // Create scope for renderers
+        const scope: BitmapCoordinatesScope = {
+            context: this._ctx,
+            mediaSize: { width, height },
+            bitmapSize: { width: width * dpr, height: height * dpr },
+            horizontalPixelRatio: dpr,
+            verticalPixelRatio: dpr,
+        };
+
+        // Clear and reset transform
+        this._ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this._ctx.fillStyle = this._model.options.layout.backgroundColor;
+        this._ctx.fillRect(0, 0, width * dpr, height * dpr);
+
+        // Draw watermark
+        this._watermarkRenderer.updateOptions(this._model.options.watermark);
+        this._watermarkRenderer.draw(scope);
+
+        // Get visible range
+        const visibleRange = this._model.timeScale.visibleRange();
+        if (!visibleRange) return;
+
+        // Draw grid
+        const priceMarks = this._model.rightPriceScale.marks();
+        this._gridRenderer.drawHorizontalLines(scope, priceMarks);
+
+        // Calculate vertical grid x positions (every N bars)
+        const barSpacing = this._model.timeScale.barSpacing;
+        const gridInterval = Math.ceil(80 / barSpacing);
+        const verticalXCoords: number[] = [];
+        for (let i = visibleRange.from as number; i <= (visibleRange.to as number); i += gridInterval) {
+            verticalXCoords.push(this._model.timeScale.indexToCoordinate(i as TimePointIndex));
+        }
+        this._gridRenderer.drawVerticalLines(scope, verticalXCoords as any);
+
+        // Render each series
+        for (const series of this._model.serieses) {
+            this._renderSeries(scope, series, visibleRange.from, visibleRange.to);
+        }
+
+        // Render overlay indicators (EMA, SMA, Bollinger Bands, etc.)
+        this._overlayRenderer.draw(scope, this._model.timeScale, this._model.rightPriceScale);
+
+        // Draw crosshair
+        const crosshair = this._model.crosshairPosition;
+        if (crosshair && crosshair.visible) {
+            const ctx = scope.context;
+            const opts = this._model.options.crosshair;
+            const hRatio = scope.horizontalPixelRatio;
+            const vRatio = scope.verticalPixelRatio;
+
+            ctx.save();
+
+            // Vertical line
+            if (opts.vertLine.visible) {
+                ctx.beginPath();
+                ctx.strokeStyle = opts.vertLine.color;
+                ctx.lineWidth = Math.max(1, Math.floor(opts.vertLine.width * hRatio));
+                const x = Math.round(crosshair.x * hRatio) + 0.5;
+
+                if (opts.vertLine.style === 'dashed') {
+                    ctx.setLineDash([4 * hRatio, 4 * hRatio]);
+                }
+
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, scope.bitmapSize.height);
+                ctx.stroke();
+            }
+
+            // Horizontal line
+            if (opts.horzLine.visible) {
+                ctx.beginPath();
+                ctx.strokeStyle = opts.horzLine.color;
+                ctx.lineWidth = Math.max(1, Math.floor(opts.horzLine.width * vRatio));
+                const y = Math.round(crosshair.y * vRatio) + 0.5;
+
+                if (opts.horzLine.style === 'dashed') {
+                    ctx.setLineDash([4 * hRatio, 4 * hRatio]);
+                } else {
+                    ctx.setLineDash([]);
+                }
+
+                ctx.moveTo(0, y);
+                ctx.lineTo(scope.bitmapSize.width, y);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        // Update legend and buy/sell
+        this._updateLegend();
+    }
+
+    private _renderSeries(
+        scope: BitmapCoordinatesScope,
+        series: Series,
+        from: TimePointIndex,
+        to: TimePointIndex
+    ): void {
+        // Calculate coordinates
+        const bars = series.calculateCoordinates(
+            this._model.timeScale,
+            this._model.rightPriceScale,
+            from,
+            to
+        );
+
+        // Get or create renderer
+        let renderer = this._seriesRenderers.get(series);
+        if (!renderer) {
+            const newRenderer = this._createRenderer(series);
+            if (newRenderer) {
+                this._seriesRenderers.set(series, newRenderer);
+                renderer = newRenderer;
+            }
+        }
+
+        // Render
+        if (renderer) {
+            const backgroundColor = this._model.options.layout.backgroundColor;
+            const barSpacing = this._model.timeScale.barSpacing;
+            // Pass background color and barSpacing
+            (renderer as any).draw(scope, bars, backgroundColor, barSpacing);
+        }
+    }
+
+    private _createRenderer(series: Series): CandlestickRenderer | LineRenderer | AreaRenderer | null {
+        // Check if series provides its own renderer (e.g. Heiken Ashi)
+        if ('getRenderer' in series && typeof (series as any).getRenderer === 'function') {
+            return (series as any).getRenderer();
+        }
+
+        switch (series.type) {
+            case SeriesType.Candlestick:
+                return new CandlestickRenderer(series as CandlestickSeries);
+            case SeriesType.Line:
+                return new LineRenderer(series as LineSeries);
+            case SeriesType.Area:
+                return new AreaRenderer(series as AreaSeries);
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Render drawings on the canvas
+     * @param drawings Array of drawings to render
+     * @param timeToPixel Function to convert time (bar index) to pixel X
+     * @param priceToPixel Function to convert price to pixel Y
+     */
+    renderDrawings(
+        drawings: Drawing[],
+        timeToPixel: (time: number) => number | null,
+        priceToPixel: (price: number) => number | null
+    ): void {
+        if (!this._ctx || !this._canvas) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const ctx = this._ctx;
+        const canvasWidth = this._canvas.width;
+        const canvasHeight = this._canvas.height;
+
+        ctx.save();
+
+        for (const drawing of drawings) {
+            if (!drawing.visible) continue;
+
+            // Convert logical coordinates to pixel coordinates
+            const pixelPoints: { x: number; y: number }[] = [];
+            for (const point of drawing.points) {
+                const x = timeToPixel(point.time);
+                const y = priceToPixel(point.price);
+                if (x !== null && y !== null) {
+                    pixelPoints.push({ x: x * dpr, y: y * dpr });
+                }
+            }
+
+            // Cache pixel points for hit testing
+            if (drawing instanceof TrendLineDrawing || drawing.type === 'ray') {
+                (drawing as TrendLineDrawing).setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+            } else if (drawing instanceof FibRetracementDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                // Calculate Fibonacci levels - pass both scaled (for rendering) and non-scaled (for hit testing)
+                drawing.calculateLevels(
+                    (price: number) => {
+                        const y = priceToPixel(price);
+                        return y !== null ? y * dpr : 0;
+                    },
+                    (price: number) => {
+                        const y = priceToPixel(price);
+                        return y !== null ? y : 0;
+                    }
+                );
+            }
+
+            // Handle single-point drawings (HorizontalLine, VerticalLine)
+            if (drawing instanceof HorizontalLineDrawing) {
+                drawing.render(ctx, timeToPixel, priceToPixel, canvasWidth / dpr, dpr);
+                continue;
+            }
+
+            if (drawing instanceof VerticalLineDrawing) {
+                const canvasHeight = this._canvas.height / dpr;
+                drawing.render(ctx, timeToPixel, priceToPixel, canvasWidth / dpr, canvasHeight, dpr);
+                continue;
+            }
+
+            // Handle single-point drawings: horizontalRay, crossLine
+            if (drawing.type === 'horizontalRay' || drawing.type === 'crossLine') {
+                if (pixelPoints.length >= 1) {
+                    // Update cache for hit testing
+                    (drawing as any).setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+
+                    const showPoints = drawing.state === 'selected' || drawing.state === 'creating';
+
+                    if (drawing.type === 'horizontalRay') {
+                        this._drawHorizontalRay(ctx, pixelPoints[0], drawing.style, dpr, showPoints, canvasWidth);
+                    } else {
+                        // CrossLine
+                        this._drawCrossLine(ctx, pixelPoints[0], drawing.style, dpr, showPoints, canvasWidth, canvasHeight);
+                    }
+                }
+                continue;
+            }
+
+            if (pixelPoints.length < 2) continue;
+
+            // Draw based on type
+            if (drawing.type === 'trendLine' || drawing.type === 'ray' || drawing.type === 'extendedLine') {
+                const trendLine = drawing as TrendLineDrawing;
+                const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                this._drawTrendLine(ctx, pixelPoints, drawing.style, showControlPoints, trendLine.extendLeft, trendLine.extendRight, this._canvas!.width);
+            } else if (drawing.type === 'trendAngle') {
+                const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                this._drawTrendAngle(ctx, pixelPoints, drawing.style, dpr, showControlPoints);
+            } else if (drawing.type === 'infoLine') {
+                const infoLine = drawing as InfoLineDrawing;
+                // Calculate measurements
+                if (drawing.points.length >= 2) {
+                    const p1 = drawing.points[0];
+                    const p2 = drawing.points[1];
+
+                    // Get bar interval from chart data (difference between 2 consecutive bars)
+                    let barIntervalMs = 60000; // Default 1 minute
+                    const mainSeries = this._model.serieses[0];
+                    if (mainSeries && mainSeries.data.length >= 2) {
+                        const data = mainSeries.data;
+                        // Calculate average interval from last few bars
+                        const t1 = data[data.length - 2].time;
+                        const t2 = data[data.length - 1].time;
+                        barIntervalMs = Math.abs(t2 - t1);
+                    }
+
+                    infoLine.calculateMeasurements(
+                        { x: pixelPoints[0].x, y: pixelPoints[0].y, price: p1.price, time: p1.time },
+                        { x: pixelPoints[1].x, y: pixelPoints[1].y, price: p2.price, time: p2.time },
+                        barIntervalMs
+                    );
+                }
+                const showInfoLinePoints = drawing.state === 'selected' || drawing.state === 'creating';
+                this._drawInfoLine(ctx, pixelPoints, infoLine, dpr, showInfoLinePoints);
+            } else if (drawing.type === 'fibRetracement') {
+                this._drawFibRetracement(ctx, drawing as FibRetracementDrawing, pixelPoints, canvasWidth, dpr, drawing.state === 'selected');
+            }
+        }
+
+        ctx.restore();
+    }
+
+    private _drawTrendLine(
+        ctx: CanvasRenderingContext2D,
+        points: { x: number; y: number }[],
+        style: { color: string; lineWidth: number; lineDash?: number[] },
+        isSelected: boolean,
+        extendLeft: boolean = false,
+        extendRight: boolean = false,
+        canvasWidth: number = 0
+    ): void {
+        if (points.length < 2) return;
+
+        const dpr = window.devicePixelRatio || 1;
+
+        ctx.beginPath();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = style.lineWidth * dpr;
+
+        if (style.lineDash && style.lineDash.length > 0) {
+            ctx.setLineDash(style.lineDash.map(d => d * dpr));
+        } else {
+            ctx.setLineDash([]);
+        }
+
+        // Calculate line direction
+        const p1 = points[0];
+        const p2 = points[1];
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+
+        let startX = p1.x;
+        let startY = p1.y;
+        let endX = p2.x;
+        let endY = p2.y;
+
+        // Extend left (from p1 towards negative direction)
+        if (extendLeft && dx !== 0) {
+            const slope = dy / dx;
+            startX = 0;
+            startY = p1.y - slope * p1.x;
+        }
+
+        // Extend right (from p2 towards positive direction)
+        if (extendRight && dx !== 0 && canvasWidth > 0) {
+            const slope = dy / dx;
+            endX = canvasWidth;
+            endY = p2.y + slope * (canvasWidth - p2.x);
+        }
+
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        // Draw control points if selected
+        if (isSelected) {
+            ctx.fillStyle = style.color;
+            for (const point of points) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 4 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+
+                // White center
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 2 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    private _drawTrendAngle(
+        ctx: CanvasRenderingContext2D,
+        points: { x: number; y: number }[],
+        style: { color: string; lineWidth: number; lineDash?: number[] },
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (points.length < 2) return;
+
+        const p1 = points[0]; // Start point
+        const p2 = points[1]; // End point
+
+        // Calculate angle from horizontal
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const angleRad = Math.atan2(-dy, dx); // Negate dy because canvas Y is inverted
+        const angleDeg = angleRad * (180 / Math.PI);
+
+        // Draw the main trend line
+        ctx.beginPath();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = (style.lineWidth || 2) * dpr;
+        ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+
+        // Draw dashed arc from horizontal to the trend line
+        const arcRadius = 30 * dpr;
+        const startAngle = 0; // Horizontal (0°)
+        const endAngle = -angleRad; // To the trend line (negative because canvas Y is inverted)
+
+        ctx.beginPath();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = 1 * dpr;
+        ctx.setLineDash([3 * dpr, 3 * dpr]); // Dashed
+
+        // Draw horizontal reference line (short)
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p1.x + arcRadius + 10 * dpr, p1.y);
+        ctx.stroke();
+
+        // Draw the arc
+        ctx.beginPath();
+        if (angleDeg >= 0) {
+            // Upward angle
+            ctx.arc(p1.x, p1.y, arcRadius, 0, -angleRad, true);
+        } else {
+            // Downward angle
+            ctx.arc(p1.x, p1.y, arcRadius, 0, -angleRad, false);
+        }
+        ctx.stroke();
+
+        // Draw angle label
+        ctx.setLineDash([]);
+        const labelX = p1.x + arcRadius + 15 * dpr;
+        const labelY = p1.y + (angleDeg >= 0 ? -5 * dpr : 15 * dpr);
+
+        ctx.font = `${12 * dpr}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.fillStyle = style.color;
+        ctx.textAlign = 'left';
+        ctx.fillText(`${angleDeg.toFixed(2)}°`, labelX, labelY);
+
+        // Draw control points
+        if (isSelected) {
+            ctx.fillStyle = style.color;
+            for (const point of points) {
+                // Outer circle
+                ctx.beginPath();
+                ctx.strokeStyle = style.color;
+                ctx.lineWidth = 2 * dpr;
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Inner fill (white)
+                ctx.beginPath();
+                ctx.fillStyle = '#fff';
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
+    private _drawHorizontalRay(
+        ctx: CanvasRenderingContext2D,
+        point: { x: number; y: number },
+        style: { color: string; lineWidth: number; lineDash?: number[] },
+        dpr: number,
+        isSelected: boolean,
+        canvasWidth: number
+    ): void {
+        // Draw horizontal line from point to right edge
+        ctx.beginPath();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = (style.lineWidth || 2) * dpr;
+        ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+        ctx.moveTo(point.x, point.y);
+        ctx.lineTo(canvasWidth, point.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw control point if selected
+        if (isSelected) {
+            // Outer circle
+            ctx.beginPath();
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = 2 * dpr;
+            ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Inner fill (white)
+            ctx.beginPath();
+            ctx.fillStyle = '#fff';
+            ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    private _drawCrossLine(
+        ctx: CanvasRenderingContext2D,
+        point: { x: number; y: number },
+        style: { color: string; lineWidth: number; lineDash?: number[] },
+        dpr: number,
+        isSelected: boolean,
+        canvasWidth: number,
+        canvasHeight: number
+    ): void {
+        const { x, y } = point;
+
+        ctx.beginPath();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = (style.lineWidth || 1) * dpr;
+        ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+
+        // Horizontal line
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
+
+        // Vertical line
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvasHeight);
+
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        if (isSelected) {
+            // Draw intersection point
+            ctx.beginPath();
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = 2 * dpr;
+            ctx.arc(x, y, 5 * dpr, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.fillStyle = '#fff';
+            ctx.arc(x, y, 3 * dpr, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    private _drawInfoLine(
+        ctx: CanvasRenderingContext2D,
+        points: { x: number; y: number }[],
+        drawing: InfoLineDrawing,
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (points.length < 2) return;
+
+        const style = drawing.style;
+
+        // Draw the line
+        ctx.beginPath();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = style.lineWidth * dpr;
+        ctx.setLineDash([]);
+        ctx.moveTo(points[0].x, points[0].y);
+        ctx.lineTo(points[1].x, points[1].y);
+        ctx.stroke();
+
+        // Draw control points
+        ctx.fillStyle = style.color;
+        for (const point of points) {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = style.color;
+        }
+
+        // Get measurements
+        const m = drawing.getMeasurements();
+
+        // Format text lines - TradingView style
+        const priceSign = m.priceChange >= 0 ? '+' : '';
+        const priceColor = m.priceChange >= 0 ? '#26a69a' : '#ef5350'; // Green/Red
+
+        const line1 = `${priceSign}${m.priceChange.toFixed(2)} (${m.priceChangePercent.toFixed(2)}%)`;
+        const line2 = `${m.barCount} bar, ${m.timeDuration}`;
+        const line3 = `${m.angle.toFixed(2)}°`;
+
+        // Calculate tooltip position (near second point, offset to right)
+        const tooltipX = points[1].x + 20 * dpr;
+        const tooltipY = points[1].y - 10 * dpr;
+
+        // Font setup
+        const fontSize = 12 * dpr;
+        const fontBold = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial`;
+        const fontNormal = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial`;
+        ctx.font = fontNormal;
+
+        const padding = 10 * dpr;
+        const lineHeight = fontSize + 6 * dpr;
+        const iconWidth = 20 * dpr;
+
+        // Measure text widths
+        ctx.font = fontBold;
+        const textWidths = [
+            ctx.measureText(line1).width,
+            ctx.measureText(line2).width,
+            ctx.measureText(line3).width
+        ];
+        const maxTextWidth = Math.max(...textWidths);
+
+        const boxWidth = iconWidth + maxTextWidth + padding * 2 + 5 * dpr;
+        const boxHeight = lineHeight * 3 + padding * 2;
+
+        // Draw shadow
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+        ctx.shadowBlur = 8 * dpr;
+        ctx.shadowOffsetX = 2 * dpr;
+        ctx.shadowOffsetY = 2 * dpr;
+
+        // Background - white with subtle border
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(tooltipX, tooltipY, boxWidth, boxHeight, 6 * dpr);
+        ctx.fill();
+
+        // Reset shadow
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+
+        // Border
+        ctx.strokeStyle = '#e0e0e0';
+        ctx.lineWidth = 1 * dpr;
+        ctx.stroke();
+
+        // Text rendering
+        ctx.textBaseline = 'middle';
+        const textX = tooltipX + padding;
+        let textY = tooltipY + padding + lineHeight / 2;
+
+        // Line 1 - Price change (colored)
+        ctx.fillStyle = '#787878';
+        ctx.font = fontNormal;
+        ctx.fillText('↕', textX, textY);
+        ctx.fillStyle = priceColor;
+        ctx.font = fontBold;
+        ctx.fillText(line1, textX + iconWidth, textY);
+        textY += lineHeight;
+
+        // Line 2 - Bars/Time
+        ctx.fillStyle = '#787878';
+        ctx.font = fontNormal;
+        ctx.fillText('↔', textX, textY);
+        ctx.fillStyle = '#333333';
+        ctx.font = fontBold;
+        ctx.fillText(line2, textX + iconWidth, textY);
+        textY += lineHeight;
+
+        // Line 3 - Angle
+        ctx.fillStyle = '#787878';
+        ctx.font = fontNormal;
+        ctx.fillText('∠', textX, textY);
+        ctx.fillStyle = '#333333';
+        ctx.font = fontBold;
+        ctx.fillText(line3, textX + iconWidth, textY);
+    }
+
+    private _drawFibRetracement(
+        ctx: CanvasRenderingContext2D,
+        drawing: FibRetracementDrawing,
+        pixelPoints: { x: number; y: number }[],
+        canvasWidth: number,
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        const levelData = drawing.getLevelData();
+        const style = drawing.style;
+
+        // Determine left and right X boundaries
+        const minX = Math.min(pixelPoints[0].x, pixelPoints[1].x);
+        const maxX = drawing.extendLines ? canvasWidth : Math.max(pixelPoints[0].x, pixelPoints[1].x);
+
+        // Get opacity from drawing (default 0.8)
+        const opacity = drawing.opacity ?? 0.8;
+
+        // Helper to apply opacity to hex color
+        const applyOpacity = (hexColor: string, alpha: number): string => {
+            // Parse hex color
+            const hex = hexColor.replace('#', '');
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        };
+
+        // Draw semi-transparent fill between levels
+        const bgOpacity = drawing.backgroundOpacity ?? 0.1;
+        for (let i = 0; i < levelData.length - 1; i++) {
+            const y1 = levelData[i].y;
+            const y2 = levelData[i + 1].y;
+            // Use the current level's color for the fill
+            const fillColor = applyOpacity(levelData[i].color, bgOpacity);
+            ctx.fillStyle = fillColor;
+            ctx.fillRect(minX, Math.min(y1, y2), maxX - minX, Math.abs(y2 - y1));
+        }
+
+        // Draw horizontal lines at each level
+        // Apply line dash style from drawing
+        if (style.lineDash && style.lineDash.length > 0) {
+            ctx.setLineDash(style.lineDash.map(d => d * dpr));
+        } else {
+            ctx.setLineDash([]);
+        }
+        ctx.lineWidth = style.lineWidth * dpr;
+
+        for (let i = 0; i < levelData.length; i++) {
+            const level = levelData[i];
+            // Use the level's own color with opacity
+            const color = applyOpacity(level.color, opacity);
+
+            ctx.strokeStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(minX, level.y);
+            ctx.lineTo(maxX, level.y);
+            ctx.stroke();
+
+            // Draw label with price
+            if (drawing.showLabels) {
+                const labelText = drawing.showPrices
+                    ? `${level.label} (${level.price.toFixed(2)})`
+                    : level.label;
+
+                ctx.font = `${11 * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+                ctx.fillStyle = color;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(labelText, minX + 4 * dpr, level.y - 2 * dpr);
+            }
+        }
+
+        // Draw vertical connecting line (trend reference)
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = 1 * dpr;
+        ctx.setLineDash([4 * dpr, 4 * dpr]);
+        ctx.beginPath();
+        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+        ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw control points if selected
+        if (isSelected) {
+            ctx.fillStyle = style.color;
+            for (const point of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    dispose(): void {
+        if (this._element && this._element.parentNode) {
+            this._element.parentNode.removeChild(this._element);
+        }
+        this._seriesRenderers.clear();
+        this._element = null;
+        this._canvas = null;
+        this._ctx = null;
+        this._legendElement = null;
+    }
+
+    private _updateLegend(): void {
+        if (!this._legendElement) return;
+
+        const symbol = this._model.symbol || '---';
+        const timeframe = this._model.timeframe || '---';
+
+        // Find main series for OHLC
+        const mainSeries = this._model.serieses[0];
+        let ohlcText = '';
+
+        if (mainSeries) {
+            const crosshair = this._model.crosshairPosition;
+            let barIndex: TimePointIndex | null = null;
+
+            if (crosshair && crosshair.visible) {
+                barIndex = this._model.timeScale.coordinateToIndex(coordinate(crosshair.x));
+            } else {
+                // Use last bar if crosshair not visible
+                barIndex = (this._model.timeScale.pointsCount - 1) as TimePointIndex;
+            }
+
+            const bar = mainSeries.data[barIndex];
+            const prevBar = barIndex > 0 ? mainSeries.data[barIndex - 1] : null;
+
+            if (bar && 'open' in bar) {
+                const format = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const formatVol = (v: number) => {
+                    if (v >= 1000000) return (v / 1000000).toFixed(2) + 'M';
+                    if (v >= 1000) return (v / 1000).toFixed(2) + 'K';
+                    return v.toFixed(2);
+                };
+
+                const isCloseUp = bar.close >= bar.open;
+                const priceColor = isCloseUp ? '#26a69a' : '#ef5350';
+
+                // Calculate change from previous close
+                let changeText = '';
+                if (prevBar && isBarData(prevBar)) {
+                    const change = bar.close - prevBar.close;
+                    const changePercent = (change / prevBar.close) * 100;
+                    const sign = change >= 0 ? '+' : '';
+                    const changeColor = change >= 0 ? '#26a69a' : '#ef5350';
+                    changeText = `<span style="margin-left: 8px; color: ${changeColor}; font-size: 12px;">${sign}${format(change)} (${sign}${changePercent.toFixed(2)}%)</span>`;
+                }
+
+                ohlcText = `
+                    <span style="margin-left: 12px; color: #787b86; font-size: 12px;">O<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.open)}</span></span>
+                    <span style="margin-left: 8px; color: #787b86; font-size: 12px;">H<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.high)}</span></span>
+                    <span style="margin-left: 8px; color: #787b86; font-size: 12px;">L<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.low)}</span></span>
+                    <span style="margin-left: 8px; color: #787b86; font-size: 12px;">C<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.close)}</span></span>
+                    ${changeText}
+                    <span style="margin-left: 12px; color: #787b86; font-size: 12px;">Vol<span style="color: ${priceColor}; margin-left: 4px;">${formatVol(bar.volume || 0)}</span></span>
+                `;
+            }
+        }
+
+        this._legendElement.innerHTML = `
+            <div style="display: flex; align-items: center; white-space: nowrap; pointer-events: none;">
+                <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${symbol[0]}</div>
+                <span style="font-weight: bold; color: #d1d4dc; font-size: 13px;">${symbol}</span>
+                <span style="margin-left: 6px; color: #787b86; font-size: 13px;">Perpetual Contract</span>
+                <span style="margin-left: 6px; color: #d1d4dc; font-size: 13px;">• ${timeframe} • Binance</span>
+                <div style="width: 8px; height: 8px; border-radius: 50%; background: #26a69a; margin-left: 8px; box-shadow: 0 0 5px #26a69a;"></div>
+                ${ohlcText}
+            </div>
+        `;
+    }
+
+
+    private _createElement(container: HTMLElement): void {
+        this._element = document.createElement('div');
+        this._element.style.cssText = `
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        `;
+
+        this._canvas = document.createElement('canvas');
+        this._canvas.style.cssText = `
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        `;
+
+        this._ctx = this._canvas.getContext('2d');
+        this._element.appendChild(this._canvas);
+
+        // Legend overlay
+        this._legendElement = document.createElement('div');
+        this._legendElement.style.cssText = `
+            position: absolute;
+            top: 8px;
+            left: 12px;
+            z-index: 10;
+            font-family: ${this._model.options.layout.fontFamily};
+            pointer-events: none;
+            user-select: none;
+        `;
+        this._element.appendChild(this._legendElement);
+
+        // Loading overlay
+        this._loadingElement = document.createElement('div');
+        this._loadingElement.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(26, 26, 46, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            font-family: ${this._model.options.layout.fontFamily};
+        `;
+        this._element.appendChild(this._loadingElement);
+
+        container.appendChild(this._element);
+    }
+}

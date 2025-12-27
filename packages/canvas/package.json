@@ -1,0 +1,22 @@
+{
+    "name": "@charting/canvas",
+    "version": "1.0.0",
+    "description": "HiDPI canvas utilities for pixel-perfect rendering",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "clean": "rm -rf dist"
+    },
+    "keywords": [
+        "canvas",
+        "hidpi",
+        "retina",
+        "pixel-perfect"
+    ],
+    "license": "MIT",
+    "devDependencies": {
+        "typescript": "^5.0.0"
+    }
+}

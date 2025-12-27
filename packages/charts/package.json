@@ -1,0 +1,28 @@
+{
+    "name": "@charting/charts",
+    "version": "1.0.0",
+    "description": "Lightweight charting library inspired by TradingView",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "bundle": "esbuild src/index.ts --bundle --outfile=dist/charts.js --format=iife --global-name=LightweightCharts --minify",
+        "bundle:dev": "esbuild src/index.ts --bundle --outfile=dist/charts.js --format=iife --global-name=LightweightCharts --sourcemap",
+        "clean": "rm -rf dist"
+    },
+    "keywords": [
+        "charts",
+        "trading",
+        "candlestick",
+        "financial"
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "@charting/canvas": "file:../canvas"
+    },
+    "devDependencies": {
+        "esbuild": "^0.27.2",
+        "typescript": "^5.0.0"
+    }
+}

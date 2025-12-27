@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TypeScript Charting Library</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #1a1a2e;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+
+        #chart {
+            width: 100%;
+            height: 100%;
+        }
+</style>
+</head>
+<body>
+    <div id="chart"></div>
+
+    <script src="packages/charts/dist/charts.js"></script>
+    <script>
+        // Default Binance parameters
+        let currentSymbol = 'BTCUSDT';
+        let currentInterval = '1h';
+        const LIMIT = 1000;
+
+        // Initialize chart variables
+        let chart;
+        let currentSeries;
+        
+        async function fetchBinanceData(symbol, interval) {
+            try {
+                const MAX_PAGES = 2; // Get up to 5000 bars
+                let allData = [];
+                let endTime = null;
+
+                console.log(`Fetching up to ${MAX_PAGES * LIMIT} bars for ${symbol}...`);
+
+                // Helper for rate limiting
+                const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+                for (let i = 0; i < MAX_PAGES; i++) {
+                    let url = `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=1000`;
+                    if (endTime) {
+                        url += `&endTime=${endTime}`;
+                    }
+
+                    const response = await fetch(url);
+                    if (!response.ok) break;
+                    
+                    const rawData = await response.json();
+                    if (rawData.length === 0) break;
+
+                    const pageData = rawData.map(d => ({
+                        time: d[0],
+                        open: parseFloat(d[1]),
+                        high: parseFloat(d[2]),
+                        low: parseFloat(d[3]),
+                        close: parseFloat(d[4]),
+                        volume: parseFloat(d[5])
+                    }));
+
+                    // Add to the beginning of our collection (since we fetch backwards)
+                    allData = [...pageData, ...allData];
+
+                    // Set endTime for next page (subtract 1ms from earliest bar)
+                    endTime = pageData[0].time - 1;
+
+                    // If we got less than LIMIT, there's no more data
+                    if (rawData.length < LIMIT) break;
+
+                    // Add delay to prevent hitting rate limits (429)
+                    if (i < MAX_PAGES - 1) await delay(300);
+                }
+
+                // Sort by time just in case (though Binance returns sorted)
+                allData.sort((a, b) => a.time - b.time);
+
+                // Remove duplicates if any (at page boundaries)
+                return allData.filter((v, i, a) => i === 0 || v.time !== a[i-1].time);
+            } catch (error) {
+                console.error('Error fetching Binance data:', error);
+                alert(`${symbol} verisi çekilemedi.`);
+                return [];
+            }
+        }
+
+        async function updateChartData(symbol, interval) {
+            // Show loading indicator
+            chart.setLoading(true, `Loading ${symbol} data...`);
+            
+            try {
+                const data = await fetchBinanceData(symbol, interval);
+                if (data.length > 0) {
+                    // Always get the current active series from the chart
+                    const series = chart.model.serieses[0];
+                    if (series) {
+                        chart.setData(series, data);
+                        // Reset view to show new data
+                        chart.model.timeScale.scrollToPosition(0, false);
+                        chart.model.fullUpdate();
+
+
+                    }
+                }
+            } finally {
+                // Hide loading indicator
+                chart.setLoading(false);
+            }
+        }
+
+        async function initChart() {
+            // Create full screen chart
+            chart = LightweightCharts.createChart('#chart', {
+                 layout: {
+                     backgroundColor: '#1a1a2e',
+                     textColor: '#d1d4dc',
+                 },
+                 grid: {
+                     vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                     horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                 }
+            });
+
+            // Add candlestick series
+            currentSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderVisible: false,
+                wickVisible: true
+            });
+
+
+
+            // Listen for symbol changes
+            chart.symbolChanged.subscribe(async (newSymbol) => {
+                currentSymbol = newSymbol;
+                await updateChartData(currentSymbol, currentInterval);
+            });
+
+            // Listen for timeframe changes
+            chart.timeframeChanged.subscribe(async (newInterval) => {
+                // TradingView uses D, W but Binance uses 1d, 1w
+                let interval = newInterval.toLowerCase();
+                if (interval === 'd') interval = '1d';
+                if (interval === 'w') interval = '1w';
+                
+                currentInterval = interval;
+                await updateChartData(currentSymbol, currentInterval);
+            });
+            
+            // Initial load (this will now automatically update RSI because window.rsiIndicator is set)
+            await updateChartData(currentSymbol, currentInterval);
+        }
+
+        document.addEventListener('DOMContentLoaded', initChart);
+    </script>
+</body>
+</html>
