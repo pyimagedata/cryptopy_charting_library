@@ -14,6 +14,9 @@ import { TrendAngleDrawing } from './trend-angle-drawing';
 import { HorizontalRayDrawing } from './horizontal-ray-drawing';
 import { CrossLineDrawing } from './cross-line-drawing';
 import { StickerDrawing } from './sticker-drawing';
+import { ParallelChannelDrawing } from './parallel-channel-drawing';
+import { RegressionTrendDrawing } from './regression-trend-drawing';
+import { FibExtensionDrawing } from './fibonacci-extension-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -141,6 +144,15 @@ export class DrawingManager {
             case 'sticker':
                 drawing = new StickerDrawing();
                 break;
+            case 'parallelChannel':
+                drawing = new ParallelChannelDrawing();
+                break;
+            case 'regressionTrend':
+                drawing = new RegressionTrendDrawing();
+                break;
+            case 'fibExtension':
+                drawing = new FibExtensionDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -191,8 +203,8 @@ export class DrawingManager {
 
         if (time === null || price === null) return;
 
-        // Handle two-point drawings (TrendLine, FibRetracement, Ray, InfoLine, ExtendedLine, TrendAngle)
-        if (this._activeDrawing.type === 'trendLine' || this._activeDrawing.type === 'fibRetracement' || this._activeDrawing.type === 'ray' || this._activeDrawing.type === 'infoLine' || this._activeDrawing.type === 'extendedLine' || this._activeDrawing.type === 'trendAngle') {
+        // Handle two-point drawings (TrendLine, FibRetracement, Ray, InfoLine, ExtendedLine, TrendAngle, RegressionTrend)
+        if (this._activeDrawing.type === 'trendLine' || this._activeDrawing.type === 'fibRetracement' || this._activeDrawing.type === 'ray' || this._activeDrawing.type === 'infoLine' || this._activeDrawing.type === 'extendedLine' || this._activeDrawing.type === 'trendAngle' || this._activeDrawing.type === 'regressionTrend') {
             const drawing = this._activeDrawing as { points: { time: number; price: number }[]; state: string; addPoint: (t: number, p: number) => void };
             if (drawing.points.length < 2) {
                 drawing.addPoint(time, price);
@@ -201,6 +213,35 @@ export class DrawingManager {
                 drawing.state = 'complete';
             }
         }
+
+        // Handle three-point drawings (ParallelChannel, FibExtension)
+        if (this._activeDrawing.type === 'parallelChannel' || this._activeDrawing.type === 'fibExtension') {
+            const drawing = this._activeDrawing as any; // Use any for flexibility with confirmPreviewPoint
+
+            // First, finalize the preview point position
+            const currentPointCount = drawing.points.length;
+
+            // Confirm the current preview point (if any) becomes permanent
+            if (typeof drawing.confirmPreviewPoint === 'function') {
+                drawing.confirmPreviewPoint();
+            }
+
+            // Update the last point position to final click position
+            if (currentPointCount > 0) {
+                drawing.points[currentPointCount - 1] = { time, price };
+            }
+
+            // Check if we have all 3 points
+            if (currentPointCount >= 3) {
+                drawing.state = 'complete';
+                // Fall through to finish the drawing
+            } else {
+                // Still need more points, keep drawing active
+                this._drawingsChanged.fire();
+                return;
+            }
+        }
+
 
         this._activeDrawing = null;
         this.setMode('none');  // Return to cursor mode after drawing
@@ -490,6 +531,15 @@ export class DrawingManager {
                     break;
                 case 'sticker':
                     drawing = StickerDrawing.fromJSON(item as any);
+                    break;
+                case 'parallelChannel':
+                    drawing = ParallelChannelDrawing.fromJSON(item);
+                    break;
+                case 'regressionTrend':
+                    drawing = RegressionTrendDrawing.fromJSON(item);
+                    break;
+                case 'fibExtension':
+                    drawing = FibExtensionDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:

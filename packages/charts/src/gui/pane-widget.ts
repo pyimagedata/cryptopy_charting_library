@@ -17,6 +17,9 @@ import { FibRetracementDrawing } from '../drawings/fibonacci-retracement-drawing
 import { HorizontalLineDrawing } from '../drawings/horizontal-line-drawing';
 import { VerticalLineDrawing } from '../drawings/vertical-line-drawing';
 import { InfoLineDrawing } from '../drawings/info-line-drawing';
+import { ParallelChannelDrawing } from '../drawings/parallel-channel-drawing';
+import { RegressionTrendDrawing } from '../drawings/regression-trend-drawing';
+import { FibExtensionDrawing } from '../drawings/fibonacci-extension-drawing';
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -321,6 +324,19 @@ export class PaneWidget implements Disposable {
                         return y !== null ? y : 0;
                     }
                 );
+            } else if (drawing instanceof FibExtensionDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                // Calculate Extension levels - pass both scaled (for rendering) and non-scaled (for hit testing)
+                drawing.calculateLevels(
+                    (price: number) => {
+                        const y = priceToPixel(price);
+                        return y !== null ? y * dpr : 0;
+                    },
+                    (price: number) => {
+                        const y = priceToPixel(price);
+                        return y !== null ? y : 0;
+                    }
+                );
             }
 
             // Handle single-point drawings (HorizontalLine, VerticalLine)
@@ -391,6 +407,24 @@ export class PaneWidget implements Disposable {
                 this._drawInfoLine(ctx, pixelPoints, infoLine, dpr, showInfoLinePoints);
             } else if (drawing.type === 'fibRetracement') {
                 this._drawFibRetracement(ctx, drawing as FibRetracementDrawing, pixelPoints, canvasWidth, dpr, drawing.state === 'selected');
+            } else if (drawing.type === 'fibExtension') {
+                this._drawFibExtension(ctx, drawing as FibExtensionDrawing, pixelPoints, canvasWidth, dpr, drawing.state === 'selected');
+            } else if (drawing.type === 'parallelChannel') {
+                // For parallel channel we need 3 points
+                if (pixelPoints.length >= 2) {
+                    const parallelChannel = drawing as ParallelChannelDrawing;
+                    parallelChannel.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawParallelChannel(ctx, pixelPoints, parallelChannel, dpr, showControlPoints, canvasWidth);
+                }
+            } else if (drawing.type === 'regressionTrend') {
+                // Regression trend needs to calculate regression from price data
+                if (pixelPoints.length >= 2) {
+                    const regressionTrend = drawing as RegressionTrendDrawing;
+                    regressionTrend.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawRegressionTrend(ctx, pixelPoints, regressionTrend, dpr, showControlPoints, canvasWidth, timeToPixel, priceToPixel);
+                }
             }
         }
 
@@ -852,6 +886,429 @@ export class PaneWidget implements Disposable {
                 ctx.fillStyle = style.color;
             }
         }
+    }
+
+    private _drawParallelChannel(
+        ctx: CanvasRenderingContext2D,
+        points: { x: number; y: number }[],
+        drawing: ParallelChannelDrawing,
+        dpr: number,
+        isSelected: boolean,
+        canvasWidth: number
+    ): void {
+        if (points.length < 2) return;
+
+        const style = drawing.style;
+        const p0 = points[0]; // Start of base line
+        const p1 = points[1]; // End of base line
+
+        // Calculate the offset for the parallel line
+        let offsetY = 0;
+        if (points.length >= 3) {
+            // Use the third point to determine the channel width
+            const p2 = points[2];
+            // Calculate the perpendicular offset
+            const dx = p1.x - p0.x;
+            const dy = p1.y - p0.y;
+            const lineLength = Math.sqrt(dx * dx + dy * dy);
+
+            if (lineLength > 0) {
+                // Project p2 onto the perpendicular of the base line
+                const baseYAtP2X = p0.y + (dy / dx) * (p2.x - p0.x);
+                offsetY = p2.y - baseYAtP2X;
+            }
+        }
+
+        // Calculate parallel line points
+        const parallel0 = { x: p0.x, y: p0.y + offsetY };
+        const parallel1 = { x: p1.x, y: p1.y + offsetY };
+
+        // Cache parallel points for hit testing
+        drawing.setParallelPixelPoints([parallel0, parallel1].map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+
+        // Calculate extension points
+        let baseStart = { ...p0 };
+        let baseEnd = { ...p1 };
+        let parallelStart = { ...parallel0 };
+        let parallelEnd = { ...parallel1 };
+
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+
+        if (drawing.extendLeft && dx !== 0) {
+            const slope = dy / dx;
+            baseStart.x = 0;
+            baseStart.y = p0.y - slope * p0.x;
+            parallelStart.x = 0;
+            parallelStart.y = parallel0.y - slope * parallel0.x;
+        }
+
+        if (drawing.extendRight && dx !== 0) {
+            const slope = dy / dx;
+            baseEnd.x = canvasWidth;
+            baseEnd.y = p1.y + slope * (canvasWidth - p1.x);
+            parallelEnd.x = canvasWidth;
+            parallelEnd.y = parallel1.y + slope * (canvasWidth - parallel1.x);
+        }
+
+        // Draw fill between lines
+        if (style.fillColor && (style.fillOpacity ?? 0.1) > 0 && points.length >= 3) {
+            ctx.fillStyle = this._hexToRgba(style.fillColor, style.fillOpacity ?? 0.1);
+            ctx.beginPath();
+            ctx.moveTo(baseStart.x, baseStart.y);
+            ctx.lineTo(baseEnd.x, baseEnd.y);
+            ctx.lineTo(parallelEnd.x, parallelEnd.y);
+            ctx.lineTo(parallelStart.x, parallelStart.y);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Draw base line
+        ctx.beginPath();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = style.lineWidth * dpr;
+        ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+        ctx.moveTo(baseStart.x, baseStart.y);
+        ctx.lineTo(baseEnd.x, baseEnd.y);
+        ctx.stroke();
+
+        // Draw parallel line (only if we have 3 points)
+        if (points.length >= 3) {
+            ctx.beginPath();
+            ctx.moveTo(parallelStart.x, parallelStart.y);
+            ctx.lineTo(parallelEnd.x, parallelEnd.y);
+            ctx.stroke();
+
+            // Draw middle line if enabled
+            if (drawing.showMiddleLine) {
+                const midStart = {
+                    x: (baseStart.x + parallelStart.x) / 2,
+                    y: (baseStart.y + parallelStart.y) / 2
+                };
+                const midEnd = {
+                    x: (baseEnd.x + parallelEnd.x) / 2,
+                    y: (baseEnd.y + parallelEnd.y) / 2
+                };
+                ctx.beginPath();
+                ctx.strokeStyle = style.color;
+                ctx.setLineDash([4 * dpr, 4 * dpr]); // Dashed middle line
+                ctx.moveTo(midStart.x, midStart.y);
+                ctx.lineTo(midEnd.x, midEnd.y);
+                ctx.stroke();
+            }
+        }
+
+        ctx.setLineDash([]);
+
+        // Draw control points if selected
+        if (isSelected) {
+            const allPoints = points.length >= 3
+                ? [p0, p1, points[2]]
+                : [p0, p1];
+
+            ctx.fillStyle = style.color;
+            for (const point of allPoints) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    private _drawRegressionTrend(
+        ctx: CanvasRenderingContext2D,
+        points: { x: number; y: number }[],
+        drawing: RegressionTrendDrawing,
+        dpr: number,
+        isSelected: boolean,
+        canvasWidth: number,
+        timeToPixel: (time: number) => number | null,
+        priceToPixel: (price: number) => number | null
+    ): void {
+        if (points.length < 2) return;
+
+        const style = drawing.style;
+        const p0 = points[0]; // Start point
+        const p1 = points[1]; // End point
+
+        // Get the logical time range from drawing points
+        const startTime = Math.min(drawing.points[0].time, drawing.points[1].time);
+        const endTime = Math.max(drawing.points[0].time, drawing.points[1].time);
+
+        // Get price data from the chart model in the specified range
+        const mainSeries = this._model.serieses[0];
+        if (!mainSeries || mainSeries.data.length === 0) return;
+
+        // Find bars in the time range
+        const barsInRange: { time: number; close: number }[] = [];
+        for (const bar of mainSeries.data) {
+            if (bar.time >= startTime && bar.time <= endTime) {
+                barsInRange.push({
+                    time: bar.time,
+                    close: 'close' in bar ? (bar as any).close : (bar as any).value || 0
+                });
+            }
+        }
+
+        if (barsInRange.length < 2) {
+            // Not enough data, just draw a simple line
+            ctx.beginPath();
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = style.lineWidth * dpr;
+            ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            return;
+        }
+
+        // Calculate linear regression
+        drawing.calculateRegression(barsInRange);
+        const { slope, intercept, stdDev } = drawing.getRegressionParams();
+
+        // Calculate regression line Y values at start and end points
+        const startIndex = 0;
+        const endIndex = barsInRange.length - 1;
+
+        const startPrice = intercept;
+        const endPrice = slope * endIndex + intercept;
+
+        // Convert to pixel coordinates
+        const startY = priceToPixel(startPrice);
+        const endY = priceToPixel(endPrice);
+
+        if (startY === null || endY === null) return;
+
+        // Get pixel X positions
+        const startX = timeToPixel(barsInRange[0].time);
+        const endX = timeToPixel(barsInRange[barsInRange.length - 1].time);
+
+        if (startX === null || endX === null) return;
+
+        // Scale to DPR
+        const regStart = { x: startX * dpr, y: startY * dpr };
+        const regEnd = { x: endX * dpr, y: endY * dpr };
+
+        // Calculate upper and lower deviation lines
+        const deviationOffset = stdDev * drawing.deviationMultiplier;
+        const upperStartY = priceToPixel(startPrice + deviationOffset);
+        const upperEndY = priceToPixel(endPrice + deviationOffset);
+        const lowerStartY = priceToPixel(startPrice - deviationOffset);
+        const lowerEndY = priceToPixel(endPrice - deviationOffset);
+
+        if (upperStartY === null || upperEndY === null || lowerStartY === null || lowerEndY === null) return;
+
+        const upperStart = { x: regStart.x, y: upperStartY * dpr };
+        const upperEnd = { x: regEnd.x, y: upperEndY * dpr };
+        const lowerStart = { x: regStart.x, y: lowerStartY * dpr };
+        const lowerEnd = { x: regEnd.x, y: lowerEndY * dpr };
+
+        // Handle extensions
+        let extRegStart = { ...regStart };
+        let extRegEnd = { ...regEnd };
+        let extUpperStart = { ...upperStart };
+        let extUpperEnd = { ...upperEnd };
+        let extLowerStart = { ...lowerStart };
+        let extLowerEnd = { ...lowerEnd };
+
+        if (drawing.extendRight && regEnd.x !== regStart.x) {
+            const slopePixel = (regEnd.y - regStart.y) / (regEnd.x - regStart.x);
+            const extX = canvasWidth;
+            extRegEnd = { x: extX, y: regEnd.y + slopePixel * (extX - regEnd.x) };
+            extUpperEnd = { x: extX, y: upperEnd.y + slopePixel * (extX - upperEnd.x) };
+            extLowerEnd = { x: extX, y: lowerEnd.y + slopePixel * (extX - lowerEnd.x) };
+        }
+
+        if (drawing.extendLeft && regEnd.x !== regStart.x) {
+            const slopePixel = (regEnd.y - regStart.y) / (regEnd.x - regStart.x);
+            extRegStart = { x: 0, y: regStart.y - slopePixel * regStart.x };
+            extUpperStart = { x: 0, y: upperStart.y - slopePixel * upperStart.x };
+            extLowerStart = { x: 0, y: lowerStart.y - slopePixel * lowerStart.x };
+        }
+
+        // Cache lines for hit testing
+        drawing.setRegressionLine({
+            start: { x: extRegStart.x / dpr, y: extRegStart.y / dpr },
+            end: { x: extRegEnd.x / dpr, y: extRegEnd.y / dpr }
+        });
+        drawing.setUpperLine({
+            start: { x: extUpperStart.x / dpr, y: extUpperStart.y / dpr },
+            end: { x: extUpperEnd.x / dpr, y: extUpperEnd.y / dpr }
+        });
+        drawing.setLowerLine({
+            start: { x: extLowerStart.x / dpr, y: extLowerStart.y / dpr },
+            end: { x: extLowerEnd.x / dpr, y: extLowerEnd.y / dpr }
+        });
+
+        // Draw UPPER fill (between upper line and regression line) - BLUE
+        if (style.fillColor && (style.fillOpacity ?? 0.2) > 0) {
+            ctx.fillStyle = this._hexToRgba(style.fillColor, style.fillOpacity ?? 0.2);
+            ctx.beginPath();
+            ctx.moveTo(extUpperStart.x, extUpperStart.y);
+            ctx.lineTo(extUpperEnd.x, extUpperEnd.y);
+            ctx.lineTo(extRegEnd.x, extRegEnd.y);
+            ctx.lineTo(extRegStart.x, extRegStart.y);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Draw LOWER fill (between regression line and lower line) - RED
+        if (drawing.lowerFillColor && (style.fillOpacity ?? 0.2) > 0) {
+            ctx.fillStyle = this._hexToRgba(drawing.lowerFillColor, style.fillOpacity ?? 0.2);
+            ctx.beginPath();
+            ctx.moveTo(extRegStart.x, extRegStart.y);
+            ctx.lineTo(extRegEnd.x, extRegEnd.y);
+            ctx.lineTo(extLowerEnd.x, extLowerEnd.y);
+            ctx.lineTo(extLowerStart.x, extLowerStart.y);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Draw upper deviation line (solid blue)
+        if (drawing.showUpperDeviation) {
+            ctx.beginPath();
+            ctx.strokeStyle = style.color;  // Blue
+            ctx.lineWidth = style.lineWidth * dpr;
+            ctx.setLineDash([]);  // Solid line
+            ctx.moveTo(extUpperStart.x, extUpperStart.y);
+            ctx.lineTo(extUpperEnd.x, extUpperEnd.y);
+            ctx.stroke();
+        }
+
+        // Draw lower deviation line (solid blue)
+        if (drawing.showLowerDeviation) {
+            ctx.beginPath();
+            ctx.strokeStyle = style.color;  // Blue
+            ctx.lineWidth = style.lineWidth * dpr;
+            ctx.setLineDash([]);  // Solid line
+            ctx.moveTo(extLowerStart.x, extLowerStart.y);
+            ctx.lineTo(extLowerEnd.x, extLowerEnd.y);
+            ctx.stroke();
+        }
+
+        // Draw regression line (center line) - DASHED CORAL/RED
+        ctx.beginPath();
+        ctx.strokeStyle = drawing.centerLineColor;  // Coral/salmon color
+        ctx.lineWidth = style.lineWidth * dpr;
+        ctx.setLineDash([6 * dpr, 4 * dpr]);  // Dashed
+        ctx.moveTo(extRegStart.x, extRegStart.y);
+        ctx.lineTo(extRegEnd.x, extRegEnd.y);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+
+
+        // Draw control points if selected
+        if (isSelected) {
+            ctx.fillStyle = style.color;
+            for (const point of [p0, p1]) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    private _drawFibExtension(
+        ctx: CanvasRenderingContext2D,
+        drawing: FibExtensionDrawing,
+        pixelPoints: { x: number; y: number }[],
+        canvasWidth: number,
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        const style = drawing.style;
+        const levelData = drawing.getLevelData();
+        const pA = pixelPoints[0];
+        const pB = pixelPoints[1];
+        const pC = pixelPoints.length > 2 ? pixelPoints[2] : pB;
+        // Level lines go from min(B,C) to max(B,C) or canvas width if extended
+        const levelMinX = Math.min(pB.x, pC.x);
+        const levelMaxX = Math.max(pB.x, pC.x);
+        const startX = levelMinX;
+        const endX = drawing.extendLines ? canvasWidth : levelMaxX;
+        const bgOpacity = drawing.backgroundOpacity ?? 0.1;
+
+        // Draw fills
+        for (let i = 0; i < levelData.length - 1; i++) {
+            const y1 = levelData[i].y;
+            const y2 = levelData[i + 1].y;
+            ctx.fillStyle = this._hexToRgba(levelData[i].color, bgOpacity);
+            ctx.fillRect(startX, Math.min(y1, y2), endX - startX, Math.abs(y2 - y1));
+        }
+
+        // Draw levels
+        ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+        ctx.lineWidth = style.lineWidth * dpr;
+
+        const opacity = drawing.opacity ?? 0.8;
+
+        for (const level of levelData) {
+            ctx.strokeStyle = this._hexToRgba(level.color, opacity);
+            ctx.beginPath();
+            ctx.moveTo(startX, level.y);
+            ctx.lineTo(endX, level.y);
+            ctx.stroke();
+
+            if (drawing.showLabels) {
+                const label = drawing.showPrices ? `${level.label} (${level.price.toFixed(2)})` : level.label;
+                ctx.font = `${11 * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+                ctx.fillStyle = level.color;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(label, startX + 4 * dpr, level.y - 2 * dpr);
+            }
+        }
+
+        // Trendlines (A->B->C) dashed
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = 1 * dpr;
+        ctx.setLineDash([4 * dpr, 4 * dpr]);
+        ctx.beginPath();
+        ctx.moveTo(pA.x, pA.y);
+        ctx.lineTo(pB.x, pB.y);
+        ctx.lineTo(pC.x, pC.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Points
+        if (isSelected) {
+            ctx.fillStyle = style.color;
+            for (const p of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    private _hexToRgba(hex: string, alpha: number): string {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        if (result) {
+            const r = parseInt(result[1], 16);
+            const g = parseInt(result[2], 16);
+            const b = parseInt(result[3], 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+        return hex;
     }
 
     dispose(): void {

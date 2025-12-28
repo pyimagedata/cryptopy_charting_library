@@ -238,6 +238,7 @@ export class FloatingAttributeBar {
         // Build type-specific buttons
         switch (drawingType) {
             case 'fibRetracement':
+            case 'fibExtension':
                 this._buildFibonacciBar();
                 break;
             case 'trendLine':

@@ -6,6 +6,7 @@
 import { Delegate } from '../helpers/delegate';
 import { Drawing, DrawingSettingsProvider } from '../drawings';
 import { FibRetracementDrawing, FIBONACCI_LEVELS } from '../drawings/fibonacci-retracement-drawing';
+import { FibExtensionDrawing, FIBONACCI_EXTENSION_LEVELS } from '../drawings/fibonacci-extension-drawing';
 
 /** Tab configuration for settings modal */
 interface SettingsTab {
@@ -57,6 +58,8 @@ export class DrawingSettingsModal {
 
         if (drawing.type === 'fibRetracement') {
             this._initFibonacciSettings(drawing as FibRetracementDrawing);
+        } else if (drawing.type === 'fibExtension') {
+            this._initFibonacciSettings(drawing as any);
         }
     }
 
@@ -92,6 +95,7 @@ export class DrawingSettingsModal {
             case 'rectangle': return 'Rectangle';
             case 'ellipse': return 'Ellipse';
             case 'fibRetracement': return 'Fib Retracement';
+            case 'fibExtension': return 'Fib Extension';
             default: return 'Drawing Settings';
         }
     }
@@ -325,7 +329,7 @@ export class DrawingSettingsModal {
     }
 
     private _createStyleTab(container: HTMLElement): void {
-        if (this._currentDrawing?.type === 'fibRetracement') {
+        if (this._currentDrawing?.type === 'fibRetracement' || this._currentDrawing?.type === 'fibExtension') {
             this._createFibonacciStyleTab(container);
         } else if (this._currentDrawing?.type === 'trendLine' ||
             this._currentDrawing?.type === 'horizontalLine' ||
