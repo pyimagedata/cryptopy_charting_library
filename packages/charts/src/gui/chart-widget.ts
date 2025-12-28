@@ -598,10 +598,14 @@ export class ChartWidget implements Disposable {
                 'extendedLine': 'extendedLine',
                 'parallelChannel': 'parallelChannel',
                 'regressionTrend': 'regressionTrend',
+                'arrow': 'arrow',
                 'rectangle': 'rectangle',
                 'ellipse': 'ellipse',
                 'fibRetracement': 'fibRetracement',
                 'fibExtension': 'fibExtension',
+                'fibChannel': 'fibChannel',
+                'brush': 'brush',
+                'highlighter': 'highlighter',
                 'infoLine': 'infoLine',
                 'trendAngle': 'trendAngle',
                 'horizontalRay': 'horizontalRay',
@@ -938,16 +942,6 @@ export class ChartWidget implements Disposable {
             return;
         }
 
-        // Check if we're in drawing mode (creating new drawings)
-        if (this._drawingManager.mode !== 'none') {
-            if (this._drawingManager.activeDrawing) {
-                this._drawingManager.finishDrawing(x, y);
-            } else {
-                this._drawingManager.startDrawing(x, y);
-            }
-            return;
-        }
-
         // Check if clicking on a control point of selected drawing (for resizing)
         const selected = this._drawingManager.selectedDrawing;
         if (selected) {
@@ -971,14 +965,27 @@ export class ChartWidget implements Disposable {
             }
         }
 
-        // Try to select a drawing
+        // Try to select a drawing (Allow selection even if we're in a drawing mode)
         const hitDrawing = this._drawingManager.selectDrawingAt(x, y);
         if (hitDrawing) {
             // Start dragging the newly selected drawing
             this._isDraggingDrawing = true;
-            this._draggingControlPoint = 99; // Moving whole drawing
+            this._draggingControlPoint = 99;
             this._dragStartX = x;
             this._dragStartY = y;
+            return;
+        }
+
+        // Check if we're in drawing mode (creating new drawings) - After hit testing
+        if (this._drawingManager.mode !== 'none') {
+            if (this._drawingManager.activeDrawing) {
+                // If it's a brush or highlighter, we don't finish on click, we finish on mouseup
+                if (this._drawingManager.activeDrawing.type !== 'brush' && this._drawingManager.activeDrawing.type !== 'highlighter') {
+                    this._drawingManager.finishDrawing(x, y);
+                }
+            } else {
+                this._drawingManager.startDrawing(x, y);
+            }
             return;
         }
 
@@ -1124,7 +1131,12 @@ export class ChartWidget implements Disposable {
         this._model.setCrosshairPosition(0, 0, false);
     }
 
-    private _onMouseUp(): void {
+    private _onMouseUp(e: MouseEvent): void {
+        const canvas = this._paneWidget?.canvas;
+        if (!canvas) return;
+
+        const paneRect = canvas.getBoundingClientRect();
+
         if (this._isDragging) {
             this._isDragging = false;
             // End vertical scroll if it was active
@@ -1138,6 +1150,13 @@ export class ChartWidget implements Disposable {
         if (this._isDraggingDrawing) {
             this._isDraggingDrawing = false;
             this._draggingControlPoint = -1;
+        }
+
+        // Finish brush or highlighter drawing on mouse up
+        if (paneRect && this._drawingManager.activeDrawing && (this._drawingManager.activeDrawing.type === 'brush' || this._drawingManager.activeDrawing.type === 'highlighter')) {
+            const x = e.clientX - paneRect.left;
+            const y = e.clientY - paneRect.top;
+            this._drawingManager.finishDrawing(x, y);
         }
     }
 

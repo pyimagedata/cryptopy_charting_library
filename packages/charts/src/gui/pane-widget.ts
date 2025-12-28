@@ -20,6 +20,10 @@ import { InfoLineDrawing } from '../drawings/info-line-drawing';
 import { ParallelChannelDrawing } from '../drawings/parallel-channel-drawing';
 import { RegressionTrendDrawing } from '../drawings/regression-trend-drawing';
 import { FibExtensionDrawing } from '../drawings/fibonacci-extension-drawing';
+import { FibChannelDrawing } from '../drawings/fib-channel-drawing';
+import { BrushDrawing } from '../drawings/brush-drawing';
+import { HighlighterDrawing } from '../drawings/highlighter-drawing';
+import { ArrowDrawing } from '../drawings/arrow-drawing';
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -337,6 +341,18 @@ export class PaneWidget implements Disposable {
                         return y !== null ? y : 0;
                     }
                 );
+            } else if (drawing instanceof FibChannelDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                drawing.calculateLevelLines(
+                    pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })),
+                    canvasWidth / dpr
+                );
+            } else if (drawing instanceof BrushDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+            } else if (drawing instanceof HighlighterDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+            } else if (drawing instanceof ArrowDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
             }
 
             // Handle single-point drawings (HorizontalLine, VerticalLine)
@@ -409,6 +425,8 @@ export class PaneWidget implements Disposable {
                 this._drawFibRetracement(ctx, drawing as FibRetracementDrawing, pixelPoints, canvasWidth, dpr, drawing.state === 'selected');
             } else if (drawing.type === 'fibExtension') {
                 this._drawFibExtension(ctx, drawing as FibExtensionDrawing, pixelPoints, canvasWidth, dpr, drawing.state === 'selected');
+            } else if (drawing.type === 'fibChannel') {
+                this._drawFibChannel(ctx, drawing as FibChannelDrawing, pixelPoints, canvasWidth, dpr, drawing.state === 'selected');
             } else if (drawing.type === 'parallelChannel') {
                 // For parallel channel we need 3 points
                 if (pixelPoints.length >= 2) {
@@ -424,6 +442,18 @@ export class PaneWidget implements Disposable {
                     regressionTrend.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     this._drawRegressionTrend(ctx, pixelPoints, regressionTrend, dpr, showControlPoints, canvasWidth, timeToPixel, priceToPixel);
+                }
+            } else if (drawing.type === 'brush') {
+                if (pixelPoints.length >= 2) {
+                    this._drawBrush(ctx, drawing as BrushDrawing, pixelPoints, dpr, drawing.state === 'selected');
+                }
+            } else if (drawing.type === 'highlighter') {
+                if (pixelPoints.length >= 2) {
+                    this._drawBrush(ctx, drawing as any, pixelPoints, dpr, drawing.state === 'selected');
+                }
+            } else if (drawing.type === 'arrow') {
+                if (pixelPoints.length >= 2) {
+                    this._drawArrow(ctx, drawing as ArrowDrawing, pixelPoints, dpr, drawing.state === 'selected');
                 }
             }
         }
@@ -1294,6 +1324,231 @@ export class PaneWidget implements Disposable {
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    private _drawFibChannel(
+        ctx: CanvasRenderingContext2D,
+        drawing: FibChannelDrawing,
+        pixelPoints: { x: number; y: number }[],
+        canvasWidth: number,
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        const style = drawing.style;
+        const levelLines = drawing.getLevelLines();
+        const bgOpacity = drawing.backgroundOpacity ?? 0.05;
+
+        // Draw fills between consecutive levels
+        for (let i = 0; i < levelLines.length - 1; i++) {
+            const l1 = levelLines[i];
+            const l2 = levelLines[i + 1];
+
+            ctx.fillStyle = this._hexToRgba(l1.color, bgOpacity);
+            ctx.beginPath();
+            ctx.moveTo(l1.startX * dpr, l1.startY * dpr);
+            ctx.lineTo(l1.endX * dpr, l1.endY * dpr);
+            ctx.lineTo(l2.endX * dpr, l2.endY * dpr);
+            ctx.lineTo(l2.startX * dpr, l2.startY * dpr);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Draw level lines
+        ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+        ctx.lineWidth = style.lineWidth * dpr;
+
+        for (const line of levelLines) {
+            ctx.strokeStyle = line.color;
+            ctx.beginPath();
+            ctx.moveTo(line.startX * dpr, line.startY * dpr);
+            ctx.lineTo(line.endX * dpr, line.endY * dpr);
+            ctx.stroke();
+
+            // Labels
+            if (drawing.showLabels) {
+                ctx.font = `${11 * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+                ctx.fillStyle = line.color;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(line.label, line.startX * dpr + 4 * dpr, line.startY * dpr - 2 * dpr);
+            }
+        }
+
+        // Draw control points A-B-C trend lines
+        if (pixelPoints.length >= 2) {
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = 1 * dpr;
+            ctx.setLineDash([4 * dpr, 4 * dpr]);
+            ctx.beginPath();
+            ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+            ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
+            if (pixelPoints.length >= 3) {
+                ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Control points
+        if (isSelected) {
+            ctx.fillStyle = style.color;
+            for (const p of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    private _drawBrush(
+        ctx: CanvasRenderingContext2D,
+        drawing: BrushDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        const style = drawing.style;
+        const opacity = drawing.opacity ?? 1.0;
+
+        // Filter points to remove jitter - require minimum pixel distance
+        const minDistance = 3 * dpr; // Minimum 3 pixels between points
+        const filteredPoints: { x: number; y: number }[] = [pixelPoints[0]];
+
+        for (let i = 1; i < pixelPoints.length; i++) {
+            const lastFiltered = filteredPoints[filteredPoints.length - 1];
+            const current = pixelPoints[i];
+            const dx = current.x - lastFiltered.x;
+            const dy = current.y - lastFiltered.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance >= minDistance) {
+                filteredPoints.push(current);
+            }
+        }
+
+        // Always include the last point
+        if (filteredPoints.length > 0 && pixelPoints.length > 0) {
+            const lastPoint = pixelPoints[pixelPoints.length - 1];
+            const lastFiltered = filteredPoints[filteredPoints.length - 1];
+            if (lastPoint.x !== lastFiltered.x || lastPoint.y !== lastFiltered.y) {
+                filteredPoints.push(lastPoint);
+            }
+        }
+
+        if (filteredPoints.length < 2) return;
+
+        // Draw the brush path
+        ctx.strokeStyle = this._hexToRgba(style.color, opacity);
+        ctx.lineWidth = style.lineWidth * dpr;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+
+        ctx.beginPath();
+        ctx.moveTo(filteredPoints[0].x, filteredPoints[0].y);
+
+        // Use quadratic curves for smoother drawing
+        if (drawing.smooth && filteredPoints.length > 2) {
+            for (let i = 1; i < filteredPoints.length - 1; i++) {
+                const xc = (filteredPoints[i].x + filteredPoints[i + 1].x) / 2;
+                const yc = (filteredPoints[i].y + filteredPoints[i + 1].y) / 2;
+                ctx.quadraticCurveTo(filteredPoints[i].x, filteredPoints[i].y, xc, yc);
+            }
+            // Draw final segment
+            const lastPoint = filteredPoints[filteredPoints.length - 1];
+            ctx.lineTo(lastPoint.x, lastPoint.y);
+        } else {
+            // Simple line segments
+            for (let i = 1; i < filteredPoints.length; i++) {
+                ctx.lineTo(filteredPoints[i].x, filteredPoints[i].y);
+            }
+        }
+
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw control points when selected (just end points)
+        if (isSelected && pixelPoints.length >= 2) {
+            ctx.fillStyle = style.color;
+            const endpoints = [pixelPoints[0], pixelPoints[pixelPoints.length - 1]];
+            for (const p of endpoints) {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 4 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 2 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    private _drawArrow(
+        ctx: CanvasRenderingContext2D,
+        drawing: ArrowDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        const { style } = drawing;
+        const p1 = pixelPoints[0];
+        const p2 = pixelPoints[1];
+
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = style.lineWidth * dpr;
+        ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+
+        // Draw line
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+
+        // Draw arrowhead
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        const headLength = 10 * dpr + style.lineWidth * 2 * dpr;
+        const headAngle = Math.PI / 7;
+
+        ctx.fillStyle = style.color;
+        ctx.beginPath();
+        ctx.moveTo(p2.x, p2.y);
+        ctx.lineTo(
+            p2.x - headLength * Math.cos(angle - headAngle),
+            p2.y - headLength * Math.sin(angle - headAngle)
+        );
+        ctx.lineTo(
+            p2.x - headLength * Math.cos(angle + headAngle),
+            p2.y - headLength * Math.sin(angle + headAngle)
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw selection markers
+        if (isSelected) {
+            ctx.fillStyle = style.color;
+            for (const p of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 4 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 2 * dpr, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.fillStyle = style.color;
             }

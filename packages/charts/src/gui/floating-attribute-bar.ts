@@ -239,6 +239,7 @@ export class FloatingAttributeBar {
         switch (drawingType) {
             case 'fibRetracement':
             case 'fibExtension':
+            case 'fibChannel':
                 this._buildFibonacciBar();
                 break;
             case 'trendLine':

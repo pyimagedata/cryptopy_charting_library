@@ -30,10 +30,14 @@ export type DrawingType =
     | 'crossLine'
     | 'parallelChannel'
     | 'regressionTrend'
+    | 'arrow'
     | 'rectangle'
     | 'ellipse'
+    | 'brush'
+    | 'highlighter'
     | 'fibRetracement'
     | 'fibExtension'
+    | 'fibChannel'
     | 'xabcd'
     | 'cypher'
     | 'elliotImpulse'
@@ -68,6 +72,7 @@ export interface SerializedDrawing {
     extendLines?: boolean;
     showLabels?: boolean;
     showPrices?: boolean;
+    opacity?: number;
     backgroundOpacity?: number;
     reversed?: boolean;
     levels?: Array<{ value: number; color: string; visible: boolean }>;

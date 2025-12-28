@@ -6,7 +6,8 @@
 import { Delegate } from '../helpers/delegate';
 import { Drawing, DrawingSettingsProvider } from '../drawings';
 import { FibRetracementDrawing, FIBONACCI_LEVELS } from '../drawings/fibonacci-retracement-drawing';
-import { FibExtensionDrawing, FIBONACCI_EXTENSION_LEVELS } from '../drawings/fibonacci-extension-drawing';
+import { FibExtensionDrawing } from '../drawings/fibonacci-extension-drawing';
+import { FibChannelDrawing } from '../drawings/fib-channel-drawing';
 
 /** Tab configuration for settings modal */
 interface SettingsTab {
@@ -60,6 +61,8 @@ export class DrawingSettingsModal {
             this._initFibonacciSettings(drawing as FibRetracementDrawing);
         } else if (drawing.type === 'fibExtension') {
             this._initFibonacciSettings(drawing as any);
+        } else if (drawing.type === 'fibChannel') {
+            this._initFibonacciSettings(drawing as any);
         }
     }
 
@@ -96,6 +99,7 @@ export class DrawingSettingsModal {
             case 'ellipse': return 'Ellipse';
             case 'fibRetracement': return 'Fib Retracement';
             case 'fibExtension': return 'Fib Extension';
+            case 'fibChannel': return 'Fib Channel';
             default: return 'Drawing Settings';
         }
     }
@@ -329,7 +333,7 @@ export class DrawingSettingsModal {
     }
 
     private _createStyleTab(container: HTMLElement): void {
-        if (this._currentDrawing?.type === 'fibRetracement' || this._currentDrawing?.type === 'fibExtension') {
+        if (this._currentDrawing?.type === 'fibRetracement' || this._currentDrawing?.type === 'fibExtension' || this._currentDrawing?.type === 'fibChannel') {
             this._createFibonacciStyleTab(container);
         } else if (this._currentDrawing?.type === 'trendLine' ||
             this._currentDrawing?.type === 'horizontalLine' ||
@@ -339,7 +343,10 @@ export class DrawingSettingsModal {
             this._currentDrawing?.type === 'extendedLine' ||
             this._currentDrawing?.type === 'trendAngle' ||
             this._currentDrawing?.type === 'horizontalRay' ||
-            this._currentDrawing?.type === 'crossLine') {
+            this._currentDrawing?.type === 'crossLine' ||
+            this._currentDrawing?.type === 'brush' ||
+            this._currentDrawing?.type === 'highlighter' ||
+            this._currentDrawing?.type === 'arrow') {
             // TrendLine, HorizontalLine, VerticalLine, Ray, InfoLine, ExtendedLine, TrendAngle, HorizontalRay, CrossLine style tab with color picker
             this._createTrendLineStyleTab(container);
         } else {

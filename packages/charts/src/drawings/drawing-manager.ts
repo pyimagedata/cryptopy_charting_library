@@ -17,6 +17,10 @@ import { StickerDrawing } from './sticker-drawing';
 import { ParallelChannelDrawing } from './parallel-channel-drawing';
 import { RegressionTrendDrawing } from './regression-trend-drawing';
 import { FibExtensionDrawing } from './fibonacci-extension-drawing';
+import { FibChannelDrawing } from './fib-channel-drawing';
+import { BrushDrawing } from './brush-drawing';
+import { HighlighterDrawing } from './highlighter-drawing';
+import { ArrowDrawing } from './arrow-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -153,6 +157,18 @@ export class DrawingManager {
             case 'fibExtension':
                 drawing = new FibExtensionDrawing();
                 break;
+            case 'fibChannel':
+                drawing = new FibChannelDrawing();
+                break;
+            case 'brush':
+                drawing = new BrushDrawing();
+                break;
+            case 'highlighter':
+                drawing = new HighlighterDrawing();
+                break;
+            case 'arrow':
+                drawing = new ArrowDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -214,8 +230,8 @@ export class DrawingManager {
             }
         }
 
-        // Handle three-point drawings (ParallelChannel, FibExtension)
-        if (this._activeDrawing.type === 'parallelChannel' || this._activeDrawing.type === 'fibExtension') {
+        // Handle three-point drawings (ParallelChannel, FibExtension, FibChannel)
+        if (this._activeDrawing.type === 'parallelChannel' || this._activeDrawing.type === 'fibExtension' || this._activeDrawing.type === 'fibChannel') {
             const drawing = this._activeDrawing as any; // Use any for flexibility with confirmPreviewPoint
 
             // First, finalize the preview point position
@@ -242,6 +258,16 @@ export class DrawingManager {
             }
         }
 
+        // Handle brush and highlighter drawing (finish stroke on mouse up)
+        if (this._activeDrawing.type === 'brush' || this._activeDrawing.type === 'highlighter') {
+            const pathDrawing = this._activeDrawing as (BrushDrawing | HighlighterDrawing);
+            pathDrawing.finishStroke();
+            // Keep drawing mode active - don't return to cursor mode
+            // User can continue drawing more strokes
+            this._activeDrawing = null;
+            this._drawingsChanged.fire();
+            return; // Don't change mode
+        }
 
         this._activeDrawing = null;
         this.setMode('none');  // Return to cursor mode after drawing
@@ -251,6 +277,11 @@ export class DrawingManager {
     /** Select a drawing at the given coordinates */
     selectDrawingAt(x: number, y: number): Drawing | null {
         for (const drawing of this._drawings.values()) {
+            // Don't select the drawing we're currently creating
+            if (drawing === this._activeDrawing && drawing.state === 'creating') {
+                continue;
+            }
+
             if (drawing.hitTest(x, y, 8)) {
                 this._selectedDrawing = drawing;
                 drawing.state = 'selected';
@@ -540,6 +571,18 @@ export class DrawingManager {
                     break;
                 case 'fibExtension':
                     drawing = FibExtensionDrawing.fromJSON(item);
+                    break;
+                case 'fibChannel':
+                    drawing = FibChannelDrawing.fromJSON(item);
+                    break;
+                case 'brush':
+                    drawing = BrushDrawing.fromJSON(item);
+                    break;
+                case 'highlighter':
+                    drawing = HighlighterDrawing.fromJSON(item);
+                    break;
+                case 'arrow':
+                    drawing = ArrowDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:
