@@ -12,18 +12,24 @@ import { TimePointIndex, coordinate } from '../model/coordinate';
 import { isBarData } from '../model/data';
 import { OverlayIndicatorRenderer } from '../indicators/overlay-indicator-renderer';
 import { OverlayIndicator } from '../indicators/indicator';
-import { Drawing, TrendLineDrawing } from '../drawings';
-import { FibRetracementDrawing } from '../drawings/fibonacci-retracement-drawing';
-import { HorizontalLineDrawing } from '../drawings/horizontal-line-drawing';
-import { VerticalLineDrawing } from '../drawings/vertical-line-drawing';
-import { InfoLineDrawing } from '../drawings/info-line-drawing';
-import { ParallelChannelDrawing } from '../drawings/parallel-channel-drawing';
-import { RegressionTrendDrawing } from '../drawings/regression-trend-drawing';
-import { FibExtensionDrawing } from '../drawings/fibonacci-extension-drawing';
-import { FibChannelDrawing } from '../drawings/fib-channel-drawing';
-import { BrushDrawing } from '../drawings/brush-drawing';
-import { HighlighterDrawing } from '../drawings/highlighter-drawing';
-import { ArrowDrawing } from '../drawings/arrow-drawing';
+import {
+    Drawing,
+    TrendLineDrawing,
+    FibRetracementDrawing,
+    HorizontalLineDrawing,
+    VerticalLineDrawing,
+    InfoLineDrawing,
+    ParallelChannelDrawing,
+    RegressionTrendDrawing,
+    FibExtensionDrawing,
+    FibChannelDrawing,
+    BrushDrawing,
+    HighlighterDrawing,
+    ArrowDrawing,
+    ArrowMarkerDrawing,
+    ArrowIconDrawing,
+    RectangleDrawing
+} from '../drawings';
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -353,6 +359,12 @@ export class PaneWidget implements Disposable {
                 drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
             } else if (drawing instanceof ArrowDrawing) {
                 drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+            } else if (drawing instanceof ArrowMarkerDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+            } else if (drawing instanceof ArrowIconDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+            } else if (drawing instanceof RectangleDrawing) {
+                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
             }
 
             // Handle single-point drawings (HorizontalLine, VerticalLine)
@@ -381,6 +393,29 @@ export class PaneWidget implements Disposable {
                         // CrossLine
                         this._drawCrossLine(ctx, pixelPoints[0], drawing.style, dpr, showPoints, canvasWidth, canvasHeight);
                     }
+                }
+                continue;
+            }
+
+            // Handle single-point drawings: arrowMarker
+            if (drawing.type === 'arrowMarker') {
+                if (pixelPoints.length >= 1) {
+                    this._drawArrowMarker(ctx, drawing as ArrowMarkerDrawing, pixelPoints, dpr, drawing.state === 'selected');
+                }
+                continue;
+            }
+
+            // Handle single-point drawings: arrowMarkedUp, arrowMarkedDown
+            if (drawing.type === 'arrowMarkedUp' || drawing.type === 'arrowMarkedDown') {
+                if (pixelPoints.length >= 1) {
+                    this._drawArrowIcon(ctx, drawing as ArrowIconDrawing, pixelPoints[0], dpr, drawing.state === 'selected');
+                }
+                continue;
+            }
+
+            if (drawing instanceof RectangleDrawing) {
+                if (pixelPoints.length >= 2) {
+                    this._drawRectangle(ctx, drawing, pixelPoints, dpr, drawing.state === 'selected');
                 }
                 continue;
             }
@@ -1497,6 +1532,128 @@ export class PaneWidget implements Disposable {
         }
     }
 
+    private _drawArrowMarker(
+        ctx: CanvasRenderingContext2D,
+        drawing: ArrowMarkerDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        const { style, size } = drawing;
+        const p1 = pixelPoints[0];
+        const p2 = pixelPoints[1];
+
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const angle = Math.atan2(dy, dx);
+        const length = Math.sqrt(dx * dx + dy * dy);
+
+        // Constants for arrow proportions
+        const stemWidth = size * dpr;
+        const headWidth = stemWidth * 2.5;
+        const headLength = Math.min(length * 0.4, stemWidth * 2);
+
+        ctx.fillStyle = style.color;
+        ctx.save();
+        ctx.translate(p1.x, p1.y);
+        ctx.rotate(angle);
+
+        ctx.beginPath();
+        // Start from base (Origin P1 is a single point)
+        ctx.moveTo(0, 0);
+
+        // To head junction (top corner of stem)
+        ctx.lineTo(length - headLength, -stemWidth / 2);
+
+        // To head corner (top corner of arrow head)
+        ctx.lineTo(length - headLength, -headWidth / 2);
+
+        // To tip (Point P2)
+        ctx.lineTo(length, 0);
+
+        // Back to head corner (bottom corner of arrow head)
+        ctx.lineTo(length - headLength, headWidth / 2);
+
+        // Back to head junction (bottom corner of stem)
+        ctx.lineTo(length - headLength, stemWidth / 2);
+
+        // Back to base (point)
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+
+        // Draw selection markers
+        if (isSelected) {
+            ctx.fillStyle = style.color;
+            for (const p of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 4 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 2 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = style.color;
+            }
+        }
+    }
+
+    private _drawArrowIcon(
+        ctx: CanvasRenderingContext2D,
+        drawing: ArrowIconDrawing,
+        p: { x: number; y: number },
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        const { style, size, type } = drawing;
+        const s = size * dpr;
+        const halfSize = s / 2;
+
+        ctx.fillStyle = style.color;
+        ctx.beginPath();
+
+        if (type === 'arrowMarkedUp') {
+            // Arrow pointing UP
+            ctx.moveTo(p.x, p.y - halfSize); // Tip
+            ctx.lineTo(p.x - halfSize, p.y); // Bottom left
+            ctx.lineTo(p.x - halfSize / 2, p.y); // Inner left
+            ctx.lineTo(p.x - halfSize / 2, p.y + halfSize); // Base bottom left
+            ctx.lineTo(p.x + halfSize / 2, p.y + halfSize); // Base bottom right
+            ctx.lineTo(p.x + halfSize / 2, p.y); // Inner right
+            ctx.lineTo(p.x + halfSize, p.y); // Bottom right
+        } else {
+            // Arrow pointing DOWN
+            ctx.moveTo(p.x, p.y + halfSize); // Tip
+            ctx.lineTo(p.x - halfSize, p.y); // Top left
+            ctx.lineTo(p.x - halfSize / 2, p.y); // Inner left
+            ctx.lineTo(p.x - halfSize / 2, p.y - halfSize); // Base top left
+            ctx.lineTo(p.x + halfSize / 2, p.y - halfSize); // Base top right
+            ctx.lineTo(p.x + halfSize / 2, p.y); // Inner right
+            ctx.lineTo(p.x + halfSize, p.y); // Top right
+        }
+
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw selection markers
+        if (isSelected) {
+            ctx.strokeStyle = style.color;
+            ctx.setLineDash([2 * dpr, 2 * dpr]);
+            ctx.lineWidth = 1 * dpr;
+            ctx.strokeRect(p.x - halfSize - 2 * dpr, p.y - halfSize - 2 * dpr, s + 4 * dpr, s + 4 * dpr);
+            ctx.setLineDash([]);
+
+            // Draw a small point in the center
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 2 * dpr, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
     private _drawArrow(
         ctx: CanvasRenderingContext2D,
         drawing: ArrowDrawing,
@@ -1696,5 +1853,76 @@ export class PaneWidget implements Disposable {
         this._element.appendChild(this._loadingElement);
 
         container.appendChild(this._element);
+    }
+
+
+    private _drawRectangle(
+        ctx: CanvasRenderingContext2D,
+        drawing: RectangleDrawing,
+        points: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (points.length < 2) return;
+
+        const p1 = points[0];
+        const p2 = points[1];
+        const style = drawing.style;
+
+        const x = Math.min(p1.x, p2.x);
+        const y = Math.min(p1.y, p2.y);
+        const w = Math.abs(p2.x - p1.x);
+        const h = Math.abs(p2.y - p1.y);
+
+        // Draw Fill
+        if (style.fillColor) {
+            ctx.save();
+            ctx.globalAlpha = style.fillOpacity !== undefined ? style.fillOpacity : 0.2;
+            ctx.fillStyle = style.fillColor;
+            ctx.fillRect(x, y, w, h);
+            ctx.restore();
+        }
+
+        // Draw Border
+        ctx.beginPath();
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = style.lineWidth * dpr;
+
+        if (style.lineDash && style.lineDash.length > 0) {
+            ctx.setLineDash(style.lineDash.map(d => d * dpr));
+        } else {
+            ctx.setLineDash([]);
+        }
+
+        ctx.rect(x, y, w, h);
+        ctx.stroke();
+
+        ctx.setLineDash([]); // Reset
+
+        // Draw selection points
+        if (isSelected) {
+            const corners = [
+                { x: p1.x, y: p1.y },
+                { x: p2.x, y: p2.y },
+                { x: p2.x, y: p1.y },
+                { x: p1.x, y: p2.y }
+            ];
+
+            ctx.lineWidth = 1 * dpr;
+            ctx.strokeStyle = '#2962ff';
+
+            corners.forEach(p => {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = '#2962ff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
     }
 }

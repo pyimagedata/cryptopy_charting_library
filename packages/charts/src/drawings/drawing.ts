@@ -31,6 +31,9 @@ export type DrawingType =
     | 'parallelChannel'
     | 'regressionTrend'
     | 'arrow'
+    | 'arrowMarker'
+    | 'arrowMarkedUp'
+    | 'arrowMarkedDown'
     | 'rectangle'
     | 'ellipse'
     | 'brush'
@@ -75,6 +78,8 @@ export interface SerializedDrawing {
     opacity?: number;
     backgroundOpacity?: number;
     reversed?: boolean;
+    size?: number;
+    direction?: 'up' | 'down' | 'left' | 'right';
     levels?: Array<{ value: number; color: string; visible: boolean }>;
 }
 

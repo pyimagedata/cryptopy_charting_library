@@ -346,9 +346,12 @@ export class DrawingSettingsModal {
             this._currentDrawing?.type === 'crossLine' ||
             this._currentDrawing?.type === 'brush' ||
             this._currentDrawing?.type === 'highlighter' ||
-            this._currentDrawing?.type === 'arrow') {
+            this._currentDrawing?.type === 'arrow' ||
+            this._currentDrawing?.type === 'arrowMarker') {
             // TrendLine, HorizontalLine, VerticalLine, Ray, InfoLine, ExtendedLine, TrendAngle, HorizontalRay, CrossLine style tab with color picker
             this._createTrendLineStyleTab(container);
+        } else if (this._currentDrawing?.type === 'rectangle' || this._currentDrawing?.type === 'ellipse') {
+            this._createShapeStyleTab(container);
         } else {
             // Default style tab for other drawings
             this._createSection(container, 'Line', (section) => {
@@ -1895,4 +1898,166 @@ export class DrawingSettingsModal {
         this.closed.destroy();
         this.settingsChanged.destroy();
     }
+
+    /** Shape-specific style tab (Rectangle, Ellipse, etc) */
+    private _createShapeStyleTab(container: HTMLElement): void {
+        const drawing = this._currentDrawing as any;
+
+        // === Border Section ===
+        this._createSection(container, 'Border', (section) => {
+            const row = document.createElement('div');
+            row.style.cssText = `
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                width: 100%;
+            `;
+
+            // Color
+            const colorWrapper = document.createElement('div');
+            colorWrapper.appendChild(this._createColorSwatch(drawing?.style.color || '#2962ff', (color) => {
+                if (drawing) {
+                    drawing.style.color = color;
+                    this.settingsChanged.fire(drawing);
+                }
+            }));
+            row.appendChild(colorWrapper);
+
+            // Width
+            const widthWrapper = document.createElement('div');
+            this._createNumberRow(widthWrapper, '', drawing?.style.lineWidth || 2, 1, 10, (value) => {
+                if (drawing) {
+                    drawing.style.lineWidth = value;
+                    this.settingsChanged.fire(drawing);
+                }
+            });
+            // Hack to remove label/clean up layout
+            const widthLabel = widthWrapper.querySelector('span');
+            if (widthLabel) widthLabel.remove();
+
+            row.appendChild(widthWrapper);
+            section.appendChild(row);
+
+            // Style (Solid/Dashed/Dotted)
+            const styleRow = document.createElement('div');
+            styleRow.style.cssText = 'margin-top: 12px;';
+
+            const styles = [
+                { label: 'Solid', value: 'solid', dash: [] },
+                { label: 'Dashed', value: 'dashed', dash: [6, 4] },
+                { label: 'Dotted', value: 'dotted', dash: [2, 2] }
+            ];
+
+            const currentDash = drawing?.style.lineDash || [];
+            let currentStyle = 'solid';
+            if (currentDash.length > 0) {
+                currentStyle = currentDash[0] === 6 ? 'dashed' : 'dotted';
+            }
+
+            const styleButtons = document.createElement('div');
+            styleButtons.style.cssText = 'display: flex; gap: 4px;';
+
+            styles.forEach(s => {
+                const btn = document.createElement('button');
+                btn.textContent = s.label;
+                btn.style.cssText = `
+                    padding: 4px 12px;
+                    background: ${currentStyle === s.value ? '#2962ff' : '#2a2e39'};
+                    color: ${currentStyle === s.value ? '#fff' : '#787b86'};
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    flex: 1;
+                `;
+                btn.onclick = () => {
+                    if (drawing) {
+                        drawing.style.lineDash = s.dash;
+                        this.settingsChanged.fire(drawing);
+
+                        Array.from(styleButtons.children).forEach((b: any, idx) => {
+                            const isActive = styles[idx].value === s.value;
+                            b.style.background = isActive ? '#2962ff' : '#2a2e39';
+                            b.style.color = isActive ? '#fff' : '#787b86';
+                        });
+                    }
+                };
+                styleButtons.appendChild(btn);
+            });
+            styleRow.appendChild(styleButtons);
+            section.appendChild(styleRow);
+        });
+
+        // === Background Section ===
+        this._createSection(container, 'Background', (section) => {
+            const row = document.createElement('div');
+            row.style.cssText = `
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                width: 100%;
+            `;
+
+            // Background Color
+            const colorWrapper = document.createElement('div');
+            // We use fillColor here. If it's rgba, we might want to extract rgb for color picker, 
+            // but if we use hex + opacity slider, it's cleaner. 
+            // Assuming fillColor has become simple hex or color picker handles it. 
+            // Ideally we convert rgba to hex for the picker if needed.
+            // For now, assume it's valid color string.
+            const currentColor = drawing?.style.fillColor || '#2962ff';
+
+            colorWrapper.appendChild(this._createColorSwatch(currentColor, (color) => {
+                if (drawing) {
+                    drawing.style.fillColor = color;
+                    this.settingsChanged.fire(drawing);
+                }
+            }));
+            row.appendChild(colorWrapper);
+
+            // Opacity
+            const opacityWrapper = document.createElement('div');
+            opacityWrapper.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+            const opacityLabel = document.createElement('span');
+            opacityLabel.textContent = 'Opacity';
+            opacityLabel.style.cssText = 'font-size: 12px; color: #787b86;';
+            opacityWrapper.appendChild(opacityLabel);
+
+            const opacityInput = document.createElement('input');
+            opacityInput.type = 'number';
+            opacityInput.min = '0';
+            opacityInput.max = '100';
+            opacityInput.step = '1';
+            opacityInput.value = Math.round((drawing?.style.fillOpacity ?? 0.2) * 100).toString();
+            opacityInput.style.cssText = `
+                width: 48px;
+                background: #1e222d;
+                border: 1px solid #2B2B43;
+                border-radius: 4px;
+                color: #d1d4dc;
+                padding: 4px;
+                font-size: 13px;
+             `;
+
+            opacityInput.onchange = () => {
+                let val = parseInt(opacityInput.value);
+                if (isNaN(val)) val = 20;
+                val = Math.max(0, Math.min(100, val));
+                opacityInput.value = val.toString();
+
+                if (drawing) {
+                    drawing.style.fillOpacity = val / 100;
+                    this.settingsChanged.fire(drawing);
+                }
+            };
+
+            opacityWrapper.appendChild(opacityInput);
+            row.appendChild(opacityWrapper);
+
+            section.appendChild(row);
+        });
+    }
 }
+
+

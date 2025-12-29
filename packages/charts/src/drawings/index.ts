@@ -15,4 +15,15 @@ export * from './trend-angle-drawing';
 export * from './horizontal-ray-drawing';
 export * from './cross-line-drawing';
 export * from './drawing-manager';
+export * from './arrow-drawing';
+export * from './arrow-marker-drawing';
+export * from './arrow-icon-drawing';
+export * from './brush-drawing';
+export * from './highlighter-drawing';
+export * from './sticker-drawing';
+export * from './parallel-channel-drawing';
+export * from './regression-trend-drawing';
+export * from './fibonacci-extension-drawing';
+export * from './fib-channel-drawing';
+export * from './rectangle-drawing';
 

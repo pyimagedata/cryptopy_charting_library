@@ -5,7 +5,7 @@
 
 import { Delegate } from '../helpers/delegate';
 import { Drawing } from '../drawings';
-import { DrawingType } from '../drawings/drawing';
+import { DrawingType, DrawingStyle } from '../drawings/drawing';
 
 /** Full color palette - matches TradingView */
 const COLOR_PALETTE = [
@@ -56,6 +56,11 @@ const ICONS = {
     settings: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
         <circle cx="12" cy="12" r="3"/>
+    </svg>`,
+    fillBucket: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M19 11l-8-8-9 9 8 8 9-9z" />
+        <path d="M19 11l3.5-3.5a2.121 2.121 0 0 1 3 3L22 14"/>
+        <path d="M5 21s1 1 5-4" />
     </svg>`,
     lock: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <rect x="5" y="11" width="14" height="10" rx="2"/>
@@ -341,7 +346,10 @@ export class FloatingAttributeBar {
     /** Rectangle, Ellipse attribute bar */
     private _buildShapeBar(): void {
         // Border color
-        this._createColorPickerButton();
+        this._createColorPickerButton('color', ICONS.pencil, 'Border Color');
+
+        // Background color
+        this._createColorPickerButton('fillColor', ICONS.fillBucket, 'Background Color', true);
 
         // Line width
         this._createLineStyleButton();
@@ -445,8 +453,13 @@ export class FloatingAttributeBar {
         this._element!.appendChild(sep);
     }
 
-    /** Create color picker button with pencil icon and rainbow gradient bar */
-    private _createColorPickerButton(): void {
+    /** Create color picker button */
+    private _createColorPickerButton(
+        property: keyof DrawingStyle = 'color',
+        icon: string = ICONS.pencil,
+        title: string = 'Color',
+        allowTransparent: boolean = false
+    ): void {
         const wrapper = document.createElement('div');
         wrapper.style.cssText = `
             display: flex;
@@ -457,10 +470,10 @@ export class FloatingAttributeBar {
             position: relative;
         `;
 
-        // Pencil icon button
+        // Icon button
         const btn = document.createElement('button');
-        btn.innerHTML = ICONS.pencil;
-        btn.title = 'Line color';
+        btn.innerHTML = icon;
+        btn.title = title;
         btn.style.cssText = `
             display: flex;
             align-items: center;
@@ -512,16 +525,22 @@ export class FloatingAttributeBar {
                 return;
             }
 
-            palette = this._createColorPalette(this._currentDrawing?.style.color || '#ef5350', (selectedColor) => {
-                if (this._currentDrawing) {
-                    this._currentDrawing.style.color = selectedColor;
-                    this.colorChanged.fire(selectedColor);
+            palette = this._createColorPalette(
+                (this._currentDrawing?.style as any)[property] || '#ef5350',
+                (selectedColor) => {
+                    if (this._currentDrawing) {
+                        (this._currentDrawing.style as any)[property] = selectedColor;
+                        this.colorChanged.fire(selectedColor);
+
+                        // Update underline color
+                        rainbowBar.style.background = selectedColor;
+                    }
+                    if (palette) {
+                        palette.remove();
+                        paletteOpen = false;
+                    }
                 }
-                if (palette) {
-                    palette.remove();
-                    paletteOpen = false;
-                }
-            });
+            );
 
             wrapper.appendChild(palette);
             paletteOpen = true;

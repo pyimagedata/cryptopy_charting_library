@@ -21,6 +21,9 @@ import { FibChannelDrawing } from './fib-channel-drawing';
 import { BrushDrawing } from './brush-drawing';
 import { HighlighterDrawing } from './highlighter-drawing';
 import { ArrowDrawing } from './arrow-drawing';
+import { ArrowMarkerDrawing } from './arrow-marker-drawing';
+import { ArrowIconDrawing } from './arrow-icon-drawing';
+import { RectangleDrawing } from './rectangle-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -168,6 +171,18 @@ export class DrawingManager {
                 break;
             case 'arrow':
                 drawing = new ArrowDrawing();
+                break;
+            case 'arrowMarker':
+                drawing = new ArrowMarkerDrawing();
+                break;
+            case 'arrowMarkedUp':
+                drawing = new ArrowIconDrawing({ type: 'arrowMarkedUp' });
+                break;
+            case 'arrowMarkedDown':
+                drawing = new ArrowIconDrawing({ type: 'arrowMarkedDown' });
+                break;
+            case 'rectangle':
+                drawing = new RectangleDrawing();
                 break;
             // Add more types here...
             default:
@@ -583,6 +598,16 @@ export class DrawingManager {
                     break;
                 case 'arrow':
                     drawing = ArrowDrawing.fromJSON(item);
+                    break;
+                case 'arrowMarker':
+                    drawing = ArrowMarkerDrawing.fromJSON(item);
+                    break;
+                case 'arrowMarkedUp':
+                case 'arrowMarkedDown':
+                    drawing = ArrowIconDrawing.fromJSON(item);
+                    break;
+                case 'rectangle':
+                    drawing = RectangleDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:
