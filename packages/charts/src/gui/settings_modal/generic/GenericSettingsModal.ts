@@ -38,6 +38,7 @@ import {
     createBackgroundSection,
     createVisibilitySection,
     createPointsSection,
+    createTextSection,
 } from '../sections';
 
 /** Drawing type to human-readable title mapping */
@@ -83,6 +84,29 @@ export class GenericSettingsModal extends BaseSettingsModal {
         } else {
             this._settingsConfig = null;
         }
+
+        // Set tabs based on drawing type
+        const lineBasedTypes = [
+            'trendLine', 'ray', 'extendedLine', 'horizontalLine', 'verticalLine',
+            'parallelChannel', 'trendAngle', 'horizontalRay', 'infoLine'
+        ];
+
+        if (lineBasedTypes.includes(drawing.type)) {
+            // Line-based drawings have Text tab
+            this._tabs = [
+                { id: 'style', label: 'Style' },
+                { id: 'text', label: 'Text' },
+                { id: 'coordinates', label: 'Coordinates' },
+                { id: 'visibility', label: 'Visibility' },
+            ];
+        } else {
+            // Other drawings don't have Text tab
+            this._tabs = [
+                { id: 'style', label: 'Style' },
+                { id: 'coordinates', label: 'Coordinates' },
+                { id: 'visibility', label: 'Visibility' },
+            ];
+        }
     }
 
     /** Check if drawing implements DrawingSettingsProvider */
@@ -100,6 +124,9 @@ export class GenericSettingsModal extends BaseSettingsModal {
                 break;
             case 'coordinates':
                 this._renderCoordinatesTab(container);
+                break;
+            case 'text':
+                this._renderTextTab(container);
                 break;
             case 'visibility':
                 this._renderVisibilityTab(container);
@@ -247,5 +274,13 @@ export class GenericSettingsModal extends BaseSettingsModal {
         const visibilitySection = createVisibilitySection(drawing, () => this.notifySettingsChanged());
         container.appendChild(visibilitySection);
     }
-}
 
+    /** Render text tab for line-based drawings */
+    private _renderTextTab(container: HTMLElement): void {
+        const drawing = this._currentDrawing;
+        if (!drawing) return;
+
+        const textSection = createTextSection(drawing, () => this.notifySettingsChanged());
+        container.appendChild(textSection);
+    }
+}

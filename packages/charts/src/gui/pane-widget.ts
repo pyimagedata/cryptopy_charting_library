@@ -499,7 +499,7 @@ export class PaneWidget implements Disposable {
     private _drawTrendLine(
         ctx: CanvasRenderingContext2D,
         points: { x: number; y: number }[],
-        style: { color: string; lineWidth: number; lineDash?: number[] },
+        style: { color: string; lineWidth: number; lineDash?: number[]; text?: string; textColor?: string; fontSize?: number; fontWeight?: 'normal' | 'bold'; fontStyle?: 'normal' | 'italic'; textHAlign?: 'left' | 'center' | 'right'; textVAlign?: 'top' | 'middle' | 'bottom' },
         isSelected: boolean,
         extendLeft: boolean = false,
         extendRight: boolean = false,
@@ -547,6 +547,45 @@ export class PaneWidget implements Disposable {
         ctx.moveTo(startX, startY);
         ctx.lineTo(endX, endY);
         ctx.stroke();
+
+        // Draw text on line if set
+        if (style.text && style.text.trim()) {
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
+
+            // Calculate rotation angle
+            const angle = Math.atan2(dy, dx);
+
+            // Font settings
+            const fontSize = (style.fontSize || 14) * dpr;
+            const fontWeight = style.fontWeight || 'normal';
+            const fontStyle = style.fontStyle || 'normal';
+            ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`;
+            ctx.fillStyle = style.textColor || style.color;
+
+            // Text alignment
+            const hAlign = style.textHAlign || 'center';
+            const vAlign = style.textVAlign || 'middle';
+            ctx.textAlign = hAlign;
+            ctx.textBaseline = vAlign === 'top' ? 'bottom' : vAlign === 'bottom' ? 'top' : 'middle';
+
+            // Offset based on vertical alignment
+            let offsetY = 0;
+            if (vAlign === 'top') offsetY = -10 * dpr;
+            else if (vAlign === 'bottom') offsetY = 10 * dpr;
+
+            ctx.save();
+            ctx.translate(midX, midY);
+
+            // Rotate text to follow line, but keep readable
+            let textAngle = angle;
+            if (textAngle > Math.PI / 2) textAngle -= Math.PI;
+            if (textAngle < -Math.PI / 2) textAngle += Math.PI;
+            ctx.rotate(textAngle);
+
+            ctx.fillText(style.text, 0, offsetY);
+            ctx.restore();
+        }
 
         // Draw control points if selected
         if (isSelected) {

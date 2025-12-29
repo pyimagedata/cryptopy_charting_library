@@ -15,6 +15,14 @@ export interface DrawingStyle {
     lineDash?: number[];
     fillColor?: string;
     fillOpacity?: number;
+    // Text properties
+    text?: string;
+    textColor?: string;
+    fontSize?: number;
+    fontWeight?: 'normal' | 'bold';
+    fontStyle?: 'normal' | 'italic';
+    textHAlign?: 'left' | 'center' | 'right';
+    textVAlign?: 'top' | 'middle' | 'bottom';
 }
 
 /** Base drawing types */
@@ -81,6 +89,14 @@ export interface SerializedDrawing {
     size?: number;
     direction?: 'up' | 'down' | 'left' | 'right';
     levels?: Array<{ value: number; color: string; visible: boolean }>;
+    // Text properties
+    text?: string;
+    textColor?: string;
+    fontSize?: number;
+    fontWeight?: 'normal' | 'bold';
+    fontStyle?: 'normal' | 'italic';
+    textHAlign?: 'left' | 'center' | 'right';
+    textVAlign?: 'top' | 'middle' | 'bottom';
 }
 
 /** Base drawing interface */
