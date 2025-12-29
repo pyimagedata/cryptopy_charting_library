@@ -17,7 +17,7 @@ import { IndicatorSettingsModal, IndicatorSettingsConfig } from './indicator-set
 import { DrawingToolbarWidget } from './drawing-toolbar-widget';
 import { DrawingManager, DrawingMode } from '../drawings';
 import { FloatingAttributeBar } from './floating-attribute-bar';
-import { DrawingSettingsModal } from './drawing-settings-modal';
+import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartStateManager } from '../state';
 
 
@@ -47,7 +47,7 @@ export class ChartWidget implements Disposable {
     private _priceAxisWidget: PriceAxisWidget | null = null;
     private _timeAxisWidget: TimeAxisWidget | null = null;
     private _floatingAttributeBar: FloatingAttributeBar | null = null;
-    private _drawingSettingsModal: DrawingSettingsModal | null = null;
+    private _drawingSettingsModal: BaseSettingsModal | null = null;
 
     // Drawing state
     private readonly _drawingManager: DrawingManager;
@@ -670,12 +670,14 @@ export class ChartWidget implements Disposable {
         this._floatingAttributeBar.settingsClicked.subscribe(() => {
             const selectedDrawing = this._drawingManager.selectedDrawing;
             if (selectedDrawing && this._element) {
-                if (!this._drawingSettingsModal) {
-                    this._drawingSettingsModal = new DrawingSettingsModal(this._element);
-                    this._drawingSettingsModal.settingsChanged.subscribe(() => {
-                        this._scheduleDraw();
-                    });
+                // Create or reuse modal (factory creates appropriate type)
+                if (this._drawingSettingsModal) {
+                    this._drawingSettingsModal.hide();
                 }
+                this._drawingSettingsModal = createSettingsModal(this._element, selectedDrawing);
+                this._drawingSettingsModal.settingsChanged.subscribe(() => {
+                    this._scheduleDraw();
+                });
                 this._drawingSettingsModal.show(selectedDrawing);
             }
         });
@@ -1194,12 +1196,13 @@ export class ChartWidget implements Disposable {
         if (hitDrawing) {
             // Open settings modal for this drawing
             if (this._element) {
-                if (!this._drawingSettingsModal) {
-                    this._drawingSettingsModal = new DrawingSettingsModal(this._element);
-                    this._drawingSettingsModal.settingsChanged.subscribe(() => {
-                        this._scheduleDraw();
-                    });
+                if (this._drawingSettingsModal) {
+                    this._drawingSettingsModal.hide();
                 }
+                this._drawingSettingsModal = createSettingsModal(this._element, hitDrawing);
+                this._drawingSettingsModal.settingsChanged.subscribe(() => {
+                    this._scheduleDraw();
+                });
                 this._drawingSettingsModal.show(hitDrawing);
             }
         }
