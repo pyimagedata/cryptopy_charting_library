@@ -261,6 +261,14 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
             locked: this.locked,
             extendLeft: this.extendLeft,
             extendRight: this.extendRight,
+            // Text properties
+            text: this.style.text,
+            textColor: this.style.textColor,
+            fontSize: this.style.fontSize,
+            fontWeight: this.style.fontWeight,
+            fontStyle: this.style.fontStyle,
+            textHAlign: this.style.textHAlign,
+            textVAlign: this.style.textVAlign,
         };
     }
 
@@ -282,6 +290,15 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
         drawing.state = data.state;
         drawing.visible = data.visible;
         drawing.locked = data.locked;
+
+        // Restore text properties
+        if (data.text) drawing.style.text = data.text;
+        if (data.textColor) drawing.style.textColor = data.textColor;
+        if (data.fontSize) drawing.style.fontSize = data.fontSize;
+        if (data.fontWeight) drawing.style.fontWeight = data.fontWeight;
+        if (data.fontStyle) drawing.style.fontStyle = data.fontStyle;
+        if (data.textHAlign) drawing.style.textHAlign = data.textHAlign;
+        if (data.textVAlign) drawing.style.textVAlign = data.textVAlign;
 
         return drawing;
     }
