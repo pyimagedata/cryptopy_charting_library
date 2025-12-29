@@ -561,15 +561,15 @@ export class PaneWidget implements Disposable {
             const fontWeight = style.fontWeight || 'normal';
             const fontStyle = style.fontStyle || 'normal';
             ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`;
-            ctx.fillStyle = style.textColor || style.color;
 
-            // Text alignment
-            const hAlign = style.textHAlign || 'center';
-            const vAlign = style.textVAlign || 'middle';
-            ctx.textAlign = hAlign;
-            ctx.textBaseline = vAlign === 'top' ? 'bottom' : vAlign === 'bottom' ? 'top' : 'middle';
+            // Measure text for background
+            const textMetrics = ctx.measureText(style.text);
+            const textWidth = textMetrics.width;
+            const textHeight = fontSize;
+            const padding = 4 * dpr;
 
             // Offset based on vertical alignment
+            const vAlign = style.textVAlign || 'middle';
             let offsetY = 0;
             if (vAlign === 'top') offsetY = -10 * dpr;
             else if (vAlign === 'bottom') offsetY = 10 * dpr;
@@ -583,6 +583,19 @@ export class PaneWidget implements Disposable {
             if (textAngle < -Math.PI / 2) textAngle += Math.PI;
             ctx.rotate(textAngle);
 
+            // Draw background rectangle (chart background color)
+            ctx.fillStyle = '#131722';
+            const bgX = -textWidth / 2 - padding;
+            const bgY = offsetY - textHeight / 2 - padding;
+            const bgW = textWidth + padding * 2;
+            const bgH = textHeight + padding * 2;
+            ctx.fillRect(bgX, bgY, bgW, bgH);
+
+            // Draw text
+            ctx.fillStyle = style.textColor || style.color;
+            const hAlign = style.textHAlign || 'center';
+            ctx.textAlign = hAlign;
+            ctx.textBaseline = 'middle';
             ctx.fillText(style.text, 0, offsetY);
             ctx.restore();
         }
