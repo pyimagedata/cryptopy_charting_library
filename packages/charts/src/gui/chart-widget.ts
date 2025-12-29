@@ -16,7 +16,7 @@ import { IndicatorSearchModal } from './indicator-search-modal';
 import { IndicatorSettingsModal, IndicatorSettingsConfig } from './indicator-settings-modal';
 import { DrawingToolbarWidget } from './drawing-toolbar-widget';
 import { DrawingManager, DrawingMode } from '../drawings';
-import { FloatingAttributeBar } from './floating-attribute-bar';
+import { FloatingAttributeBar } from './attribute_bar';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartStateManager } from '../state';
 
