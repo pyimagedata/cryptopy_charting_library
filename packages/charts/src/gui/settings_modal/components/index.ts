@@ -10,3 +10,4 @@ export { createSliderInput } from './SliderInput';
 export { createNumberInput } from './NumberInput';
 export { createCheckbox } from './Checkbox';
 export { createSelect, SelectOption } from './Select';
+export { createToggleButton, createToggleButtonGroup, TOGGLE_ICONS, ToggleButtonOptions } from './ToggleButton';
