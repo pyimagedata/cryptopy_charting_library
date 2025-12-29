@@ -1,10 +1,10 @@
 /**
  * Generic Settings Modal
  * Config-driven modal for simple drawings (TrendLine, Rectangle, etc.)
- * Reads settings config from drawing class and renders UI dynamically
+ * Uses reusable section components for common UI patterns
  */
 
-import { Drawing, DrawingPoint } from '../../../drawings';
+import { Drawing } from '../../../drawings';
 import { BaseSettingsModal } from '../base/BaseSettingsModal';
 import {
     SettingsConfig,
@@ -32,6 +32,14 @@ import {
     LineStyleValue,
 } from '../base/SettingsComponents';
 
+// Import high-level section components
+import {
+    createBorderSection,
+    createBackgroundSection,
+    createVisibilitySection,
+    createPointsSection,
+} from '../sections';
+
 /** Drawing type to human-readable title mapping */
 const DRAWING_TITLES: Record<string, string> = {
     trendLine: 'Trend Line',
@@ -57,7 +65,7 @@ const DRAWING_TITLES: Record<string, string> = {
 /**
  * Generic settings modal for simple drawings.
  * Uses DrawingSettingsProvider.getSettingsConfig() to render UI dynamically.
- * Falls back to default style/visibility tabs if no config provided.
+ * Falls back to section components if no config provided.
  */
 export class GenericSettingsModal extends BaseSettingsModal {
     private _settingsConfig: SettingsConfig | null = null;
@@ -99,7 +107,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
         }
     }
 
-    /** Render style tab - either from config or fallback */
+    /** Render style tab - either from config or using section components */
     private _renderStyleTab(container: HTMLElement): void {
         if (!this._currentDrawing) return;
 
@@ -112,7 +120,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
             }
         }
 
-        // Fallback: Default style controls
+        // Fallback: Use section components
         this._renderDefaultStyleTab(container);
     }
 
@@ -206,145 +214,38 @@ export class GenericSettingsModal extends BaseSettingsModal {
         return null;
     }
 
-    /** Fallback: render default style tab for drawings without config */
+    /** Fallback: render default style tab using section components */
     private _renderDefaultStyleTab(container: HTMLElement): void {
         const drawing = this._currentDrawing;
         if (!drawing) return;
 
-        // Line section
-        const lineSection = createSection('Line', (content) => {
-            // Color
-            const colorRow = createSettingsRow('Color',
-                createColorSwatch(drawing.style.color, (color) => {
-                    drawing.style.color = color;
-                    this.notifySettingsChanged();
-                })
-            );
-            content.appendChild(colorRow);
+        // Border section (using component)
+        const borderSection = createBorderSection(drawing, () => this.notifySettingsChanged());
+        container.appendChild(borderSection);
 
-            // Width
-            const widthRow = createSettingsRow('Width',
-                createLineWidthSelector(drawing.style.lineWidth, (width) => {
-                    drawing.style.lineWidth = width;
-                    this.notifySettingsChanged();
-                })
-            );
-            content.appendChild(widthRow);
-
-            // Style
-            const currentStyle = this._getLineStyleFromDash(drawing.style.lineDash);
-            const styleRow = createSettingsRow('Style',
-                createLineStyleButtons(currentStyle, (style) => {
-                    drawing.style.lineDash = this._getDashFromLineStyle(style);
-                    this.notifySettingsChanged();
-                })
-            );
-            content.appendChild(styleRow);
-        });
-        container.appendChild(lineSection);
-
-        // Background section (for shapes with fill)
-        if ('fillColor' in drawing.style && drawing.style.fillColor) {
-            const bgSection = createSection('Background', (content) => {
-                const colorRow = createSettingsRow('Color',
-                    createColorSwatch(drawing.style.fillColor || '#2962ff', (color) => {
-                        drawing.style.fillColor = color;
-                        this.notifySettingsChanged();
-                    })
-                );
-                content.appendChild(colorRow);
-
-                if ('fillOpacity' in drawing.style) {
-                    const opacityRow = createSettingsRow('Opacity',
-                        createSlider(
-                            Math.round((drawing.style.fillOpacity ?? 0.2) * 100),
-                            0, 100, 1, '%',
-                            (value) => {
-                                drawing.style.fillOpacity = value / 100;
-                                this.notifySettingsChanged();
-                            }
-                        )
-                    );
-                    content.appendChild(opacityRow);
-                }
-            });
+        // Background section (using component) - returns null if not applicable
+        const bgSection = createBackgroundSection(drawing, () => this.notifySettingsChanged());
+        if (bgSection) {
             container.appendChild(bgSection);
         }
     }
 
-    /** Render coordinates tab */
+    /** Render coordinates tab using section component */
     private _renderCoordinatesTab(container: HTMLElement): void {
         const drawing = this._currentDrawing;
         if (!drawing) return;
 
-        const section = createSection('Points', (content) => {
-            drawing.points.forEach((point: DrawingPoint, index: number) => {
-                const pointLabel = document.createElement('div');
-                pointLabel.style.cssText = `
-                    padding: 12px 0;
-                    border-bottom: 1px solid #2B2B43;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                `;
-
-                const label = document.createElement('span');
-                label.textContent = `Point ${index + 1}`;
-                label.style.cssText = 'font-size: 13px; color: #787b86;';
-
-                const values = document.createElement('span');
-                const date = new Date(point.time);
-                values.textContent = `${date.toLocaleDateString()} | ${point.price.toFixed(2)}`;
-                values.style.cssText = 'font-size: 13px; color: #d1d4dc;';
-
-                pointLabel.appendChild(label);
-                pointLabel.appendChild(values);
-                content.appendChild(pointLabel);
-            });
-        });
-        container.appendChild(section);
+        const pointsSection = createPointsSection(drawing);
+        container.appendChild(pointsSection);
     }
 
-    /** Render visibility tab */
+    /** Render visibility tab using section component */
     private _renderVisibilityTab(container: HTMLElement): void {
         const drawing = this._currentDrawing;
         if (!drawing) return;
 
-        const section = createSection('Display', (content) => {
-            // Visible checkbox
-            const visibleRow = createSettingsRow('Visible',
-                createCheckbox(drawing.visible, '', (checked) => {
-                    drawing.visible = checked;
-                    this.notifySettingsChanged();
-                })
-            );
-            content.appendChild(visibleRow);
-
-            // Locked checkbox
-            const lockedRow = createSettingsRow('Locked',
-                createCheckbox(drawing.locked, '', (checked) => {
-                    drawing.locked = checked;
-                    this.notifySettingsChanged();
-                })
-            );
-            content.appendChild(lockedRow);
-        });
-        container.appendChild(section);
-    }
-
-    /** Convert lineDash array to style name */
-    private _getLineStyleFromDash(lineDash?: number[]): LineStyleValue {
-        if (!lineDash || lineDash.length === 0) return 'solid';
-        if (lineDash[0] === 6) return 'dashed';
-        return 'dotted';
-    }
-
-    /** Convert style name to lineDash array */
-    private _getDashFromLineStyle(style: LineStyleValue): number[] {
-        switch (style) {
-            case 'dashed': return [6, 4];
-            case 'dotted': return [2, 2];
-            default: return [];
-        }
+        const visibilitySection = createVisibilitySection(drawing, () => this.notifySettingsChanged());
+        container.appendChild(visibilitySection);
     }
 }
+
