@@ -4,12 +4,9 @@
  */
 
 import { Drawing } from '../../../drawings';
-import {
-    createColorSwatch,
-    createSlider,
-    createSection,
-    createSettingsRow,
-} from '../base/SettingsComponents';
+import { createColorSelect } from '../components/ColorSelect';
+import { createSliderInput } from '../components/SliderInput';
+import { createSection, createSettingsRow } from '../base/SettingsComponents';
 
 /**
  * Creates a complete background settings section with fill color and opacity controls
@@ -26,7 +23,7 @@ export function createBackgroundSection(
     return createSection('Background', (content) => {
         // Fill Color
         const colorRow = createSettingsRow('Color',
-            createColorSwatch(drawing.style.fillColor || '#2962ff', (color) => {
+            createColorSelect(drawing.style.fillColor || '#2962ff', (color: string) => {
                 drawing.style.fillColor = color;
                 onChanged();
             })
@@ -36,10 +33,10 @@ export function createBackgroundSection(
         // Opacity
         if ('fillOpacity' in drawing.style) {
             const opacityRow = createSettingsRow('Opacity',
-                createSlider(
+                createSliderInput(
                     Math.round((drawing.style.fillOpacity ?? 0.2) * 100),
                     0, 100, 1, '%',
-                    (value) => {
+                    (value: number) => {
                         drawing.style.fillOpacity = value / 100;
                         onChanged();
                     }

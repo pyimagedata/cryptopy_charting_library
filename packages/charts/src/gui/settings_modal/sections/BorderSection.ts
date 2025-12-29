@@ -4,14 +4,10 @@
  */
 
 import { Drawing } from '../../../drawings';
-import {
-    createColorSwatch,
-    createLineWidthSelector,
-    createLineStyleButtons,
-    createSection,
-    createSettingsRow,
-    LineStyleValue,
-} from '../base/SettingsComponents';
+import { createColorSelect } from '../components/ColorSelect';
+import { createLineWidthSelect } from '../components/LineWidthSelect';
+import { createLineStyleSelect, dashToLineStyle, lineStyleToDash, LineStyleValue } from '../components/LineStyleSelect';
+import { createSection, createSettingsRow } from '../base/SettingsComponents';
 
 /**
  * Creates a complete border settings section with color, width, and style controls
@@ -23,7 +19,7 @@ export function createBorderSection(
     return createSection('Border', (content) => {
         // Color
         const colorRow = createSettingsRow('Color',
-            createColorSwatch(drawing.style.color, (color) => {
+            createColorSelect(drawing.style.color, (color: string) => {
                 drawing.style.color = color;
                 onChanged();
             })
@@ -32,7 +28,7 @@ export function createBorderSection(
 
         // Width
         const widthRow = createSettingsRow('Width',
-            createLineWidthSelector(drawing.style.lineWidth, (width) => {
+            createLineWidthSelect(drawing.style.lineWidth, (width: number) => {
                 drawing.style.lineWidth = width;
                 onChanged();
             })
@@ -40,29 +36,13 @@ export function createBorderSection(
         content.appendChild(widthRow);
 
         // Style
-        const currentStyle = getLineStyleFromDash(drawing.style.lineDash);
+        const currentStyle = dashToLineStyle(drawing.style.lineDash);
         const styleRow = createSettingsRow('Style',
-            createLineStyleButtons(currentStyle, (style) => {
-                drawing.style.lineDash = getDashFromLineStyle(style);
+            createLineStyleSelect(currentStyle, (style: LineStyleValue) => {
+                drawing.style.lineDash = lineStyleToDash(style);
                 onChanged();
             })
         );
         content.appendChild(styleRow);
     });
-}
-
-/** Convert lineDash array to style name */
-function getLineStyleFromDash(lineDash?: number[]): LineStyleValue {
-    if (!lineDash || lineDash.length === 0) return 'solid';
-    if (lineDash[0] === 6) return 'dashed';
-    return 'dotted';
-}
-
-/** Convert style name to lineDash array */
-function getDashFromLineStyle(style: LineStyleValue): number[] {
-    switch (style) {
-        case 'dashed': return [6, 4];
-        case 'dotted': return [2, 2];
-        default: return [];
-    }
 }

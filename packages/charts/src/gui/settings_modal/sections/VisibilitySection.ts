@@ -4,11 +4,8 @@
  */
 
 import { Drawing } from '../../../drawings';
-import {
-    createCheckbox,
-    createSection,
-    createSettingsRow,
-} from '../base/SettingsComponents';
+import { createCheckbox } from '../components/Checkbox';
+import { createSection, createSettingsRow } from '../base/SettingsComponents';
 
 /**
  * Creates a visibility settings section with visible and locked checkboxes
@@ -20,7 +17,7 @@ export function createVisibilitySection(
     return createSection('Display', (content) => {
         // Visible
         const visibleRow = createSettingsRow('Visible',
-            createCheckbox(drawing.visible, '', (checked) => {
+            createCheckbox(drawing.visible, '', (checked: boolean) => {
                 drawing.visible = checked;
                 onChanged();
             })
@@ -29,7 +26,7 @@ export function createVisibilitySection(
 
         // Locked
         const lockedRow = createSettingsRow('Locked',
-            createCheckbox(drawing.locked, '', (checked) => {
+            createCheckbox(drawing.locked, '', (checked: boolean) => {
                 drawing.locked = checked;
                 onChanged();
             })
