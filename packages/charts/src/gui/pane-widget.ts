@@ -509,7 +509,6 @@ export class PaneWidget implements Disposable {
 
         const dpr = window.devicePixelRatio || 1;
 
-        ctx.beginPath();
         ctx.strokeStyle = style.color;
         ctx.lineWidth = style.lineWidth * dpr;
 
@@ -524,6 +523,7 @@ export class PaneWidget implements Disposable {
         const p2 = points[1];
         const dx = p2.x - p1.x;
         const dy = p2.y - p1.y;
+        const lineLength = Math.sqrt(dx * dx + dy * dy);
 
         let startX = p1.x;
         let startY = p1.y;
@@ -544,29 +544,49 @@ export class PaneWidget implements Disposable {
             endY = p2.y + slope * (canvasWidth - p2.x);
         }
 
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
+        // Check if there's text to draw
+        const hasText = style.text && style.text.trim();
 
-        // Draw text on line if set
-        if (style.text && style.text.trim()) {
-            const midX = (p1.x + p2.x) / 2;
-            const midY = (p1.y + p2.y) / 2;
-
-            // Calculate rotation angle
-            const angle = Math.atan2(dy, dx);
-
-            // Font settings
+        if (hasText) {
+            // Calculate text dimensions
             const fontSize = (style.fontSize || 14) * dpr;
             const fontWeight = style.fontWeight || 'normal';
             const fontStyle = style.fontStyle || 'normal';
             ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`;
 
-            // Measure text for background
-            const textMetrics = ctx.measureText(style.text);
+            const textMetrics = ctx.measureText(style.text!);
             const textWidth = textMetrics.width;
-            const textHeight = fontSize;
-            const padding = 4 * dpr;
+            const padding = 8 * dpr;
+            const gapWidth = textWidth + padding * 2;
+
+            // Calculate midpoint
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
+
+            // Calculate gap start and end points along the line
+            const unitDx = dx / lineLength;
+            const unitDy = dy / lineLength;
+            const halfGap = gapWidth / 2;
+
+            const gapStartX = midX - unitDx * halfGap;
+            const gapStartY = midY - unitDy * halfGap;
+            const gapEndX = midX + unitDx * halfGap;
+            const gapEndY = midY + unitDy * halfGap;
+
+            // Draw line segment 1: start to gap
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(gapStartX, gapStartY);
+            ctx.stroke();
+
+            // Draw line segment 2: gap to end
+            ctx.beginPath();
+            ctx.moveTo(gapEndX, gapEndY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+
+            // Draw text at midpoint
+            const angle = Math.atan2(dy, dx);
 
             // Offset based on vertical alignment
             const vAlign = style.textVAlign || 'middle';
@@ -583,21 +603,19 @@ export class PaneWidget implements Disposable {
             if (textAngle < -Math.PI / 2) textAngle += Math.PI;
             ctx.rotate(textAngle);
 
-            // Draw background rectangle (chart background color)
-            ctx.fillStyle = '#131722';
-            const bgX = -textWidth / 2 - padding;
-            const bgY = offsetY - textHeight / 2 - padding;
-            const bgW = textWidth + padding * 2;
-            const bgH = textHeight + padding * 2;
-            ctx.fillRect(bgX, bgY, bgW, bgH);
-
             // Draw text
             ctx.fillStyle = style.textColor || style.color;
             const hAlign = style.textHAlign || 'center';
             ctx.textAlign = hAlign;
             ctx.textBaseline = 'middle';
-            ctx.fillText(style.text, 0, offsetY);
+            ctx.fillText(style.text!, 0, offsetY);
             ctx.restore();
+        } else {
+            // No text - draw full line
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
         }
 
         // Draw control points if selected
