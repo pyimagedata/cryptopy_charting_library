@@ -294,7 +294,8 @@ export class PaneWidget implements Disposable {
     renderDrawings(
         drawings: Drawing[],
         timeToPixel: (time: number) => number | null,
-        priceToPixel: (price: number) => number | null
+        priceToPixel: (price: number) => number | null,
+        hoveredForAddTextId: string | null = null
     ): void {
         if (!this._ctx || !this._canvas) return;
 
@@ -426,7 +427,8 @@ export class PaneWidget implements Disposable {
             if (drawing.type === 'trendLine' || drawing.type === 'ray' || drawing.type === 'extendedLine') {
                 const trendLine = drawing as TrendLineDrawing;
                 const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                this._drawTrendLine(ctx, pixelPoints, drawing.style, showControlPoints, trendLine.extendLeft, trendLine.extendRight, this._canvas!.width);
+                const isHoveredForAddText = hoveredForAddTextId === drawing.id;
+                this._drawTrendLine(ctx, pixelPoints, drawing.style, showControlPoints, trendLine.extendLeft, trendLine.extendRight, this._canvas!.width, isHoveredForAddText);
             } else if (drawing.type === 'trendAngle') {
                 const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                 this._drawTrendAngle(ctx, pixelPoints, drawing.style, dpr, showControlPoints);
@@ -503,7 +505,8 @@ export class PaneWidget implements Disposable {
         isSelected: boolean,
         extendLeft: boolean = false,
         extendRight: boolean = false,
-        canvasWidth: number = 0
+        canvasWidth: number = 0,
+        isHoveredForAddText: boolean = false
     ): void {
         if (points.length < 2) return;
 
@@ -610,9 +613,8 @@ export class PaneWidget implements Disposable {
             ctx.textBaseline = 'middle';
             ctx.fillText(style.text!, 0, offsetY);
             ctx.restore();
-        } else {
-            // No text - but still create gap for "+ Add Text" tooltip
-            // Calculate gap for tooltip
+        } else if (isHoveredForAddText) {
+            // Hovered - create gap for "+ Add Text" tooltip
             const tooltipWidth = 70 * dpr; // Approximate width of "+ Add Text"
             const padding = 4 * dpr;
             const gapWidth = tooltipWidth + padding * 2;
@@ -640,6 +642,12 @@ export class PaneWidget implements Disposable {
             // Draw line segment 2: gap to end
             ctx.beginPath();
             ctx.moveTo(gapEndX, gapEndY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        } else {
+            // No text, not hovered - draw full line
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
             ctx.lineTo(endX, endY);
             ctx.stroke();
         }

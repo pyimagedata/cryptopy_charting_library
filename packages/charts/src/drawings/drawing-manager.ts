@@ -49,6 +49,9 @@ export class DrawingManager {
     private readonly _modeChanged = new Delegate<DrawingMode>();
     private readonly _selectionChanged = new Delegate<Drawing | null>();
 
+    // Hovered drawing for "Add Text" tooltip
+    private _hoveredForAddText: string | null = null;
+
     constructor() { }
 
     // --- Getters ---
@@ -79,6 +82,14 @@ export class DrawingManager {
 
     get selectionChanged(): Delegate<Drawing | null> {
         return this._selectionChanged;
+    }
+
+    get hoveredForAddText(): string | null {
+        return this._hoveredForAddText;
+    }
+
+    set hoveredForAddText(id: string | null) {
+        this._hoveredForAddText = id;
     }
 
     // --- Public Methods ---

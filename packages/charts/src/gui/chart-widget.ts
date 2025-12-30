@@ -1226,9 +1226,19 @@ export class ChartWidget implements Disposable {
         if (foundMidpoint && targetDrawing) {
             this._showAddTextTooltip(midX, midY, targetDrawing);
             this._hoveredDrawingForText = targetDrawing.id;
+            // Update DrawingManager and redraw
+            if (this._drawingManager.hoveredForAddText !== targetDrawing.id) {
+                this._drawingManager.hoveredForAddText = targetDrawing.id;
+                this._scheduleDraw();
+            }
         } else {
             this._hideAddTextTooltip();
             this._hoveredDrawingForText = null;
+            // Clear hover state and redraw if needed
+            if (this._drawingManager.hoveredForAddText !== null) {
+                this._drawingManager.hoveredForAddText = null;
+                this._scheduleDraw();
+            }
         }
     }
 
@@ -1410,7 +1420,8 @@ export class ChartWidget implements Disposable {
         this._paneWidget?.renderDrawings(
             this._drawingManager.drawings,
             (time) => this._drawingManager.timeToPixel(time),
-            (price) => this._drawingManager.priceToPixel(price)
+            (price) => this._drawingManager.priceToPixel(price),
+            this._drawingManager.hoveredForAddText
         );
 
         this._priceAxisWidget?.render();
