@@ -1241,18 +1241,17 @@ export class ChartWidget implements Disposable {
             this._addTextTooltip = document.createElement('div');
             this._addTextTooltip.style.cssText = `
                 position: fixed;
-                padding: 6px 12px;
-                background: rgba(255, 152, 0, 0.9);
-                color: #fff;
-                font-size: 13px;
-                font-weight: 500;
-                border-radius: 4px;
+                padding: 2px 4px;
+                background: transparent;
+                color: #787B86;
+                font-size: 12px;
+                font-weight: 400;
                 cursor: pointer;
                 pointer-events: auto;
                 white-space: nowrap;
                 z-index: 3000;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-                transform: translate(-50%, -50%) rotate(-15deg);
+                text-shadow: 0 0 4px rgba(0,0,0,0.8);
+                transform: translate(-50%, -50%);
             `;
             this._addTextTooltip.textContent = '+ Add Text';
 
