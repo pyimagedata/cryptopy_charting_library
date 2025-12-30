@@ -1189,7 +1189,6 @@ export class ChartWidget implements Disposable {
 
         const x = e.clientX - paneRect.left;
         const y = e.clientY - paneRect.top;
-        const dpr = window.devicePixelRatio || 1;
 
         // Check if hovering over a line drawing midpoint
         const drawings = this._drawingManager.drawings;
@@ -1204,28 +1203,22 @@ export class ChartWidget implements Disposable {
             if (!lineTypes.includes(drawing.type)) continue;
             if (drawing.style.text && drawing.style.text.trim()) continue; // Already has text
 
+            // getPixelPoints() already returns screen coordinates (divided by DPR in renderDrawings)
             const pixelPoints = (drawing as any).getPixelPoints?.();
             if (!pixelPoints || pixelPoints.length < 2) continue;
 
             const p1 = pixelPoints[0];
             const p2 = pixelPoints[1];
 
-            // Pixel points are in canvas coordinates (scaled by DPR)
-            // Calculate midpoint in canvas coords
-            const canvasMidX = (p1.x + p2.x) / 2;
-            const canvasMidY = (p1.y + p2.y) / 2;
+            // Calculate midpoint - these are already screen coords
+            midX = (p1.x + p2.x) / 2;
+            midY = (p1.y + p2.y) / 2;
 
-            // Convert to screen coords for comparison with mouse
-            const screenMidX = canvasMidX / dpr;
-            const screenMidY = canvasMidY / dpr;
-
-            // Check if mouse is near midpoint (within 30px in screen coords)
-            const dist = Math.sqrt((x - screenMidX) ** 2 + (y - screenMidY) ** 2);
+            // Check if mouse is near midpoint (within 30px)
+            const dist = Math.sqrt((x - midX) ** 2 + (y - midY) ** 2);
             if (dist < 30) {
                 foundMidpoint = true;
                 targetDrawing = drawing;
-                midX = screenMidX;
-                midY = screenMidY;
                 break;
             }
         }
