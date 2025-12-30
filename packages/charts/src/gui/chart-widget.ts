@@ -1249,7 +1249,7 @@ export class ChartWidget implements Disposable {
                 cursor: pointer;
                 pointer-events: auto;
                 white-space: nowrap;
-                z-index: 3000;
+                z-index: 10000;
                 text-shadow: 0 0 4px rgba(0,0,0,0.8);
                 transform: translate(-50%, -50%);
             `;

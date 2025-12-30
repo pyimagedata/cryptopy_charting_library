@@ -611,9 +611,35 @@ export class PaneWidget implements Disposable {
             ctx.fillText(style.text!, 0, offsetY);
             ctx.restore();
         } else {
-            // No text - draw full line
+            // No text - but still create gap for "+ Add Text" tooltip
+            // Calculate gap for tooltip
+            const tooltipWidth = 70 * dpr; // Approximate width of "+ Add Text"
+            const padding = 4 * dpr;
+            const gapWidth = tooltipWidth + padding * 2;
+
+            // Calculate midpoint
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
+
+            // Calculate gap start and end points along the line
+            const unitDx = dx / lineLength;
+            const unitDy = dy / lineLength;
+            const halfGap = gapWidth / 2;
+
+            const gapStartX = midX - unitDx * halfGap;
+            const gapStartY = midY - unitDy * halfGap;
+            const gapEndX = midX + unitDx * halfGap;
+            const gapEndY = midY + unitDy * halfGap;
+
+            // Draw line segment 1: start to gap
             ctx.beginPath();
             ctx.moveTo(startX, startY);
+            ctx.lineTo(gapStartX, gapStartY);
+            ctx.stroke();
+
+            // Draw line segment 2: gap to end
+            ctx.beginPath();
+            ctx.moveTo(gapEndX, gapEndY);
             ctx.lineTo(endX, endY);
             ctx.stroke();
         }
