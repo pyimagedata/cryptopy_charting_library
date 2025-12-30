@@ -19,7 +19,6 @@ import { DrawingManager, DrawingMode } from '../drawings';
 import { FloatingAttributeBar } from './attribute_bar';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartStateManager } from '../state';
-import { AddTextTooltip } from './tooltips';
 
 
 /** Disposable interface for cleanup */
@@ -93,8 +92,9 @@ export class ChartWidget implements Disposable {
     // State persistence
     private _chartStateManager: ChartStateManager | null = null;
 
-    // Add Text tooltip component
-    private _addTextTooltip: AddTextTooltip | null = null;
+    // Add Text tooltip
+    private _addTextTooltip: HTMLElement | null = null;
+    private _hoveredDrawingForText: string | null = null;
 
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
         // Resolve container
@@ -826,19 +826,6 @@ export class ChartWidget implements Disposable {
             paneCanvas.addEventListener('dblclick', this._onPaneDoubleClick.bind(this));
         }
 
-        // Initialize Add Text tooltip component
-        if (this._element) {
-            this._addTextTooltip = new AddTextTooltip({
-                container: this._element,
-                onTextClick: (drawing) => this._handleAddTextClick(drawing),
-                onHoverChange: () => {
-                    // Update DrawingManager and redraw
-                    this._drawingManager.hoveredForAddText = this._addTextTooltip?.hoveredDrawingId ?? null;
-                    this._scheduleDraw();
-                }
-            });
-        }
-
         // Keyboard shortcuts for drawings (Delete/Backspace to delete selected)
         document.addEventListener('keydown', this._onKeyDown.bind(this));
 
@@ -1152,8 +1139,6 @@ export class ChartWidget implements Disposable {
 
     private _onMouseLeave(): void {
         this._model.setCrosshairPosition(0, 0, false);
-        // Hide Add Text tooltip when leaving pane
-        this._addTextTooltip?.hide();
     }
 
     private _onMouseUp(e: MouseEvent): void {
@@ -1197,44 +1182,140 @@ export class ChartWidget implements Disposable {
         this._model.recalculateAllPanes();
     }
 
-    /** Handle mouse move on pane - delegate to AddTextTooltip component */
+    /** Handle mouse move on pane - show Add Text tooltip on line midpoint */
     private _onPaneMouseMove(e: MouseEvent): void {
         const paneRect = this._paneWidget?.canvas?.getBoundingClientRect();
-        if (!paneRect || !this._addTextTooltip) return;
+        if (!paneRect) return;
 
         const x = e.clientX - paneRect.left;
         const y = e.clientY - paneRect.top;
 
-        this._addTextTooltip.handleMouseMove(
-            this._drawingManager.drawings,
-            x,
-            y,
-            paneRect
-        );
+        // Check if hovering over a line drawing midpoint
+        const drawings = this._drawingManager.drawings;
+        const lineTypes = ['trendLine', 'ray', 'extendedLine', 'horizontalLine', 'verticalLine',
+            'parallelChannel', 'trendAngle', 'horizontalRay', 'infoLine'];
+
+        let foundMidpoint = false;
+        let midX = 0, midY = 0;
+        let targetDrawing: any = null;
+
+        for (const drawing of drawings) {
+            if (!lineTypes.includes(drawing.type)) continue;
+            if (drawing.style.text && drawing.style.text.trim()) continue; // Already has text
+
+            // getPixelPoints() already returns screen coordinates (divided by DPR in renderDrawings)
+            const pixelPoints = (drawing as any).getPixelPoints?.();
+            if (!pixelPoints || pixelPoints.length < 2) continue;
+
+            const p1 = pixelPoints[0];
+            const p2 = pixelPoints[1];
+
+            // Calculate midpoint - these are already screen coords
+            midX = (p1.x + p2.x) / 2;
+            midY = (p1.y + p2.y) / 2;
+
+            // Check if mouse is near midpoint (within 30px)
+            const dist = Math.sqrt((x - midX) ** 2 + (y - midY) ** 2);
+            if (dist < 30) {
+                foundMidpoint = true;
+                targetDrawing = drawing;
+                break;
+            }
+        }
+
+        if (foundMidpoint && targetDrawing) {
+            this._showAddTextTooltip(midX, midY, targetDrawing);
+            this._hoveredDrawingForText = targetDrawing.id;
+            // Update DrawingManager and redraw
+            if (this._drawingManager.hoveredForAddText !== targetDrawing.id) {
+                this._drawingManager.hoveredForAddText = targetDrawing.id;
+                this._scheduleDraw();
+            }
+        } else {
+            this._hideAddTextTooltip();
+            this._hoveredDrawingForText = null;
+            // Clear hover state and redraw if needed
+            if (this._drawingManager.hoveredForAddText !== null) {
+                this._drawingManager.hoveredForAddText = null;
+                this._scheduleDraw();
+            }
+        }
     }
 
-    /** Handle Add Text click - open settings modal with Text tab */
-    private _handleAddTextClick(drawing: any): void {
-        if (!this._element) return;
+    /** Show Add Text tooltip at position */
+    private _showAddTextTooltip(x: number, y: number, drawing: any): void {
+        if (!this._paneWidget?.canvas) return;
+        const paneRect = this._paneWidget.canvas.getBoundingClientRect();
 
-        // Open settings modal with Text tab
-        if (this._drawingSettingsModal) {
-            this._drawingSettingsModal.hide();
+        if (!this._addTextTooltip) {
+            this._addTextTooltip = document.createElement('div');
+            this._addTextTooltip.style.cssText = `
+                position: fixed;
+                padding: 2px 4px;
+                background: transparent;
+                color: #787B86;
+                font-size: 12px;
+                font-weight: 400;
+                cursor: pointer;
+                pointer-events: auto;
+                white-space: nowrap;
+                z-index: 10000;
+                text-shadow: 0 0 4px rgba(0,0,0,0.8);
+                transform: translate(-50%, -50%);
+            `;
+            this._addTextTooltip.textContent = '+ Add Text';
+
+            this._addTextTooltip.addEventListener('click', () => {
+                if (this._hoveredDrawingForText) {
+                    const d = this._drawingManager.drawings.find((dr: any) => dr.id === this._hoveredDrawingForText);
+                    if (d && this._element) {
+                        // Open settings modal with Text tab
+                        if (this._drawingSettingsModal) {
+                            this._drawingSettingsModal.hide();
+                        }
+                        this._drawingSettingsModal = createSettingsModal(this._element, d);
+                        this._drawingSettingsModal.settingsChanged.subscribe(() => {
+                            this._scheduleDraw();
+                        });
+                        // Set default text if empty
+                        if (!d.style.text) {
+                            d.style.text = '';
+                        }
+                        this._drawingSettingsModal.show(d);
+                        // Click on Text tab after modal shows
+                        setTimeout(() => {
+                            const textTab = document.querySelector('button[data-tab-id="text"]') as HTMLButtonElement;
+                            if (textTab) textTab.click();
+                        }, 50);
+                    }
+                }
+                this._hideAddTextTooltip();
+            });
+
+            document.body.appendChild(this._addTextTooltip);
         }
-        this._drawingSettingsModal = createSettingsModal(this._element, drawing);
-        this._drawingSettingsModal.settingsChanged.subscribe(() => {
-            this._scheduleDraw();
-        });
-        // Set default text if empty
-        if (!drawing.style.text) {
-            drawing.style.text = '';
+
+        // Position tooltip - calculate angle from line
+        const pixelPoints = drawing.getPixelPoints?.();
+        if (pixelPoints && pixelPoints.length >= 2) {
+            const dx = pixelPoints[1].x - pixelPoints[0].x;
+            const dy = pixelPoints[1].y - pixelPoints[0].y;
+            let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            if (angle > 90) angle -= 180;
+            if (angle < -90) angle += 180;
+            this._addTextTooltip.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
         }
-        this._drawingSettingsModal.show(drawing);
-        // Click on Text tab after modal shows
-        setTimeout(() => {
-            const textTab = document.querySelector('button[data-tab-id="text"]') as HTMLButtonElement;
-            if (textTab) textTab.click();
-        }, 50);
+
+        this._addTextTooltip.style.left = `${paneRect.left + x}px`;
+        this._addTextTooltip.style.top = `${paneRect.top + y}px`;
+        this._addTextTooltip.style.display = 'block';
+    }
+
+    /** Hide Add Text tooltip */
+    private _hideAddTextTooltip(): void {
+        if (this._addTextTooltip) {
+            this._addTextTooltip.style.display = 'none';
+        }
     }
 
     private _onPaneDoubleClick(e: MouseEvent): void {
