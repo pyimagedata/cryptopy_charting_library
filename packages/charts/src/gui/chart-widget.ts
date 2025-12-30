@@ -1209,14 +1209,23 @@ export class ChartWidget implements Disposable {
 
             const p1 = pixelPoints[0];
             const p2 = pixelPoints[1];
-            midX = (p1.x + p2.x) / 2 / dpr;
-            midY = (p1.y + p2.y) / 2 / dpr;
 
-            // Check if mouse is near midpoint (within 30px)
-            const dist = Math.sqrt((x - midX) ** 2 + (y - midY) ** 2);
+            // Pixel points are in canvas coordinates (scaled by DPR)
+            // Calculate midpoint in canvas coords
+            const canvasMidX = (p1.x + p2.x) / 2;
+            const canvasMidY = (p1.y + p2.y) / 2;
+
+            // Convert to screen coords for comparison with mouse
+            const screenMidX = canvasMidX / dpr;
+            const screenMidY = canvasMidY / dpr;
+
+            // Check if mouse is near midpoint (within 30px in screen coords)
+            const dist = Math.sqrt((x - screenMidX) ** 2 + (y - screenMidY) ** 2);
             if (dist < 30) {
                 foundMidpoint = true;
                 targetDrawing = drawing;
+                midX = screenMidX;
+                midY = screenMidY;
                 break;
             }
         }
