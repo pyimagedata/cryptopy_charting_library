@@ -56,4 +56,9 @@ export const ICONS = {
         <path d="M2 13h15"/>
         <path d="M22 21a3 3 0 0 1-3-3c0-1.6 3-5 3-5s3 3.4 3 5a3 3 0 0 1-3 3z" fill="currentColor"/>
     </svg>`,
+
+    textColor: `<svg width="20" height="20" viewBox="0 0 28 28" fill="currentColor">
+        <path d="M10.85 19h-1.748l4.216-11h1.364l4.216 11h-1.748l-1.05-2.9h-4.2l-1.05 2.9zm4.15-11.2l-1.65 5.3h3.3l-1.65-5.3z"/>
+        <rect x="6" y="22" width="16" height="3" rx="1"/>
+    </svg>`,
 };

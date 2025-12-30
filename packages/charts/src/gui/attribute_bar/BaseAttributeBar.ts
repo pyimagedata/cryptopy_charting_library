@@ -147,6 +147,7 @@ export class BaseAttributeBar {
         this._addTemplateButton();
         this._addSeparator();
         this._addColorButton();
+        this._addTextColorButton(); // Text color for line labels
         this._addLineWidthButton();
         this._addSeparator();
         this._addSettingsButton();
@@ -244,6 +245,16 @@ export class BaseAttributeBar {
             (width) => this.lineWidthChanged.fire(width)
         );
         this._element.appendChild(btn);
+    }
+
+    protected _addTextColorButton(): void {
+        if (!this._element || !this._currentDrawing) return;
+        const colorBtn = createColorButton(
+            this._currentDrawing,
+            { property: 'textColor', icon: ICONS.textColor, title: 'Text Color' },
+            (color) => this.colorChanged.fire(color)
+        );
+        this._element.appendChild(colorBtn);
     }
 
     protected _addSettingsButton(): void {
