@@ -92,6 +92,10 @@ export class ChartWidget implements Disposable {
     // State persistence
     private _chartStateManager: ChartStateManager | null = null;
 
+    // Add Text tooltip
+    private _addTextTooltip: HTMLElement | null = null;
+    private _hoveredDrawingForText: string | null = null;
+
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
         // Resolve container
         if (typeof container === 'string') {
@@ -817,6 +821,7 @@ export class ChartWidget implements Disposable {
         if (paneCanvas) {
             paneCanvas.addEventListener('wheel', this._onWheel.bind(this), { passive: false });
             paneCanvas.addEventListener('mousedown', this._onMouseDown.bind(this));
+            paneCanvas.addEventListener('mousemove', this._onPaneMouseMove.bind(this));
             paneCanvas.addEventListener('mouseleave', this._onMouseLeave.bind(this));
             paneCanvas.addEventListener('dblclick', this._onPaneDoubleClick.bind(this));
         }
@@ -1175,6 +1180,131 @@ export class ChartWidget implements Disposable {
     private _onPriceAxisDoubleClick(): void {
         this._model.rightPriceScale.setAutoScale(true);
         this._model.recalculateAllPanes();
+    }
+
+    /** Handle mouse move on pane - show Add Text tooltip on line midpoint */
+    private _onPaneMouseMove(e: MouseEvent): void {
+        const paneRect = this._paneWidget?.canvas?.getBoundingClientRect();
+        if (!paneRect) return;
+
+        const x = e.clientX - paneRect.left;
+        const y = e.clientY - paneRect.top;
+        const dpr = window.devicePixelRatio || 1;
+
+        // Check if hovering over a line drawing midpoint
+        const drawings = this._drawingManager.drawings;
+        const lineTypes = ['trendLine', 'ray', 'extendedLine', 'horizontalLine', 'verticalLine',
+            'parallelChannel', 'trendAngle', 'horizontalRay', 'infoLine'];
+
+        let foundMidpoint = false;
+        let midX = 0, midY = 0;
+        let targetDrawing: any = null;
+
+        for (const drawing of drawings) {
+            if (!lineTypes.includes(drawing.type)) continue;
+            if (drawing.style.text && drawing.style.text.trim()) continue; // Already has text
+
+            const pixelPoints = (drawing as any).getPixelPoints?.();
+            if (!pixelPoints || pixelPoints.length < 2) continue;
+
+            const p1 = pixelPoints[0];
+            const p2 = pixelPoints[1];
+            midX = (p1.x + p2.x) / 2 / dpr;
+            midY = (p1.y + p2.y) / 2 / dpr;
+
+            // Check if mouse is near midpoint (within 30px)
+            const dist = Math.sqrt((x - midX) ** 2 + (y - midY) ** 2);
+            if (dist < 30) {
+                foundMidpoint = true;
+                targetDrawing = drawing;
+                break;
+            }
+        }
+
+        if (foundMidpoint && targetDrawing) {
+            this._showAddTextTooltip(midX, midY, targetDrawing);
+            this._hoveredDrawingForText = targetDrawing.id;
+        } else {
+            this._hideAddTextTooltip();
+            this._hoveredDrawingForText = null;
+        }
+    }
+
+    /** Show Add Text tooltip at position */
+    private _showAddTextTooltip(x: number, y: number, drawing: any): void {
+        if (!this._paneWidget?.canvas) return;
+        const paneRect = this._paneWidget.canvas.getBoundingClientRect();
+
+        if (!this._addTextTooltip) {
+            this._addTextTooltip = document.createElement('div');
+            this._addTextTooltip.style.cssText = `
+                position: fixed;
+                padding: 6px 12px;
+                background: rgba(255, 152, 0, 0.9);
+                color: #fff;
+                font-size: 13px;
+                font-weight: 500;
+                border-radius: 4px;
+                cursor: pointer;
+                pointer-events: auto;
+                white-space: nowrap;
+                z-index: 3000;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                transform: translate(-50%, -50%) rotate(-15deg);
+            `;
+            this._addTextTooltip.textContent = '+ Add Text';
+
+            this._addTextTooltip.addEventListener('click', () => {
+                if (this._hoveredDrawingForText) {
+                    const d = this._drawingManager.drawings.find((dr: any) => dr.id === this._hoveredDrawingForText);
+                    if (d && this._element) {
+                        // Open settings modal with Text tab
+                        if (this._drawingSettingsModal) {
+                            this._drawingSettingsModal.hide();
+                        }
+                        this._drawingSettingsModal = createSettingsModal(this._element, d);
+                        this._drawingSettingsModal.settingsChanged.subscribe(() => {
+                            this._scheduleDraw();
+                        });
+                        // Set default text if empty
+                        if (!d.style.text) {
+                            d.style.text = '';
+                        }
+                        this._drawingSettingsModal.show(d);
+                        // Click on Text tab after modal shows
+                        setTimeout(() => {
+                            const textTab = document.querySelector('button[data-tab-id="text"]') as HTMLButtonElement;
+                            if (textTab) textTab.click();
+                        }, 50);
+                    }
+                }
+                this._hideAddTextTooltip();
+            });
+
+            document.body.appendChild(this._addTextTooltip);
+        }
+
+        // Position tooltip - calculate angle from line
+        const pixelPoints = drawing.getPixelPoints?.();
+        if (pixelPoints && pixelPoints.length >= 2) {
+            const dx = pixelPoints[1].x - pixelPoints[0].x;
+            const dy = pixelPoints[1].y - pixelPoints[0].y;
+            let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            if (angle > 90) angle -= 180;
+            if (angle < -90) angle += 180;
+            this._addTextTooltip.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+        }
+
+        this._addTextTooltip.style.left = `${paneRect.left + x}px`;
+        this._addTextTooltip.style.top = `${paneRect.top + y}px`;
+        this._addTextTooltip.style.display = 'block';
+    }
+
+    /** Hide Add Text tooltip */
+    private _hideAddTextTooltip(): void {
+        if (this._addTextTooltip) {
+            this._addTextTooltip.style.display = 'none';
+        }
     }
 
     private _onPaneDoubleClick(e: MouseEvent): void {
