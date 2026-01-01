@@ -66,6 +66,10 @@ export class PaneWidget implements Disposable {
     // Callback for overlay indicator actions (toggle, settings, remove)
     public onOverlayIndicatorAction: ((action: string, index: number) => void) | null = null;
 
+    // Cache to prevent unnecessary legend rebuilds (causes flickering)
+    private _lastOverlayIndicatorCount: number = -1;
+    private _lastVisibilityState: string = '';
+
     constructor(container: HTMLElement, model: ChartModel) {
         this._model = model;
         this._gridRenderer = new GridRenderer(model.options.grid);
@@ -1910,23 +1914,24 @@ export class PaneWidget implements Disposable {
                 const lastValue = indicator.data.length > 0 ? indicator.data[indicator.data.length - 1]?.value : null;
                 const valueText = lastValue !== null && !isNaN(lastValue) ? `${lastValue.toFixed(2)}` : '';
                 const opacity = indicator.visible ? '1' : '0.4';
+                const eyeColor = indicator.visible ? '#787b86' : '#ef5350';
 
-                // Eye icon (visible/hidden)
+                // Eye icon (visible/hidden) - size 16x16
                 const eyeIcon = indicator.visible
-                    ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" fill-rule="evenodd" d="M12 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm-1 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"></path><path fill="currentColor" d="M16.91 8.8C15.31 4.99 12.18 3 9 3 5.82 3 2.7 4.98 1.08 8.8L1 9l.08.2C2.7 13.02 5.82 15 9 15c3.18 0 6.3-1.97 7.91-5.8L17 9l-.09-.2ZM9 14c-2.69 0-5.42-1.63-6.91-5 1.49-3.37 4.22-5 6.9-5 2.7 0 5.43 1.63 6.92 5-1.5 3.37-4.23 5-6.91 5Z"></path></svg>`
-                    : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M3.7 15 15 3.7l-.7-.7L3 14.3l.7.7ZM9 3c1.09 0 2.17.23 3.19.7l-.77.76C10.64 4.16 9.82 4 9 4 6.31 4 3.58 5.63 2.08 9a9.35 9.35 0 0 0 1.93 2.87l-.7.7A10.44 10.44 0 0 1 1.08 9.2L1 9l.08-.2C2.69 4.99 5.82 3 9 3Z"></path><path fill="currentColor" d="M9 6a3 3 0 0 1 .78.1l-.9.9A2 2 0 0 0 7 8.87l-.9.9A3 3 0 0 1 9 6ZM11.9 8.22l-.9.9A2 2 0 0 1 9.13 11l-.9.9a3 3 0 0 0 3.67-3.68Z"></path><path fill="currentColor" d="M9 14c-.82 0-1.64-.15-2.43-.45l-.76.76c1.02.46 2.1.7 3.19.7 3.18 0 6.31-1.98 7.92-5.81L17 9l-.08-.2a10.44 10.44 0 0 0-2.23-3.37l-.7.7c.75.76 1.41 1.71 1.93 2.87-1.5 3.37-4.23 5-6.92 5Z"></path></svg>`;
+                    ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="${eyeColor}" fill-rule="evenodd" d="M12 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm-1 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"></path><path fill="${eyeColor}" d="M16.91 8.8C15.31 4.99 12.18 3 9 3 5.82 3 2.7 4.98 1.08 8.8L1 9l.08.2C2.7 13.02 5.82 15 9 15c3.18 0 6.3-1.97 7.91-5.8L17 9l-.09-.2ZM9 14c-2.69 0-5.42-1.63-6.91-5 1.49-3.37 4.22-5 6.9-5 2.7 0 5.43 1.63 6.92 5-1.5 3.37-4.23 5-6.91 5Z"></path></svg>`
+                    : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="${eyeColor}" d="M3.7 15 15 3.7l-.7-.7L3 14.3l.7.7ZM9 3c1.09 0 2.17.23 3.19.7l-.77.76C10.64 4.16 9.82 4 9 4 6.31 4 3.58 5.63 2.08 9a9.35 9.35 0 0 0 1.93 2.87l-.7.7A10.44 10.44 0 0 1 1.08 9.2L1 9l.08-.2C2.69 4.99 5.82 3 9 3Z"></path><path fill="${eyeColor}" d="M9 6a3 3 0 0 1 .78.1l-.9.9A2 2 0 0 0 7 8.87l-.9.9A3 3 0 0 1 9 6ZM11.9 8.22l-.9.9A2 2 0 0 1 9.13 11l-.9.9a3 3 0 0 0 3.67-3.68Z"></path><path fill="${eyeColor}" d="M9 14c-.82 0-1.64-.15-2.43-.45l-.76.76c1.02.46 2.1.7 3.19.7 3.18 0 6.31-1.98 7.92-5.81L17 9l-.08-.2a10.44 10.44 0 0 0-2.23-3.37l-.7.7c.75.76 1.41 1.71 1.93 2.87-1.5 3.37-4.23 5-6.92 5Z"></path></svg>`;
 
-                // Settings icon
-                const settingsIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" fill-rule="evenodd" d="m3.1 9 2.28-5h7.24l2.28 5-2.28 5H5.38L3.1 9Zm1.63-6h8.54L16 9l-2.73 6H4.73L2 9l2.73-6Zm5.77 6a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm1 0a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z"></path></svg>`;
+                // Settings icon - size 16x16
+                const settingsIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" fill-rule="evenodd" d="m3.1 9 2.28-5h7.24l2.28 5-2.28 5H5.38L3.1 9Zm1.63-6h8.54L16 9l-2.73 6H4.73L2 9l2.73-6Zm5.77 6a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm1 0a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z"></path></svg>`;
 
-                // Remove icon
-                const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="14" height="14"><path fill="currentColor" d="M7.5 4a.5.5 0 0 0-.5.5V5h4v-.5a.5.5 0 0 0-.5-.5h-3ZM12 5h3v1h-1.05l-.85 7.67A1.5 1.5 0 0 1 11.6 15H6.4a1.5 1.5 0 0 1-1.5-1.33L4.05 6H3V5h3v-.5C6 3.67 6.67 3 7.5 3h3c.83 0 1.5.67 1.5 1.5V5ZM5.06 6l.84 7.56a.5.5 0 0 0 .5.44h5.2a.5.5 0 0 0 .5-.44L12.94 6H5.06Z"></path></svg>`;
+                // Remove icon - size 16x16
+                const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" d="M7.5 4a.5.5 0 0 0-.5.5V5h4v-.5a.5.5 0 0 0-.5-.5h-3ZM12 5h3v1h-1.05l-.85 7.67A1.5 1.5 0 0 1 11.6 15H6.4a1.5 1.5 0 0 1-1.5-1.33L4.05 6H3V5h3v-.5C6 3.67 6.67 3 7.5 3h3c.83 0 1.5.67 1.5 1.5V5ZM5.06 6l.84 7.56a.5.5 0 0 0 .5.44h5.2a.5.5 0 0 0 .5-.44L12.94 6H5.06Z"></path></svg>`;
 
                 overlayIndicatorsHtml += `
-                    <div style="display: flex; align-items: center; font-size: 11px; margin-bottom: 6px; opacity: ${opacity};" class="overlay-indicator-row" data-indicator-index="${i}">
+                    <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: inline-flex; align-items: center; font-size: 12px; margin-bottom: 6px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
                         <span style="color: ${color}; font-weight: 500;">${name}</span>
                         <span style="color: ${color}; margin-left: 6px;">${valueText}</span>
-                        <div style="display: flex; align-items: center; gap: 4px; margin-left: 8px; pointer-events: auto;">
+                        <div class="overlay-btn-group" style="display: none; align-items: center; gap: 4px; margin-left: 8px;">
                             <button class="overlay-btn overlay-toggle-btn" data-action="toggle" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Toggle visibility">${eyeIcon}</button>
                             <button class="overlay-btn overlay-settings-btn" data-action="settings" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Settings">${settingsIcon}</button>
                             <button class="overlay-btn overlay-remove-btn" data-action="remove" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Remove">${removeIcon}</button>
@@ -1937,30 +1942,61 @@ export class PaneWidget implements Disposable {
             overlayIndicatorsHtml += '</div>';
         }
 
-        this._legendElement.innerHTML = `
-            <div style="display: flex; align-items: center; white-space: nowrap; pointer-events: none;">
-                <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${symbol[0]}</div>
-                <span style="font-weight: bold; color: #d1d4dc; font-size: 13px;">${symbol}</span>
-                <span style="margin-left: 6px; color: #787b86; font-size: 13px;">Perpetual Contract</span>
-                <span style="margin-left: 6px; color: #d1d4dc; font-size: 13px;">• ${timeframe} • Binance</span>
-                <div style="width: 8px; height: 8px; border-radius: 50%; background: #26a69a; margin-left: 8px; box-shadow: 0 0 5px #26a69a;"></div>
-                ${ohlcText}
-            </div>
-            ${overlayIndicatorsHtml}
-        `;
+        // Check if we need to rebuild overlay indicators HTML (when count or visibility changes)
+        const currentCount = overlayIndicators.length;
+        const currentVisibilityState = overlayIndicators.map(i => i.visible ? '1' : '0').join('');
+        const needsOverlayRebuild = currentCount !== this._lastOverlayIndicatorCount ||
+            currentVisibilityState !== this._lastVisibilityState;
 
-        // Add click event listeners to overlay indicator buttons
-        const buttons = this._legendElement.querySelectorAll('.overlay-btn');
-        buttons.forEach((btn) => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const action = (btn as HTMLElement).dataset.action;
-                const index = parseInt((btn as HTMLElement).dataset.index || '0', 10);
-                if (action && this.onOverlayIndicatorAction) {
-                    this.onOverlayIndicatorAction(action, index);
+        if (needsOverlayRebuild) {
+            this._lastOverlayIndicatorCount = currentCount;
+            this._lastVisibilityState = currentVisibilityState;
+
+            this._legendElement.innerHTML = `
+                <div style="display: flex; align-items: center; white-space: nowrap; pointer-events: none;">
+                    <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${symbol[0]}</div>
+                    <span style="font-weight: bold; color: #d1d4dc; font-size: 13px;">${symbol}</span>
+                    <span style="margin-left: 6px; color: #787b86; font-size: 13px;">Perpetual Contract</span>
+                    <span style="margin-left: 6px; color: #d1d4dc; font-size: 13px;">• ${timeframe} • Binance</span>
+                    <div style="width: 8px; height: 8px; border-radius: 50%; background: #26a69a; margin-left: 8px; box-shadow: 0 0 5px #26a69a;"></div>
+                    <span class="ohlc-text">${ohlcText}</span>
+                </div>
+                ${overlayIndicatorsHtml}
+            `;
+
+            // Add click event listeners to overlay indicator buttons
+            const buttons = this._legendElement.querySelectorAll('.overlay-btn');
+            buttons.forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const action = (btn as HTMLElement).dataset.action;
+                    const index = parseInt((btn as HTMLElement).dataset.index || '0', 10);
+                    if (action && this.onOverlayIndicatorAction) {
+                        this.onOverlayIndicatorAction(action, index);
+                    }
+                });
+            });
+
+            // Add hover event listeners to show/hide button group
+            const rows = this._legendElement.querySelectorAll('.overlay-indicator-row');
+            rows.forEach((row) => {
+                const btnGroup = row.querySelector('.overlay-btn-group') as HTMLElement;
+                if (btnGroup) {
+                    row.addEventListener('mouseenter', () => {
+                        btnGroup.style.display = 'flex';
+                    });
+                    row.addEventListener('mouseleave', () => {
+                        btnGroup.style.display = 'none';
+                    });
                 }
             });
-        });
+        } else {
+            // Just update OHLC text without rebuilding
+            const ohlcSpan = this._legendElement.querySelector('.ohlc-text');
+            if (ohlcSpan) {
+                ohlcSpan.innerHTML = ohlcText;
+            }
+        }
     }
 
 
@@ -1991,7 +2027,6 @@ export class PaneWidget implements Disposable {
             left: 12px;
             z-index: 10;
             font-family: ${this._model.options.layout.fontFamily};
-            pointer-events: none;
             user-select: none;
         `;
         this._element.appendChild(this._legendElement);

@@ -128,7 +128,7 @@ export class ChartWidget implements Disposable {
 
         // Initialize chart state manager for per-symbol persistence
         this._chartStateManager = new ChartStateManager(this._drawingManager, this._indicatorManager);
-        this._chartStateManager.setSymbol('BTCUSDT'); // Initial symbol
+        // Note: setSymbol is called AFTER _createLayout to ensure UI containers exist
 
         // Subscribe to drawing selection changes - show/hide attribute bar
         this._drawingManager.selectionChanged.subscribe((drawing) => {
@@ -145,6 +145,9 @@ export class ChartWidget implements Disposable {
         // Build UI
         this._createLayout();
         this._setupEventListeners();
+
+        // Now that UI is created, load saved state for symbol
+        this._chartStateManager.setSymbol('BTCUSDT');
 
         // Initialize indicator search modal
         this._indicatorSearchModal = new IndicatorSearchModal(this._container);
@@ -238,6 +241,9 @@ export class ChartWidget implements Disposable {
 
                 this._updateMainLegend();
                 this._scheduleDraw();
+
+                // Save state after settings change
+                this._chartStateManager?.saveState();
             }
             this._editingIndicator = null;
         });
@@ -1768,66 +1774,11 @@ export class ChartWidget implements Disposable {
     }
 
     private _updateMainLegend(): void {
-        if (!this._mainLegendContainer) return;
-        this._mainLegendContainer.innerHTML = '';
-
-        this._indicatorManager.overlayIndicators.forEach(indicator => {
-            const row = document.createElement('div');
-            row.className = `tv-legend-item ${indicator.visible ? '' : 'hidden'}`;
-
-            const name = document.createElement('span');
-            name.className = 'tv-legend-name';
-            name.textContent = `${indicator.name}`;
-            row.appendChild(name);
-
-            // Actions Container
-            const actions = document.createElement('div');
-            actions.className = 'tv-legend-actions';
-
-            const createButton = (iconSvg: string, title: string, onClick: (e: MouseEvent) => void) => {
-                const btn = document.createElement('div');
-                btn.className = 'tv-legend-btn';
-                btn.title = title;
-                btn.innerHTML = iconSvg;
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    onClick(e);
-                };
-                return btn;
-            };
-
-            // Eye Icon (Heroicons Mini)
-            const hideBtn = createButton(`
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
-                    <path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 0 1 0-1.186A10.004 10.004 0 0 1 10 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0 1 10 17c-4.257 0-7.893-2.66-9.336-6.41ZM14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" clip-rule="evenodd" />
-                </svg>
-            `, 'Hide/Show', () => {
-                indicator.setVisible(!indicator.visible);
-                this._updateMainLegend();
-                this._scheduleDraw();
-            });
-
-            // Settings Icon (Heroicons Mini Gear)
-            const settingsBtn = createButton(`
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .205 1.251l-1.18 2.044a1 1 0 0 1-1.186.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.331 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.113a7.047 7.047 0 0 1 0-2.228l-1.267-1.113a1 1 0 0 1-.205-1.251l1.18-2.044a1 1 0 0 1 1.186-.447l1.598.54a6.993 6.993 0 0 1 1.929-1.115L7.84 1.804ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clip-rule="evenodd" />
-                </svg>
-            `, 'Settings', () => this._openIndicatorSettings(indicator));
-
-            // Remove Icon (Heroicons Mini Trash)
-            const removeBtn = createButton(`
-                <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Zm3.59.75a.75.75 0 0 0-1.5 0v5a.75.75 0 0 0 1.5 0v-5Z" clip-rule="evenodd" />
-                </svg>
-            `, 'Remove', () => this._indicatorManager.removeIndicator(indicator.id));
-
-            actions.appendChild(hideBtn);
-            actions.appendChild(settingsBtn);
-            actions.appendChild(removeBtn);
-            row.appendChild(actions);
-            this._mainLegendContainer!.appendChild(row);
-        });
+        // Disabled - now using pane-widget's overlay indicator legend
+        // Just clear the old container if it exists
+        if (this._mainLegendContainer) {
+            this._mainLegendContainer.innerHTML = '';
+        }
     }
 
     private _onIndicatorSelected(indicatorId: string): void {
