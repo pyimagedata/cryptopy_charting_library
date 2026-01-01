@@ -24,6 +24,9 @@ import { ArrowDrawing } from './arrow-drawing';
 import { ArrowMarkerDrawing } from './arrow-marker-drawing';
 import { ArrowIconDrawing } from './arrow-icon-drawing';
 import { RectangleDrawing } from './rectangle-drawing';
+import { EllipseDrawing } from './ellipse-drawing';
+import { TriangleDrawing } from './triangle-drawing';
+import { CircleDrawing } from './circle-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -194,6 +197,15 @@ export class DrawingManager {
                 break;
             case 'rectangle':
                 drawing = new RectangleDrawing();
+                break;
+            case 'ellipse':
+                drawing = new EllipseDrawing();
+                break;
+            case 'triangle':
+                drawing = new TriangleDrawing();
+                break;
+            case 'circle':
+                drawing = new CircleDrawing();
                 break;
             // Add more types here...
             default:
@@ -619,6 +631,15 @@ export class DrawingManager {
                     break;
                 case 'rectangle':
                     drawing = RectangleDrawing.fromJSON(item);
+                    break;
+                case 'ellipse':
+                    drawing = EllipseDrawing.fromJSON(item);
+                    break;
+                case 'triangle':
+                    drawing = TriangleDrawing.fromJSON(item);
+                    break;
+                case 'circle':
+                    drawing = CircleDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:

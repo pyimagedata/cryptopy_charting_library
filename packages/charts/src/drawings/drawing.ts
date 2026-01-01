@@ -44,6 +44,8 @@ export type DrawingType =
     | 'arrowMarkedDown'
     | 'rectangle'
     | 'ellipse'
+    | 'triangle'
+    | 'circle'
     | 'brush'
     | 'highlighter'
     | 'fibRetracement'
