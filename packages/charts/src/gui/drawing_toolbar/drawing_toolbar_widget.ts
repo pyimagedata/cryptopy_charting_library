@@ -2,7 +2,7 @@
  * Left Drawing Toolbar Widget - TradingView-style with grouped flyout menus
  */
 
-import { Delegate } from '../helpers/delegate';
+import { Delegate } from '../../helpers/delegate';
 
 // SVG Icons for drawing tools
 const DRAWING_ICONS = {

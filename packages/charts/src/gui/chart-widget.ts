@@ -14,7 +14,7 @@ import { SymbolSearch, SymbolInfo } from './symbol_search';
 import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal, IndicatorSettings } from './indicator_settings';
-import { DrawingToolbarWidget } from './drawing-toolbar-widget';
+import { DrawingToolbarWidget } from './drawing_toolbar';
 import { DrawingManager, DrawingMode } from '../drawings';
 import { FloatingAttributeBar } from './attribute_bar';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
