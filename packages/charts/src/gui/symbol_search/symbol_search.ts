@@ -2,7 +2,7 @@
  * Symbol Search Modal - TradingView-style symbol search
  */
 
-import { Delegate } from '../helpers/delegate';
+import { Delegate } from '../../helpers/delegate';
 
 export interface SymbolInfo {
     symbol: string;

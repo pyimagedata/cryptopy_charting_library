@@ -2,7 +2,7 @@
  * Top Toolbar Widget - TradingView-style toolbar
  */
 
-import { Delegate } from '../helpers/delegate';
+import { Delegate } from '../../helpers/delegate';
 
 // SVG Icons for toolbar
 const TOOLBAR_ICONS = {
