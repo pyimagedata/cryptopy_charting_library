@@ -19,6 +19,7 @@ import { DrawingManager, DrawingMode } from '../drawings';
 import { FloatingAttributeBar } from './attribute_bar';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartStateManager } from '../state';
+import { AddTextTooltipHelper } from './tooltips';
 
 
 /** Disposable interface for cleanup */
@@ -93,7 +94,7 @@ export class ChartWidget implements Disposable {
     private _chartStateManager: ChartStateManager | null = null;
 
     // Add Text tooltip
-    private _addTextTooltip: HTMLElement | null = null;
+    private _addTextTooltipHelper: AddTextTooltipHelper | null = null;
     private _hoveredDrawingForText: string | null = null;
 
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
@@ -579,6 +580,27 @@ export class ChartWidget implements Disposable {
 
         // Create widgets
         this._paneWidget = new PaneWidget(this._chartRow, this._model);
+
+        // Connect overlay indicator action callback
+        this._paneWidget.onOverlayIndicatorAction = (action, index) => {
+            const indicators = this._indicatorManager.overlayIndicators;
+            if (index < 0 || index >= indicators.length) return;
+            const indicator = indicators[index];
+
+            switch (action) {
+                case 'toggle':
+                    indicator.setVisible(!indicator.visible);
+                    this._scheduleDraw();
+                    break;
+                case 'settings':
+                    this._openIndicatorSettings(indicator);
+                    break;
+                case 'remove':
+                    this._indicatorManager.removeIndicator(indicator.id);
+                    this._scheduleDraw();
+                    break;
+            }
+        };
         this._priceAxisWidget = new PriceAxisWidget(this._chartRow, this._model.rightPriceScale, {
             backgroundColor: this._model.options.layout.backgroundColor,
             textColor: this._model.options.layout.textColor,
@@ -1247,29 +1269,13 @@ export class ChartWidget implements Disposable {
         if (!this._paneWidget?.canvas) return;
         const paneRect = this._paneWidget.canvas.getBoundingClientRect();
 
-        if (!this._addTextTooltip) {
-            this._addTextTooltip = document.createElement('div');
-            this._addTextTooltip.style.cssText = `
-                position: fixed;
-                padding: 2px 4px;
-                background: transparent;
-                color: #787B86;
-                font-size: 12px;
-                font-weight: 400;
-                cursor: pointer;
-                pointer-events: auto;
-                white-space: nowrap;
-                z-index: 10000;
-                text-shadow: 0 0 4px rgba(0,0,0,0.8);
-                transform: translate(-50%, -50%);
-            `;
-            this._addTextTooltip.textContent = '+ Add Text';
-
-            this._addTextTooltip.addEventListener('click', () => {
+        // Initialize helper if needed
+        if (!this._addTextTooltipHelper) {
+            this._addTextTooltipHelper = new AddTextTooltipHelper(() => {
+                // Click handler - open settings modal with Text tab
                 if (this._hoveredDrawingForText) {
                     const d = this._drawingManager.drawings.find((dr: any) => dr.id === this._hoveredDrawingForText);
                     if (d && this._element) {
-                        // Open settings modal with Text tab
                         if (this._drawingSettingsModal) {
                             this._drawingSettingsModal.hide();
                         }
@@ -1277,45 +1283,37 @@ export class ChartWidget implements Disposable {
                         this._drawingSettingsModal.settingsChanged.subscribe(() => {
                             this._scheduleDraw();
                         });
-                        // Set default text if empty
                         if (!d.style.text) {
                             d.style.text = '';
                         }
                         this._drawingSettingsModal.show(d);
-                        // Click on Text tab after modal shows
                         setTimeout(() => {
                             const textTab = document.querySelector('button[data-tab-id="text"]') as HTMLButtonElement;
                             if (textTab) textTab.click();
                         }, 50);
                     }
                 }
-                this._hideAddTextTooltip();
             });
-
-            document.body.appendChild(this._addTextTooltip);
         }
 
-        // Position tooltip - calculate angle from line
+        // Calculate angle from line
+        let angle = 0;
         const pixelPoints = drawing.getPixelPoints?.();
         if (pixelPoints && pixelPoints.length >= 2) {
             const dx = pixelPoints[1].x - pixelPoints[0].x;
             const dy = pixelPoints[1].y - pixelPoints[0].y;
-            let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            angle = Math.atan2(dy, dx) * (180 / Math.PI);
             if (angle > 90) angle -= 180;
             if (angle < -90) angle += 180;
-            this._addTextTooltip.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
         }
 
-        this._addTextTooltip.style.left = `${paneRect.left + x}px`;
-        this._addTextTooltip.style.top = `${paneRect.top + y}px`;
-        this._addTextTooltip.style.display = 'block';
+        // Show at screen position
+        this._addTextTooltipHelper.show(paneRect.left + x, paneRect.top + y, angle);
     }
 
     /** Hide Add Text tooltip */
     private _hideAddTextTooltip(): void {
-        if (this._addTextTooltip) {
-            this._addTextTooltip.style.display = 'none';
-        }
+        this._addTextTooltipHelper?.hide();
     }
 
     private _onPaneDoubleClick(e: MouseEvent): void {

@@ -36,6 +36,13 @@ export class OverlayIndicatorRenderer {
     }
 
     /**
+     * Get current indicators
+     */
+    get indicators(): readonly OverlayIndicator[] {
+        return this._indicators;
+    }
+
+    /**
      * Draw all overlay indicators
      */
     draw(
