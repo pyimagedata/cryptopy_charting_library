@@ -32,7 +32,7 @@ import {
 } from '../drawings';
 
 /** Disposable interface for cleanup */
-interface Disposable {
+export interface Disposable {
     dispose(): void;
 }
 
