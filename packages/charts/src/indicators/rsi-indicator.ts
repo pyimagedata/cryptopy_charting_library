@@ -15,6 +15,15 @@
 
 import { PanelIndicator, IndicatorOptions, IndicatorRange } from './indicator';
 import { BarData } from '../model/data';
+import {
+    IndicatorSettingsConfig,
+    createInputsTab,
+    createStyleTab,
+    createVisibilityTab,
+    numberRow,
+    colorRow,
+    checkboxRow
+} from '../gui/indicator_settings';
 
 /**
  * RSI indicator options
@@ -96,6 +105,55 @@ export class RSIIndicator extends PanelIndicator {
         this._dataChanged.fire();
 
         return needsRecalc;
+    }
+
+    // --- Settings Configuration ---
+
+    /**
+     * Get settings configuration for the modal
+     */
+    getSettingsConfig(): IndicatorSettingsConfig {
+        return {
+            name: this.name,
+            tabs: [
+                createInputsTab([{
+                    rows: [
+                        numberRow('period', 'RSI Length', 1, 100, 1),
+                    ]
+                }]),
+                createStyleTab([{
+                    title: 'RSI Line',
+                    rows: [
+                        colorRow('color', 'Line Color'),
+                        numberRow('lineWidth', 'Line Width', 1, 5, 1),
+                    ]
+                }, {
+                    title: 'Levels',
+                    rows: [
+                        numberRow('overboughtLevel', 'Overbought', 50, 100, 1),
+                        colorRow('overboughtColor', 'Overbought Color'),
+                        numberRow('oversoldLevel', 'Oversold', 0, 50, 1),
+                        colorRow('oversoldColor', 'Oversold Color'),
+                        checkboxRow('showLevels', 'Show Levels', true),
+                    ]
+                }]),
+                createVisibilityTab()
+            ]
+        };
+    }
+
+    /**
+     * Get setting value by key
+     */
+    getSettingValue(key: string): any {
+        return (this._rsiOptions as any)[key];
+    }
+
+    /**
+     * Set setting value by key
+     */
+    setSettingValue(key: string, value: any): void {
+        this.updateOptions({ [key]: value } as any);
     }
 
     // --- Abstract implementations ---

@@ -153,52 +153,73 @@ export class ChartStateManager {
     saveState(): void {
         if (!this._currentSymbol) return;
 
-        const state: ChartState = {
+        // Save drawings per-symbol
+        const drawingState = {
             symbol: this._currentSymbol,
             drawings: this._drawingManager.serialize(),
+            savedAt: Date.now(),
+            version: CURRENT_VERSION,
+        };
+        this._storage.save(this._currentSymbol, JSON.stringify(drawingState));
+
+        // Save indicators globally (layout-based)
+        this._saveIndicatorsGlobal();
+
+        console.log(`Chart state saved for ${this._currentSymbol}:`,
+            drawingState.drawings.length, 'drawings');
+    }
+
+    /** Save indicators globally (not per-symbol) */
+    private _saveIndicatorsGlobal(): void {
+        const indicatorState = {
             indicators: this._indicatorManager.serialize(),
             savedAt: Date.now(),
             version: CURRENT_VERSION,
         };
-
-        const json = JSON.stringify(state);
-        this._storage.save(this._currentSymbol, json);
-
-        console.log(`Chart state saved for ${this._currentSymbol}:`,
-            state.drawings.length, 'drawings');
+        this._storage.save('_layout_indicators', JSON.stringify(indicatorState));
+        console.log(`Indicators saved globally:`, indicatorState.indicators.length, 'indicators');
     }
 
     /** Manually load state for current symbol */
     loadState(): void {
         if (!this._currentSymbol) return;
 
-        const json = this._storage.load(this._currentSymbol);
-        if (!json) {
-            console.log(`No saved state for ${this._currentSymbol}`);
-            // Clear existing drawings when switching to a symbol with no saved state
-            // Clear existing state
+        // Load drawings per-symbol
+        const drawingJson = this._storage.load(this._currentSymbol);
+        if (drawingJson) {
+            try {
+                const state = JSON.parse(drawingJson);
+                this._drawingManager.deserialize(state.drawings || []);
+                console.log(`Drawings loaded for ${this._currentSymbol}:`, state.drawings?.length || 0);
+            } catch (e) {
+                console.error('Failed to parse saved drawings:', e);
+                this._drawingManager.deserialize([]);
+            }
+        } else {
             this._drawingManager.deserialize([]);
-            this._indicatorManager.deserialize([]);
+        }
+
+        // Load indicators globally (only once, not on every symbol change)
+        // Skip if indicators already loaded
+        if (this._indicatorManager.allIndicators.length === 0) {
+            this._loadIndicatorsGlobal();
+        }
+    }
+
+    /** Load indicators from global storage */
+    private _loadIndicatorsGlobal(): void {
+        const indicatorJson = this._storage.load('_layout_indicators');
+        if (!indicatorJson) {
+            console.log('No saved indicators');
             return;
         }
 
         try {
-            const state: ChartState = JSON.parse(json);
-
-            // Version migration (for future use)
-            if (state.version !== CURRENT_VERSION) {
-                console.warn(`Migrating state from version ${state.version} to ${CURRENT_VERSION}`);
-                // Add migration logic here as needed
-            }
-
-            this._drawingManager.deserialize(state.drawings || []);
+            const state = JSON.parse(indicatorJson);
             this._indicatorManager.deserialize(state.indicators || []);
-
-            console.log(`Chart state loaded for ${this._currentSymbol}:`,
-                state.drawings?.length || 0, 'drawings,',
-                state.indicators?.length || 0, 'indicators');
+            console.log(`Indicators loaded globally:`, state.indicators?.length || 0);
         } catch (e) {
-            console.error('Failed to parse saved chart state:', e);
+            console.error('Failed to parse saved indicators:', e);
         }
     }
 

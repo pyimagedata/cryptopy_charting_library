@@ -2,7 +2,7 @@
  * Indicator Search Modal - Modern, clean TradingView-style design
  */
 
-import { Delegate } from '../helpers/delegate';
+import { Delegate } from '../../helpers/delegate';
 
 export interface IndicatorItem {
     id: string;

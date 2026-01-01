@@ -12,8 +12,8 @@ import { ContextMenu, ICONS } from './context-menu';
 import { ToolbarWidget, ChartType } from './toolbar-widget';
 import { SymbolSearch, SymbolInfo } from './symbol-search';
 import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, OverlayIndicator } from '../indicators';
-import { IndicatorSearchModal } from './indicator-search-modal';
-import { IndicatorSettingsModal, IndicatorSettingsConfig } from './indicator-settings-modal';
+import { IndicatorSearchModal } from './indicator_search';
+import { IndicatorSettingsModal, IndicatorSettings } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing-toolbar-widget';
 import { DrawingManager, DrawingMode } from '../drawings';
 import { FloatingAttributeBar } from './attribute_bar';
@@ -1656,94 +1656,12 @@ export class ChartWidget implements Disposable {
      */
     private _openIndicatorSettings(ind: any): void {
         this._editingIndicator = ind;
-        let config: IndicatorSettingsConfig | null = null;
 
-        if (ind instanceof RSIIndicator) {
-            const rsi = ind as RSIIndicator;
-            config = {
-                name: ind.name,
-                parameters: [
-                    { key: 'rsiLength', label: 'RSI Length', type: 'number', value: rsi.period, min: 1, max: 200, step: 1 },
-                    { key: 'oversold', label: 'Oversold', type: 'number', value: rsi.oversoldLevel, min: 0, max: 100 },
-                    { key: 'overbought', label: 'Overbought', type: 'number', value: rsi.overboughtLevel, min: 0, max: 100 },
-                    { key: 'showBands', label: 'Show Levels', type: 'boolean', value: rsi.rsiOptions.showLevels },
-                ],
-                styleParameters: [
-                    { key: 'lineColor', label: 'Line Color', type: 'color', value: rsi.rsiOptions.color || '#9c27b0' },
-                    { key: 'lineWidth', label: 'Line Width', type: 'number', value: rsi.rsiOptions.lineWidth || 2, min: 1, max: 5 },
-                    { key: 'upperBandColor', label: 'Overbought Line', type: 'color', value: rsi.rsiOptions.overboughtColor || 'rgba(239, 83, 80, 0.5)' },
-                    { key: 'lowerBandColor', label: 'Oversold Line', type: 'color', value: rsi.rsiOptions.oversoldColor || 'rgba(38, 166, 154, 0.5)' },
-                ]
-            };
-        } else if (ind instanceof EMAIndicator) {
-            const ema = ind as EMAIndicator;
-            config = {
-                name: ind.name,
-                parameters: [
-                    { key: 'length', label: 'Length', type: 'number', value: ema.period, min: 1, max: 500, step: 1 },
-                ],
-                styleParameters: [
-                    { key: 'lineColor', label: 'Line Color', type: 'color', value: ema.emaOptions.color || '#2962ff' },
-                    { key: 'lineWidth', label: 'Line Width', type: 'number', value: ema.emaOptions.lineWidth || 2, min: 1, max: 5 },
-                ]
-            };
-        } else if (ind instanceof SMAIndicator) {
-            const sma = ind as SMAIndicator;
-            config = {
-                name: ind.name,
-                parameters: [
-                    { key: 'length', label: 'Length', type: 'number', value: sma.period, min: 1, max: 500, step: 1 },
-                ],
-                styleParameters: [
-                    { key: 'lineColor', label: 'Line Color', type: 'color', value: sma.smaOptions.color || '#f23645' },
-                    { key: 'lineWidth', label: 'Line Width', type: 'number', value: sma.smaOptions.lineWidth || 2, min: 1, max: 5 },
-                ]
-            };
-        } else if (ind instanceof BBIndicator) {
-            const bb = ind as BBIndicator;
-            config = {
-                name: ind.name,
-                parameters: [
-                    { key: 'period', label: 'Period', type: 'number', value: bb.bbOptions.period, min: 1, max: 500, step: 1 },
-                    { key: 'stdDev', label: 'StdDev', type: 'number', value: bb.bbOptions.stdDev, min: 0.1, max: 10, step: 0.1 },
-                ],
-                styleParameters: [
-                    { key: 'lineColor', label: 'Middle Band', type: 'color', value: bb.bbOptions.color || '#2962ff' },
-                    { key: 'lineWidth', label: 'Line Width', type: 'number', value: bb.bbOptions.lineWidth || 1, min: 1, max: 5 },
-                ]
-            };
-        } else if (ind instanceof MACDIndicator) {
-            const macd = ind as MACDIndicator;
-            config = {
-                name: ind.name,
-                parameters: [
-                    { key: 'fastLength', label: 'Fast Length', type: 'number', value: macd.macdOptions.fastPeriod, min: 1, max: 500, step: 1 },
-                    { key: 'slowLength', label: 'Slow Length', type: 'number', value: macd.macdOptions.slowPeriod, min: 1, max: 500, step: 1 },
-                    { key: 'signalLength', label: 'Signal Range', type: 'number', value: macd.macdOptions.signalPeriod, min: 1, max: 100, step: 1 },
-                ],
-                styleParameters: [
-                    { key: 'lineColor', label: 'MACD Color', type: 'color', value: macd.options.color || '#2196f3' },
-                    { key: 'lineWidth', label: 'Line Width', type: 'number', value: macd.options.lineWidth || 1.5, min: 1, max: 5 },
-                ]
-            };
-        } else if (ind instanceof StochIndicator) {
-            const stoch = ind as StochIndicator;
-            config = {
-                name: ind.name,
-                parameters: [
-                    { key: 'kLength', label: '%K Length', type: 'number', value: stoch.stochOptions.kPeriod, min: 1, max: 200 },
-                    { key: 'sLength', label: '%K Smoothing', type: 'number', value: stoch.stochOptions.sPeriod, min: 1, max: 50 },
-                    { key: 'dLength', label: '%D Smoothing', type: 'number', value: stoch.stochOptions.dPeriod, min: 1, max: 50 },
-                ],
-                styleParameters: [
-                    { key: 'lineColor', label: '%K Color', type: 'color', value: stoch.options.color || '#2196f3' },
-                    { key: 'lineWidth', label: 'Line Width', type: 'number', value: stoch.options.lineWidth || 1.5, min: 1, max: 5 },
-                ]
-            };
-        }
-
-        if (config) {
-            this._indicatorSettingsModal?.show(config);
+        // Check if indicator has modular settings (implements getSettingsConfig)
+        if (typeof ind.getSettingsConfig === 'function') {
+            this._indicatorSettingsModal?.showForIndicator(ind);
+        } else {
+            console.warn('Indicator does not implement getSettingsConfig:', ind.name);
         }
     }
 

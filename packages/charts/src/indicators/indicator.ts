@@ -107,6 +107,90 @@ export abstract class Indicator {
         return this._options.visible;
     }
 
+    // --- Settings Provider Methods (IndicatorSettingsProvider interface) ---
+
+    /**
+     * Get settings configuration - auto-generates from options
+     * Subclasses can override for custom settings UI
+     */
+    getSettingsConfig(): any {
+        const inputRows: any[] = [];
+        const styleRows: any[] = [];
+
+        // Get all options from the indicator
+        const allOptions = this._getAllOptions();
+
+        for (const [key, value] of Object.entries(allOptions)) {
+            // Skip internal/readonly options
+            if (['id', 'name', 'type'].includes(key)) continue;
+
+            if (typeof value === 'number') {
+                if (key.toLowerCase().includes('period') || key.toLowerCase().includes('length')) {
+                    inputRows.push({ type: 'number', key, label: this._formatLabel(key), min: 1, max: 500, step: 1 });
+                } else if (key.toLowerCase().includes('width')) {
+                    styleRows.push({ type: 'number', key, label: this._formatLabel(key), min: 1, max: 5, step: 1 });
+                } else if (key.toLowerCase().includes('level')) {
+                    inputRows.push({ type: 'number', key, label: this._formatLabel(key), min: 0, max: 100, step: 1 });
+                } else {
+                    inputRows.push({ type: 'number', key, label: this._formatLabel(key) });
+                }
+            } else if (typeof value === 'string' && (value.startsWith('#') || value.startsWith('rgb'))) {
+                styleRows.push({ type: 'color', key, label: this._formatLabel(key), defaultValue: value });
+            } else if (typeof value === 'boolean') {
+                inputRows.push({ type: 'checkbox', key, label: this._formatLabel(key), defaultValue: value });
+            }
+        }
+
+        return {
+            name: this.name,
+            tabs: [
+                { id: 'inputs', label: 'Inputs', sections: [{ rows: inputRows }] },
+                { id: 'style', label: 'Style', sections: [{ rows: styleRows }] },
+                { id: 'visibility', label: 'Visibility', sections: [{ rows: [{ type: 'checkbox', key: 'visible', label: 'Visible', defaultValue: true }] }] }
+            ]
+        };
+    }
+
+    /**
+     * Get all options including subclass-specific options
+     */
+    protected _getAllOptions(): Record<string, any> {
+        return { ...this._options };
+    }
+
+    /**
+     * Format key to readable label (e.g., 'lineWidth' -> 'Line Width')
+     */
+    private _formatLabel(key: string): string {
+        return key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/^./, str => str.toUpperCase())
+            .trim();
+    }
+
+    /**
+     * Get setting value by key
+     */
+    getSettingValue(key: string): any {
+        const allOptions = this._getAllOptions();
+        return allOptions[key];
+    }
+
+    /**
+     * Set setting value by key
+     */
+    setSettingValue(key: string, value: any): void {
+        // Update options
+        (this._options as any)[key] = value;
+
+        // Recalculate if needed
+        if (this._sourceData.length > 0) {
+            this.calculate(this._sourceData);
+        }
+
+        this._dataChanged.fire();
+    }
+
     // --- Abstract methods ---
 
     /**

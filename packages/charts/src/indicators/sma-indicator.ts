@@ -66,6 +66,20 @@ export class SMAIndicator extends OverlayIndicator {
         return needsRecalc;
     }
 
+    /**
+     * Override to include SMA-specific options
+     */
+    protected _getAllOptions(): Record<string, any> {
+        return { ...this._smaOptions };
+    }
+
+    /**
+     * Override setSettingValue to use updateOptions
+     */
+    setSettingValue(key: string, value: any): void {
+        this.updateOptions({ [key]: value } as any);
+    }
+
     private _getSourcePrice(bar: BarData): number {
         switch (this._smaOptions.source) {
             case 'open': return bar.open;

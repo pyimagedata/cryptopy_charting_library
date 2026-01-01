@@ -81,6 +81,20 @@ export class EMAIndicator extends OverlayIndicator {
         return needsRecalc;
     }
 
+    /**
+     * Override to include EMA-specific options
+     */
+    protected _getAllOptions(): Record<string, any> {
+        return { ...this._emaOptions };
+    }
+
+    /**
+     * Override setSettingValue to use updateOptions
+     */
+    setSettingValue(key: string, value: any): void {
+        this.updateOptions({ [key]: value } as any);
+    }
+
     // --- Helper to get source price ---
 
     private _getSourcePrice(bar: BarData): number {

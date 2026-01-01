@@ -1905,7 +1905,7 @@ export class PaneWidget implements Disposable {
         let overlayIndicatorsHtml = '';
         const overlayIndicators = this._overlayRenderer.indicators;
         if (overlayIndicators.length > 0) {
-            overlayIndicatorsHtml = '<div style="margin-top: 16px;">';
+            overlayIndicatorsHtml = '<div style="margin-top: 32px; display: flex; flex-direction: column;">';
             for (let i = 0; i < overlayIndicators.length; i++) {
                 const indicator = overlayIndicators[i];
                 const color = indicator.options.color || '#2962ff';
@@ -1928,10 +1928,10 @@ export class PaneWidget implements Disposable {
                 const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" d="M7.5 4a.5.5 0 0 0-.5.5V5h4v-.5a.5.5 0 0 0-.5-.5h-3ZM12 5h3v1h-1.05l-.85 7.67A1.5 1.5 0 0 1 11.6 15H6.4a1.5 1.5 0 0 1-1.5-1.33L4.05 6H3V5h3v-.5C6 3.67 6.67 3 7.5 3h3c.83 0 1.5.67 1.5 1.5V5ZM5.06 6l.84 7.56a.5.5 0 0 0 .5.44h5.2a.5.5 0 0 0 .5-.44L12.94 6H5.06Z"></path></svg>`;
 
                 overlayIndicatorsHtml += `
-                    <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: inline-flex; align-items: center; font-size: 12px; margin-bottom: 6px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
-                        <span style="color: ${color}; font-weight: 500;">${name}</span>
-                        <span style="color: ${color}; margin-left: 6px;">${valueText}</span>
-                        <div class="overlay-btn-group" style="display: none; align-items: center; gap: 4px; margin-left: 8px;">
+                    <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: flex; align-items: center; font-size: 12px; height: 20px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
+                        <span style="color: #d1d4dc; font-weight: 500;">${name}</span>
+                        <span style="color: #d1d4dc; margin-left: 6px;">${valueText}</span>
+                        <div class="overlay-btn-group" style="visibility: hidden; display: flex; align-items: center; gap: 4px; margin-left: 8px;">
                             <button class="overlay-btn overlay-toggle-btn" data-action="toggle" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Toggle visibility">${eyeIcon}</button>
                             <button class="overlay-btn overlay-settings-btn" data-action="settings" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Settings">${settingsIcon}</button>
                             <button class="overlay-btn overlay-remove-btn" data-action="remove" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Remove">${removeIcon}</button>
@@ -1983,10 +1983,10 @@ export class PaneWidget implements Disposable {
                 const btnGroup = row.querySelector('.overlay-btn-group') as HTMLElement;
                 if (btnGroup) {
                     row.addEventListener('mouseenter', () => {
-                        btnGroup.style.display = 'flex';
+                        btnGroup.style.visibility = 'visible';
                     });
                     row.addEventListener('mouseleave', () => {
-                        btnGroup.style.display = 'none';
+                        btnGroup.style.visibility = 'hidden';
                     });
                 }
             });
