@@ -60,6 +60,13 @@ export class StochIndicator extends PanelIndicator {
         return needsRecalc;
     }
 
+    /**
+     * Set setting value by key
+     */
+    setSettingValue(key: string, value: any): boolean {
+        return this.updateOptions({ [key]: value } as any);
+    }
+
     calculate(sourceData: BarData[]): void {
         this._data = [];
         const { kPeriod, dPeriod, sPeriod } = this._stochOptions;

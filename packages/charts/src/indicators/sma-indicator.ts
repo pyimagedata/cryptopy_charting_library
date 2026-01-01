@@ -76,8 +76,8 @@ export class SMAIndicator extends OverlayIndicator {
     /**
      * Override setSettingValue to use updateOptions
      */
-    setSettingValue(key: string, value: any): void {
-        this.updateOptions({ [key]: value } as any);
+    setSettingValue(key: string, value: any): boolean {
+        return this.updateOptions({ [key]: value } as any);
     }
 
     private _getSourcePrice(bar: BarData): number {

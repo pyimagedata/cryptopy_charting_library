@@ -23,8 +23,8 @@ export interface IndicatorSettingsProvider {
     /** Get current value for a setting key */
     getSettingValue(key: string): any;
 
-    /** Apply a setting value */
-    setSettingValue(key: string, value: any): void;
+    /** Apply a setting value. Returns true if recalculation is needed. */
+    setSettingValue(key: string, value: any): boolean;
 }
 
 /** Collected settings from modal */

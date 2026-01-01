@@ -157,87 +157,13 @@ export class ChartWidget implements Disposable {
 
         // Initialize indicator settings modal
         this._indicatorSettingsModal = new IndicatorSettingsModal(this._container);
-        this._indicatorSettingsModal.settingsChanged.subscribe((settings) => {
+        this._indicatorSettingsModal.settingsChanged.subscribe(() => {
             if (this._editingIndicator) {
-                if (this._editingIndicator instanceof RSIIndicator) {
-                    const rsi = this._editingIndicator as RSIIndicator;
+                // Modular modal already updated the indicator. 
+                // We just need to trigger a redraw and save state.
 
-                    // Map settings to RSI options
-                    const rsiSettings: Partial<typeof rsi.rsiOptions> = {};
-
-                    if (settings.rsiLength !== undefined) {
-                        rsiSettings.period = settings.rsiLength as number;
-                    }
-                    if (settings.oversold !== undefined) {
-                        rsiSettings.oversoldLevel = settings.oversold as number;
-                    }
-                    if (settings.overbought !== undefined) {
-                        rsiSettings.overboughtLevel = settings.overbought as number;
-                    }
-                    if (settings.lineColor !== undefined) {
-                        rsiSettings.color = settings.lineColor as string;
-                    }
-                    if (settings.lineWidth !== undefined) {
-                        rsiSettings.lineWidth = settings.lineWidth as number;
-                    }
-                    if (settings.upperBandColor !== undefined) {
-                        rsiSettings.overboughtColor = settings.upperBandColor as string;
-                    }
-                    if (settings.lowerBandColor !== undefined) {
-                        rsiSettings.oversoldColor = settings.lowerBandColor as string;
-                    }
-                    if (settings.showBands !== undefined) {
-                        rsiSettings.showLevels = settings.showBands as boolean;
-                    }
-
-                    // Apply settings
-                    const needsRecalc = rsi.updateOptions(rsiSettings);
-
-                    // Recalculate if period changed
-                    if (needsRecalc) {
-                        this._indicatorManager.recalculateIndicator(rsi.id);
-                    }
-                } else if (this._editingIndicator instanceof EMAIndicator || this._editingIndicator instanceof SMAIndicator) {
-                    const ind = this._editingIndicator as EMAIndicator | SMAIndicator;
-                    const indSettings: any = {};
-
-                    if (settings.length !== undefined) indSettings.period = settings.length as number;
-                    if (settings.source !== undefined) indSettings.source = settings.source as string;
-                    if (settings.lineColor !== undefined) indSettings.color = settings.lineColor as string;
-                    if (settings.lineWidth !== undefined) indSettings.lineWidth = settings.lineWidth as number;
-
-                    const needsRecalc = ind.updateOptions(indSettings);
-                    if (needsRecalc) this._indicatorManager.recalculateIndicator(ind.id);
-                } else if (this._editingIndicator instanceof BBIndicator) {
-                    const bb = this._editingIndicator as BBIndicator;
-                    const bbSettings: any = {};
-                    if (settings.period !== undefined) bbSettings.period = settings.period as number;
-                    if (settings.stdDev !== undefined) bbSettings.stdDev = settings.stdDev as number;
-                    if (settings.lineColor !== undefined) bbSettings.color = settings.lineColor as string;
-                    if (settings.lineWidth !== undefined) bbSettings.lineWidth = settings.lineWidth as number;
-                    const needsRecalc = bb.updateOptions(bbSettings);
-                    if (needsRecalc) this._indicatorManager.recalculateIndicator(bb.id);
-                } else if (this._editingIndicator instanceof MACDIndicator) {
-                    const macd = this._editingIndicator as MACDIndicator;
-                    const macdSettings: any = {};
-                    if (settings.fastLength !== undefined) macdSettings.fastPeriod = settings.fastLength as number;
-                    if (settings.slowLength !== undefined) macdSettings.slowPeriod = settings.slowLength as number;
-                    if (settings.signalLength !== undefined) macdSettings.signalPeriod = settings.signalLength as number;
-                    if (settings.lineColor !== undefined) macdSettings.color = settings.lineColor as string;
-                    if (settings.lineWidth !== undefined) macdSettings.lineWidth = settings.lineWidth as number;
-                    const needsRecalc = macd.updateOptions(macdSettings);
-                    if (needsRecalc) this._indicatorManager.recalculateIndicator(macd.id);
-                } else if (this._editingIndicator instanceof StochIndicator) {
-                    const stoch = this._editingIndicator as StochIndicator;
-                    const stochSettings: any = {};
-                    if (settings.kLength !== undefined) stochSettings.kPeriod = settings.kLength as number;
-                    if (settings.sLength !== undefined) stochSettings.sPeriod = settings.sLength as number;
-                    if (settings.dLength !== undefined) stochSettings.dPeriod = settings.dLength as number;
-                    if (settings.lineColor !== undefined) stochSettings.color = settings.lineColor as string;
-                    if (settings.lineWidth !== undefined) stochSettings.lineWidth = settings.lineWidth as number;
-                    const needsRecalc = stoch.updateOptions(stochSettings);
-                    if (needsRecalc) this._indicatorManager.recalculateIndicator(stoch.id);
-                }
+                // Recalculate if it was an input change (modular modal handled setSettingValue)
+                this._indicatorManager.recalculateIndicator(this._editingIndicator.id);
 
                 this._updateMainLegend();
                 this._scheduleDraw();

@@ -178,17 +178,30 @@ export abstract class Indicator {
 
     /**
      * Set setting value by key
+     * @returns true if the change requires a recalculation (e.g. period change)
      */
-    setSettingValue(key: string, value: any): void {
+    setSettingValue(key: string, value: any): boolean {
+        const oldValue = (this._options as any)[key];
+        if (oldValue === value) return false;
+
         // Update options
         (this._options as any)[key] = value;
 
-        // Recalculate if needed
-        if (this._sourceData.length > 0) {
+        // Determine if recalculation is needed (default: any number change is usually a recalc)
+        // Subclasses can override this logic or the whole method
+        const needsRecalc = typeof value === 'number' &&
+            (key.toLowerCase().includes('period') ||
+                key.toLowerCase().includes('length') ||
+                key.toLowerCase().includes('source') ||
+                key.toLowerCase().includes('dev'));
+
+        // Recalculate if needed and we have data
+        if (needsRecalc && this._sourceData.length > 0) {
             this.calculate(this._sourceData);
         }
 
         this._dataChanged.fire();
+        return needsRecalc;
     }
 
     // --- Abstract methods ---

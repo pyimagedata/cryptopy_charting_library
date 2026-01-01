@@ -152,8 +152,8 @@ export class RSIIndicator extends PanelIndicator {
     /**
      * Set setting value by key
      */
-    setSettingValue(key: string, value: any): void {
-        this.updateOptions({ [key]: value } as any);
+    setSettingValue(key: string, value: any): boolean {
+        return this.updateOptions({ [key]: value } as any);
     }
 
     // --- Abstract implementations ---

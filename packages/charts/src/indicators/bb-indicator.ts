@@ -62,6 +62,13 @@ export class BBIndicator extends OverlayIndicator {
         return needsRecalc;
     }
 
+    /**
+     * Set setting value by key
+     */
+    setSettingValue(key: string, value: any): boolean {
+        return this.updateOptions({ [key]: value } as any);
+    }
+
     private _getSourcePrice(bar: BarData): number {
         switch (this._bbOptions.source) {
             case 'open': return bar.open;
