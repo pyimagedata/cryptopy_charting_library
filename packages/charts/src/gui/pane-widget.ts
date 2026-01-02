@@ -37,7 +37,10 @@ import {
     CircleDrawing,
     PolylineDrawing,
     CurveDrawing,
-    XABCDPatternDrawing
+    XABCDPatternDrawing,
+    ElliottImpulseDrawing,
+    ElliottCorrectionDrawing,
+    ThreeDrivesDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -566,12 +569,20 @@ export class PaneWidget implements Disposable {
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     this._drawCurve(ctx, curveDrawing, pixelPoints, dpr, showControlPoints);
                 }
-            } else if (drawing.type === 'xabcdPattern') {
+            } else if (drawing.type === 'xabcdPattern' || drawing.type === 'elliotImpulse' || drawing.type === 'elliotCorrection' || drawing.type === 'threeDrives') {
                 if (pixelPoints.length >= 2) {
-                    const xabcdDrawing = drawing as XABCDPatternDrawing;
-                    xabcdDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const patternDrawing = drawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing;
+                    patternDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawXABCDPattern(ctx, xabcdDrawing, pixelPoints, dpr, showControlPoints);
+                    let labels: string[] = [];
+                    if (drawing.type === 'xabcdPattern') {
+                        labels = ['X', 'A', 'B', 'C', 'D'];
+                    } else if (drawing.type === 'elliotImpulse') {
+                        labels = ['(0)', '(1)', '(2)', '(3)', '(4)', '(5)'];
+                    } else if (drawing.type === 'elliotCorrection') {
+                        labels = ['(0)', '(A)', '(B)', '(C)'];
+                    } // threeDrives has no labels
+                    this._drawPatternWave(ctx, patternDrawing, pixelPoints, dpr, showControlPoints, labels);
                 }
             }
         }
@@ -2768,16 +2779,15 @@ export class PaneWidget implements Disposable {
         }
     }
 
-    private _drawXABCDPattern(
+    private _drawPatternWave(
         ctx: CanvasRenderingContext2D,
-        drawing: XABCDPatternDrawing,
+        drawing: XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing,
         pixelPoints: { x: number; y: number }[],
         dpr: number,
-        showControlPoints: boolean
+        showControlPoints: boolean,
+        labels: string[]
     ): void {
         if (pixelPoints.length < 2) return;
-
-        const labels = ['X', 'A', 'B', 'C', 'D'];
 
         // Draw fills: XAB triangle and BCD triangle (NOT XBD area)
         if (drawing.style.fillColor) {
@@ -2816,8 +2826,8 @@ export class PaneWidget implements Disposable {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Draw X-B and A-C connecting lines (dashed)
-        if (pixelPoints.length >= 3) {
+        // Draw X-B, A-C, B-D, X-D connecting lines (dashed) - ONLY for XABCD pattern
+        if (drawing.type === 'xabcdPattern' && pixelPoints.length >= 3) {
             ctx.beginPath();
             ctx.setLineDash([4 * dpr, 4 * dpr]);
             ctx.strokeStyle = drawing.style.color;
@@ -2841,6 +2851,29 @@ export class PaneWidget implements Disposable {
                 // X-D line
                 ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
                 ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y);
+            }
+
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw dashed connecting lines for Three Drives (valleys: points 1, 3, 5)
+        if (drawing.type === 'threeDrives' && pixelPoints.length >= 4) {
+            ctx.beginPath();
+            ctx.setLineDash([4 * dpr, 4 * dpr]);
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 1 * dpr;
+
+            // Connect valleys: point 1 → point 3 (indices 1 and 3)
+            if (pixelPoints.length >= 4) {
+                ctx.moveTo(pixelPoints[1].x, pixelPoints[1].y);
+                ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y);
+            }
+
+            // Connect valleys: point 3 → point 5 (indices 3 and 5)
+            if (pixelPoints.length >= 6) {
+                ctx.moveTo(pixelPoints[3].x, pixelPoints[3].y);
+                ctx.lineTo(pixelPoints[5].x, pixelPoints[5].y);
             }
 
             ctx.stroke();

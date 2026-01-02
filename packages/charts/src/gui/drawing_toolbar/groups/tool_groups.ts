@@ -125,6 +125,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
         defaultIcon: DRAWING_ICONS.xabcdPattern,
         tools: [
             { id: 'xabcdPattern', name: 'XABCD Pattern', icon: DRAWING_ICONS.xabcdPattern, favorite: true },
+            { id: 'elliotImpulse', name: 'Elliott Impulse Wave (12345)', icon: DRAWING_ICONS.elliottImpulse, favorite: true },
         ]
     },
     {

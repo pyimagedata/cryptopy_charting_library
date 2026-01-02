@@ -72,7 +72,10 @@ export type DrawingType =
     | 'circle'
     | 'polyline'
     | 'curve'
-    | 'xabcdPattern';
+    | 'xabcdPattern'
+    | 'elliotImpulse'
+    | 'elliotCorrection'
+    | 'threeDrives';
 
 /** Drawing state */
 export type DrawingState = 'creating' | 'complete' | 'selected' | 'editing';

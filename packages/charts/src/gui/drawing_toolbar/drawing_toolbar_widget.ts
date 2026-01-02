@@ -200,8 +200,7 @@ const TOOL_GROUPS: ToolGroup[] = [
         defaultIcon: DRAWING_ICONS.xabcd,
         tools: [
             { id: 'xabcd', name: 'XABCD Pattern', icon: DRAWING_ICONS.xabcd },
-            { id: 'cypher', name: 'Cypher Pattern', icon: DRAWING_ICONS.cypher },
-            { id: 'elliotImpulse', name: 'Elliot Impulse Wave (12345)', icon: DRAWING_ICONS.elliotImpulse },
+            { id: 'elliotImpulse', name: 'Elliott Impulse Wave (12345)', icon: DRAWING_ICONS.elliotImpulse },
             { id: 'elliotCorrection', name: 'Elliot Correction Wave (ABC)', icon: DRAWING_ICONS.elliotCorrection },
             { id: 'threeDrives', name: 'Three Drives Pattern', icon: DRAWING_ICONS.threeDrives },
             { id: 'headShoulders', name: 'Head & Shoulders', icon: DRAWING_ICONS.headShoulders },

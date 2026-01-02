@@ -33,6 +33,9 @@ import { CircleDrawing } from './circle-drawing';
 import { PolylineDrawing } from './polyline-drawing';
 import { CurveDrawing } from './curve-drawing';
 import { XABCDPatternDrawing } from './xabcd-pattern-drawing';
+import { ElliottImpulseDrawing } from './elliott-impulse-drawing';
+import { ElliottCorrectionDrawing } from './elliott-correction-drawing';
+import { ThreeDrivesDrawing } from './three-drives-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -231,6 +234,15 @@ export class DrawingManager {
             case 'xabcdPattern':
                 drawing = new XABCDPatternDrawing();
                 break;
+            case 'elliotImpulse':
+                drawing = new ElliottImpulseDrawing();
+                break;
+            case 'elliotCorrection':
+                drawing = new ElliottCorrectionDrawing();
+                break;
+            case 'threeDrives':
+                drawing = new ThreeDrivesDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -335,25 +347,32 @@ export class DrawingManager {
             }
         }
 
-        // Handle XABCD pattern (5 points: X, A, B, C, D)
-        if (this._activeDrawing.type === 'xabcdPattern') {
-            const xabcdDrawing = this._activeDrawing as XABCDPatternDrawing;
+        // Handle multi-point patterns (XABCD, Elliott, Three Drives)
+        if (this._activeDrawing.type === 'xabcdPattern' ||
+            this._activeDrawing.type === 'elliotImpulse' ||
+            this._activeDrawing.type === 'elliotCorrection' ||
+            this._activeDrawing.type === 'threeDrives') {
+            const patternDrawing = this._activeDrawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing;
 
             // If there's a preview point, confirm it and update to click position
-            if (xabcdDrawing.points.length > 0) {
+            if (patternDrawing.points.length > 0) {
                 // Update the last point to exact click position
-                const lastIdx = xabcdDrawing.points.length - 1;
-                xabcdDrawing.points[lastIdx] = { time, price };
+                const lastIdx = patternDrawing.points.length - 1;
+                patternDrawing.points[lastIdx] = { time, price };
 
                 // Confirm the preview (reset preview index)
-                if (typeof xabcdDrawing.confirmPreviewPoint === 'function') {
-                    xabcdDrawing.confirmPreviewPoint();
+                if (typeof patternDrawing.confirmPreviewPoint === 'function') {
+                    patternDrawing.confirmPreviewPoint();
                 }
             }
 
-            // Check if drawing is complete (5 points)
-            if (xabcdDrawing.points.length >= 5) {
-                xabcdDrawing.state = 'complete';
+            // Check if drawing is complete (5 for XABCD, 6 for Elliott Impulse, 4 for Correction, 7 for Three Drives)
+            let requiredPoints = 5;
+            if (this._activeDrawing.type === 'elliotImpulse') requiredPoints = 6;
+            else if (this._activeDrawing.type === 'elliotCorrection') requiredPoints = 4;
+            else if (this._activeDrawing.type === 'threeDrives') requiredPoints = 7;
+            if (patternDrawing.points.length >= requiredPoints) {
+                patternDrawing.state = 'complete';
                 this._activeDrawing = null;
                 this._mode = 'none';
                 this._modeChanged.fire('none');
@@ -862,6 +881,15 @@ export class DrawingManager {
                     break;
                 case 'xabcdPattern':
                     drawing = XABCDPatternDrawing.fromJSON(item);
+                    break;
+                case 'elliotImpulse':
+                    drawing = ElliottImpulseDrawing.fromJSON(item);
+                    break;
+                case 'elliotCorrection':
+                    drawing = ElliottCorrectionDrawing.fromJSON(item);
+                    break;
+                case 'threeDrives':
+                    drawing = ThreeDrivesDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:

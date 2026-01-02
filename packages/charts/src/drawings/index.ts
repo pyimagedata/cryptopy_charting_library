@@ -35,3 +35,6 @@ export * from './circle-drawing';
 export * from './polyline-drawing';
 export * from './curve-drawing';
 export * from './xabcd-pattern-drawing';
+export * from './elliott-impulse-drawing';
+export * from './elliott-correction-drawing';
+export * from './three-drives-drawing';

@@ -580,7 +580,6 @@ export class ChartWidget implements Disposable {
                 'horizontalRay': 'horizontalRay',
                 'crossLine': 'crossLine',
                 'xabcd': 'xabcdPattern',
-                'cypher': 'cypher',
                 'elliotImpulse': 'elliotImpulse',
                 'elliotCorrection': 'elliotCorrection',
                 'threeDrives': 'threeDrives',
