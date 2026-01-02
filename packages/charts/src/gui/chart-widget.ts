@@ -565,6 +565,8 @@ export class ChartWidget implements Disposable {
                 'ellipse': 'ellipse',
                 'triangle': 'triangle',
                 'arc': 'arc',
+                'path': 'path',
+                'circle': 'circle',
                 'fibRetracement': 'fibRetracement',
                 'fibExtension': 'fibExtension',
                 'fibChannel': 'fibChannel',
@@ -1082,8 +1084,16 @@ export class ChartWidget implements Disposable {
             }
         }
 
-        // Escape to deselect drawing or cancel current mode
+        // Escape to deselect drawing, finish path, or cancel current mode
         if (e.key === 'Escape') {
+            // Check if we're drawing a path - finish it properly
+            const activeDrawing = this._drawingManager.activeDrawing;
+            if (activeDrawing && activeDrawing.type === 'path') {
+                this._drawingManager.finishPathDrawing();
+                this._scheduleDraw();
+                return;
+            }
+
             // Try to deselect selected drawing
             const selected = this._drawingManager.selectedDrawing;
             if (selected) {

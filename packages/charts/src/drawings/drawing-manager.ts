@@ -28,6 +28,8 @@ import { RotatedRectangleDrawing } from './rotated-rectangle-drawing';
 import { EllipseDrawing } from './ellipse-drawing';
 import { TriangleDrawing } from './triangle-drawing';
 import { ArcDrawing } from './arc-drawing';
+import { PathDrawing } from './path-drawing';
+import { CircleDrawing } from './circle-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -211,6 +213,12 @@ export class DrawingManager {
             case 'arc':
                 drawing = new ArcDrawing();
                 break;
+            case 'path':
+                drawing = new PathDrawing();
+                break;
+            case 'circle':
+                drawing = new CircleDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -300,6 +308,21 @@ export class DrawingManager {
             }
         }
 
+        // Handle path drawing (multi-point polyline - click adds points, ESC finishes)
+        if (this._activeDrawing.type === 'path') {
+            const pathDrawing = this._activeDrawing as any;
+
+            // Confirm current preview point
+            if (typeof pathDrawing.confirmPreviewPoint === 'function') {
+                pathDrawing.confirmPreviewPoint();
+            }
+
+            // Path keeps adding points - never auto-completes
+            // User must press ESC to finish
+            this._drawingsChanged.fire();
+            return;
+        }
+
         // Handle brush and highlighter drawing (finish stroke on mouse up)
         if (this._activeDrawing.type === 'brush' || this._activeDrawing.type === 'highlighter') {
             const pathDrawing = this._activeDrawing as (BrushDrawing | HighlighterDrawing);
@@ -370,6 +393,29 @@ export class DrawingManager {
         this._activeDrawing = null;
         this._selectedDrawing = null;
         this._selectionChanged.fire(null);
+        this._drawingsChanged.fire();
+    }
+
+    /** Finish path drawing (called when ESC is pressed during path creation) */
+    finishPathDrawing(): void {
+        if (!this._activeDrawing || this._activeDrawing.type !== 'path') return;
+
+        const pathDrawing = this._activeDrawing as any;
+        if (typeof pathDrawing.finishPath === 'function') {
+            pathDrawing.finishPath();
+        }
+
+        // Keep the drawing if it has at least 2 points
+        if (pathDrawing.points.length >= 2) {
+            pathDrawing.state = 'complete';
+        } else {
+            // Not enough points - remove the drawing
+            this._drawings.delete(this._activeDrawing.id);
+        }
+
+        this._activeDrawing = null;
+        this._mode = 'none';
+        this._modeChanged.fire('none');
         this._drawingsChanged.fire();
     }
 
@@ -647,6 +693,12 @@ export class DrawingManager {
                     break;
                 case 'arc':
                     drawing = ArcDrawing.fromJSON(item);
+                    break;
+                case 'path':
+                    drawing = PathDrawing.fromJSON(item);
+                    break;
+                case 'circle':
+                    drawing = CircleDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:

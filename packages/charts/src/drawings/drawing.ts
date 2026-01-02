@@ -67,7 +67,9 @@ export type DrawingType =
     | 'rotatedRectangle'
     | 'ellipse'
     | 'triangle'
-    | 'arc';
+    | 'arc'
+    | 'path'
+    | 'circle';
 
 /** Drawing state */
 export type DrawingState = 'creating' | 'complete' | 'selected' | 'editing';

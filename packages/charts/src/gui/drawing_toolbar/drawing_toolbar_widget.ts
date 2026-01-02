@@ -448,9 +448,14 @@ export class DrawingToolbarWidget {
                 border-radius: 4px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);
                 min-width: 200px;
+                max-height: calc(100vh - 100px);
+                overflow-y: auto;
                 padding: 4px 0;
                 z-index: 1000;
             }
+            .drawing-flyout::-webkit-scrollbar { width: 6px; }
+            .drawing-flyout::-webkit-scrollbar-track { background: transparent; }
+            .drawing-flyout::-webkit-scrollbar-thumb { background: #2a2e39; border-radius: 3px; }
             .drawing-flyout-header {
                 padding: 8px 12px;
                 color: #787b86;
@@ -653,10 +658,21 @@ export class DrawingToolbarWidget {
         flyout.style.pointerEvents = 'auto';
 
         // Position flyout
-        const rect = anchorBtn.getBoundingClientRect();
-        const containerRect = this._element!.parentElement!.getBoundingClientRect();
-        flyout.style.top = `${rect.top - containerRect.top}px`;
         flyout.style.left = '48px';
+
+        // Groups with many items (shapes, emotion) start from first button position for full visibility
+        if (group.id === 'shapes' || group.id === 'emotion') {
+            flyout.style.top = '38px';  // Aligned with first toolbar button
+            flyout.style.maxHeight = 'calc(100vh - 100px)';
+            flyout.style.overflowY = 'auto';
+        } else {
+            // Other groups align with their button
+            const rect = anchorBtn.getBoundingClientRect();
+            const containerRect = this._element!.parentElement!.getBoundingClientRect();
+            flyout.style.top = `${rect.top - containerRect.top}px`;
+        }
+
+        this._flyoutContainer!.appendChild(flyout);
 
         // Header
         const header = document.createElement('div');
@@ -744,7 +760,7 @@ export class DrawingToolbarWidget {
             this._closeFlyout();
         });
 
-        this._flyoutContainer!.appendChild(flyout);
+        // Flyout is already in DOM from measurement step above
     }
 
     private _closeFlyout(): void {

@@ -32,7 +32,9 @@ import {
     RotatedRectangleDrawing,
     EllipseDrawing,
     TriangleDrawing,
-    ArcDrawing
+    ArcDrawing,
+    PathDrawing,
+    CircleDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -532,6 +534,20 @@ export class PaneWidget implements Disposable {
                     arcDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     this._drawArc(ctx, arcDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'path') {
+                if (pixelPoints.length >= 2) {
+                    const pathDrawing = drawing as PathDrawing;
+                    pathDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawPath(ctx, pathDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'circle') {
+                if (pixelPoints.length >= 2) {
+                    const circleDrawing = drawing as CircleDrawing;
+                    circleDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawCircle(ctx, circleDrawing, pixelPoints, dpr, showControlPoints);
                 }
             }
         }
@@ -2452,6 +2468,126 @@ export class PaneWidget implements Disposable {
 
         // Draw control points at vertices
         if (isSelected && pixelPoints.length >= 3) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            for (const point of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
+        }
+    }
+
+    private _drawPath(
+        ctx: CanvasRenderingContext2D,
+        drawing: PathDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        // Draw lines connecting all points
+        ctx.beginPath();
+        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+
+        for (let i = 1; i < pixelPoints.length; i++) {
+            ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+        }
+
+        ctx.strokeStyle = drawing.style.color;
+        ctx.lineWidth = drawing.style.lineWidth * dpr;
+        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw arrow head at the last point
+        if (pixelPoints.length >= 2) {
+            const lastPoint = pixelPoints[pixelPoints.length - 1];
+            const prevPoint = pixelPoints[pixelPoints.length - 2];
+
+            // Calculate angle
+            const angle = Math.atan2(lastPoint.y - prevPoint.y, lastPoint.x - prevPoint.x);
+            const arrowSize = 10 * dpr;
+
+            // Draw arrow head
+            ctx.beginPath();
+            ctx.moveTo(lastPoint.x, lastPoint.y);
+            ctx.lineTo(
+                lastPoint.x - arrowSize * Math.cos(angle - Math.PI / 6),
+                lastPoint.y - arrowSize * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.lineTo(
+                lastPoint.x - arrowSize * Math.cos(angle + Math.PI / 6),
+                lastPoint.y - arrowSize * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.closePath();
+            ctx.fillStyle = drawing.style.color;
+            ctx.fill();
+        }
+
+        // Draw control points at each vertex
+        if (isSelected) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            for (const point of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
+        }
+    }
+
+    private _drawCircle(
+        ctx: CanvasRenderingContext2D,
+        drawing: CircleDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        const center = pixelPoints[0];
+        const edge = pixelPoints[1];
+        const radius = Math.sqrt((edge.x - center.x) ** 2 + (edge.y - center.y) ** 2);
+
+        // Draw fill
+        if (drawing.style.fillColor) {
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = drawing.style.fillColor;
+            ctx.fill();
+        }
+
+        // Draw stroke
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = drawing.style.color;
+        ctx.lineWidth = drawing.style.lineWidth * dpr;
+        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw control points (center and edge)
+        if (isSelected) {
             ctx.fillStyle = '#fff';
             ctx.strokeStyle = drawing.style.color;
             ctx.lineWidth = 2 * dpr;

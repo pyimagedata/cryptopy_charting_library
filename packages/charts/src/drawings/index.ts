@@ -30,4 +30,6 @@ export * from './rotated-rectangle-drawing';
 export * from './ellipse-drawing';
 export * from './triangle-drawing';
 export * from './arc-drawing';
+export * from './path-drawing';
+export * from './circle-drawing';
 
