@@ -568,6 +568,7 @@ export class ChartWidget implements Disposable {
                 'path': 'path',
                 'circle': 'circle',
                 'polyline': 'polyline',
+                'curve': 'curve',
                 'fibRetracement': 'fibRetracement',
                 'fibExtension': 'fibExtension',
                 'fibChannel': 'fibChannel',

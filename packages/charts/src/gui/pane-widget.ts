@@ -35,7 +35,8 @@ import {
     ArcDrawing,
     PathDrawing,
     CircleDrawing,
-    PolylineDrawing
+    PolylineDrawing,
+    CurveDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -556,6 +557,13 @@ export class PaneWidget implements Disposable {
                     polylineDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     this._drawPolyline(ctx, polylineDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'curve') {
+                if (pixelPoints.length >= 2) {
+                    const curveDrawing = drawing as CurveDrawing;
+                    curveDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawCurve(ctx, curveDrawing, pixelPoints, dpr, showControlPoints);
                 }
             }
         }
@@ -2672,6 +2680,82 @@ export class PaneWidget implements Disposable {
                 ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.fillStyle = '#fff';
+            }
+        }
+    }
+
+    private _drawCurve(
+        ctx: CanvasRenderingContext2D,
+        drawing: CurveDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        showControlPoints: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        // Draw quadratic bezier curve
+        ctx.beginPath();
+        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+
+        if (pixelPoints.length >= 3) {
+            // pixelPoints[1] is the point ON THE CURVE at t=0.5
+            // Calculate bezier control point: P1 = 2*Pm - 0.5*(P0 + P2)
+            const p0 = pixelPoints[0];
+            const pm = pixelPoints[1]; // Point on curve
+            const p2 = pixelPoints[2];
+
+            const controlX = 2 * pm.x - 0.5 * (p0.x + p2.x);
+            const controlY = 2 * pm.y - 0.5 * (p0.y + p2.y);
+
+            ctx.quadraticCurveTo(
+                controlX, controlY,      // Calculated bezier control
+                p2.x, p2.y               // End point
+            );
+        } else {
+            // Preview: just straight line
+            ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
+        }
+
+        ctx.strokeStyle = drawing.style.color;
+        ctx.lineWidth = drawing.style.lineWidth * dpr;
+        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw control points
+        if (showControlPoints) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            for (let i = 0; i < pixelPoints.length; i++) {
+                const point = pixelPoints[i];
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Center dot
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
+
+            // Draw dashed lines from endpoints to control point
+            if (pixelPoints.length >= 3) {
+                ctx.strokeStyle = 'rgba(41, 98, 255, 0.5)';
+                ctx.lineWidth = 1 * dpr;
+                ctx.setLineDash([4 * dpr, 4 * dpr]);
+
+                ctx.beginPath();
+                ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+                ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
+                ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
+                ctx.stroke();
+
+                ctx.setLineDash([]);
             }
         }
     }

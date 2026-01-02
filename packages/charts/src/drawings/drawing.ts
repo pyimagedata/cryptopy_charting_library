@@ -70,7 +70,8 @@ export type DrawingType =
     | 'arc'
     | 'path'
     | 'circle'
-    | 'polyline';
+    | 'polyline'
+    | 'curve';
 
 /** Drawing state */
 export type DrawingState = 'creating' | 'complete' | 'selected' | 'editing';

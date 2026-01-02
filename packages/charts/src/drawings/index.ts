@@ -33,3 +33,4 @@ export * from './arc-drawing';
 export * from './path-drawing';
 export * from './circle-drawing';
 export * from './polyline-drawing';
+export * from './curve-drawing';

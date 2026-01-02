@@ -31,6 +31,7 @@ import { ArcDrawing } from './arc-drawing';
 import { PathDrawing } from './path-drawing';
 import { CircleDrawing } from './circle-drawing';
 import { PolylineDrawing } from './polyline-drawing';
+import { CurveDrawing } from './curve-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -223,6 +224,9 @@ export class DrawingManager {
             case 'polyline':
                 drawing = new PolylineDrawing();
                 break;
+            case 'curve':
+                drawing = new CurveDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -281,6 +285,21 @@ export class DrawingManager {
             } else {
                 drawing.points[1] = { time, price };
                 drawing.state = 'complete';
+            }
+        }
+
+        // Handle curve drawing (2 clicks -> 3 points with auto middle control point)
+        if (this._activeDrawing.type === 'curve') {
+            const curveDrawing = this._activeDrawing as CurveDrawing;
+
+            // Finalize the curve on second click
+            if (curveDrawing.points.length >= 3) {
+                curveDrawing.finalizeCurve(time, price);
+                this._activeDrawing = null;
+                this._mode = 'none';
+                this._modeChanged.fire('none');
+                this._drawingsChanged.fire();
+                return;
             }
         }
 
@@ -542,6 +561,38 @@ export class DrawingManager {
             }
         }
 
+        // Scale curve middle point proportionally when endpoints move
+        if (this._selectedDrawing.type === 'curve' && this._selectedDrawing.points.length >= 3) {
+            const curve = this._selectedDrawing as CurveDrawing;
+
+            // Only scale when moving endpoints (0 or 2), not middle point (1)
+            if (pointIndex === 0 || pointIndex === 2) {
+                const p0 = curve.points[0];
+                const p1 = curve.points[1]; // Middle point (on curve)
+                const p2 = curve.points[2];
+
+                // Calculate new midpoint on line between endpoints
+                const newLineMidTime = (p0.time + p2.time) / 2;
+                const newLineMidPrice = (p0.price + p2.price) / 2;
+
+                // Calculate the offset from old line midpoint
+                const oldLineMidTime = (p0.time + p2.time) / 2;
+                const oldLineMidPrice = (p0.price + p2.price) / 2;
+
+                // Get the relative offset of middle point from line midpoint
+                // Scale based on new distance between endpoints
+                const newDistance = Math.abs(p2.price - p0.price);
+                const offsetRatio = 0.15; // Same ratio used in creation
+                const priceOffset = newDistance * offsetRatio || (Math.max(p0.price, p2.price) * 0.01);
+
+                // Keep middle point at proportional position
+                curve.points[1] = {
+                    time: newLineMidTime,
+                    price: newLineMidPrice - priceOffset
+                };
+            }
+        }
+
         this._drawingsChanged.fire();
     }
 
@@ -770,6 +821,9 @@ export class DrawingManager {
                     break;
                 case 'polyline':
                     drawing = PolylineDrawing.fromJSON(item);
+                    break;
+                case 'curve':
+                    drawing = CurveDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:
