@@ -60,4 +60,7 @@ export const DRAWING_ICONS: Record<string, string> = {
     favorite: `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
         <polygon points="12,2 15,9 22,9 17,14 19,21 12,17 5,21 7,14 2,9 9,9"/>
     </svg>`,
+
+    // Patterns
+    xabcdPattern: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="20" height="20"><g fill="currentColor" fill-rule="nonzero"><path d="M4 20 L8 8 L14 16 L20 4 L24 14" fill="none" stroke="currentColor" stroke-width="1.5"></path><path d="M4 20 L14 16" fill="none" stroke="currentColor" stroke-width="0.5" stroke-dasharray="2,2"></path><path d="M8 8 L20 4" fill="none" stroke="currentColor" stroke-width="0.5" stroke-dasharray="2,2"></path><circle cx="4" cy="20" r="1.5"></circle><circle cx="8" cy="8" r="1.5"></circle><circle cx="14" cy="16" r="1.5"></circle><circle cx="20" cy="4" r="1.5"></circle><circle cx="24" cy="14" r="1.5"></circle><text x="4" y="25" font-size="4" fill="currentColor">X</text><text x="8" y="6" font-size="4" fill="currentColor">A</text><text x="14" y="21" font-size="4" fill="currentColor">B</text><text x="20" y="2" font-size="4" fill="currentColor">C</text><text x="24" y="19" font-size="4" fill="currentColor">D</text></g></svg>`,
 };

@@ -120,6 +120,14 @@ export const TOOL_GROUPS: ToolGroup[] = [
         ]
     },
     {
+        id: 'patterns',
+        name: 'Patterns',
+        defaultIcon: DRAWING_ICONS.xabcdPattern,
+        tools: [
+            { id: 'xabcdPattern', name: 'XABCD Pattern', icon: DRAWING_ICONS.xabcdPattern, favorite: true },
+        ]
+    },
+    {
         id: 'magnet',
         name: 'Magnet',
         defaultIcon: DRAWING_ICONS.weakMagnet,

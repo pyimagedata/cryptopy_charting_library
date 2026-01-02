@@ -71,7 +71,8 @@ export type DrawingType =
     | 'path'
     | 'circle'
     | 'polyline'
-    | 'curve';
+    | 'curve'
+    | 'xabcdPattern';
 
 /** Drawing state */
 export type DrawingState = 'creating' | 'complete' | 'selected' | 'editing';

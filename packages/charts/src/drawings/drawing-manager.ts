@@ -32,6 +32,7 @@ import { PathDrawing } from './path-drawing';
 import { CircleDrawing } from './circle-drawing';
 import { PolylineDrawing } from './polyline-drawing';
 import { CurveDrawing } from './curve-drawing';
+import { XABCDPatternDrawing } from './xabcd-pattern-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -227,6 +228,9 @@ export class DrawingManager {
             case 'curve':
                 drawing = new CurveDrawing();
                 break;
+            case 'xabcdPattern':
+                drawing = new XABCDPatternDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -329,6 +333,37 @@ export class DrawingManager {
                 this._drawingsChanged.fire();
                 return;
             }
+        }
+
+        // Handle XABCD pattern (5 points: X, A, B, C, D)
+        if (this._activeDrawing.type === 'xabcdPattern') {
+            const xabcdDrawing = this._activeDrawing as XABCDPatternDrawing;
+
+            // If there's a preview point, confirm it and update to click position
+            if (xabcdDrawing.points.length > 0) {
+                // Update the last point to exact click position
+                const lastIdx = xabcdDrawing.points.length - 1;
+                xabcdDrawing.points[lastIdx] = { time, price };
+
+                // Confirm the preview (reset preview index)
+                if (typeof xabcdDrawing.confirmPreviewPoint === 'function') {
+                    xabcdDrawing.confirmPreviewPoint();
+                }
+            }
+
+            // Check if drawing is complete (5 points)
+            if (xabcdDrawing.points.length >= 5) {
+                xabcdDrawing.state = 'complete';
+                this._activeDrawing = null;
+                this._mode = 'none';
+                this._modeChanged.fire('none');
+                this._drawingsChanged.fire();
+                return;
+            }
+
+            // Still need more points - trigger preview for next point
+            this._drawingsChanged.fire();
+            return;
         }
 
         // Handle path drawing (multi-point polyline - click adds points, ESC finishes)
@@ -824,6 +859,9 @@ export class DrawingManager {
                     break;
                 case 'curve':
                     drawing = CurveDrawing.fromJSON(item);
+                    break;
+                case 'xabcdPattern':
+                    drawing = XABCDPatternDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:

@@ -36,7 +36,8 @@ import {
     PathDrawing,
     CircleDrawing,
     PolylineDrawing,
-    CurveDrawing
+    CurveDrawing,
+    XABCDPatternDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -564,6 +565,13 @@ export class PaneWidget implements Disposable {
                     curveDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     this._drawCurve(ctx, curveDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'xabcdPattern') {
+                if (pixelPoints.length >= 2) {
+                    const xabcdDrawing = drawing as XABCDPatternDrawing;
+                    xabcdDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawXABCDPattern(ctx, xabcdDrawing, pixelPoints, dpr, showControlPoints);
                 }
             }
         }
@@ -2756,6 +2764,143 @@ export class PaneWidget implements Disposable {
                 ctx.stroke();
 
                 ctx.setLineDash([]);
+            }
+        }
+    }
+
+    private _drawXABCDPattern(
+        ctx: CanvasRenderingContext2D,
+        drawing: XABCDPatternDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        showControlPoints: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        const labels = ['X', 'A', 'B', 'C', 'D'];
+
+        // Draw fills: XAB triangle and BCD triangle (NOT XBD area)
+        if (drawing.style.fillColor) {
+            ctx.fillStyle = drawing.style.fillColor;
+
+            // Fill XAB triangle (X, A, B)
+            if (pixelPoints.length >= 3) {
+                ctx.beginPath();
+                ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y); // X
+                ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y); // A
+                ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y); // B
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Fill BCD triangle (B, C, D)
+            if (pixelPoints.length >= 5) {
+                ctx.beginPath();
+                ctx.moveTo(pixelPoints[2].x, pixelPoints[2].y); // B
+                ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y); // C
+                ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y); // D
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+
+        // Draw lines: X-A, A-B, B-C, C-D
+        ctx.beginPath();
+        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+        for (let i = 1; i < pixelPoints.length; i++) {
+            ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+        }
+        ctx.strokeStyle = drawing.style.color;
+        ctx.lineWidth = drawing.style.lineWidth * dpr;
+        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw X-B and A-C connecting lines (dashed)
+        if (pixelPoints.length >= 3) {
+            ctx.beginPath();
+            ctx.setLineDash([4 * dpr, 4 * dpr]);
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 1 * dpr;
+
+            // X-B line
+            ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+            ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
+
+            // A-C line (if exists)
+            if (pixelPoints.length >= 4) {
+                ctx.moveTo(pixelPoints[1].x, pixelPoints[1].y);
+                ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y);
+            }
+
+            // B-D line (if exists)
+            if (pixelPoints.length >= 5) {
+                ctx.moveTo(pixelPoints[2].x, pixelPoints[2].y);
+                ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y);
+
+                // X-D line
+                ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+                ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y);
+            }
+
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw control points (only when selected/creating)
+        if (showControlPoints) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            for (let i = 0; i < pixelPoints.length; i++) {
+                const point = pixelPoints[i];
+
+                // Draw circle
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Draw center dot
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
+        }
+
+        // Always draw labels (visible even when not selected)
+        // Dynamically detect if each point is a peak or valley based on neighbors
+        for (let i = 0; i < pixelPoints.length; i++) {
+            const point = pixelPoints[i];
+            const label = labels[i] || String(i);
+            ctx.font = `bold ${12 * dpr}px Arial`;
+            ctx.fillStyle = drawing.style.color;
+            ctx.textAlign = 'center';
+
+            // Determine if this point is a local peak or valley
+            let isValley = false;
+
+            if (pixelPoints.length >= 2) {
+                const prevY = i > 0 ? pixelPoints[i - 1].y : point.y;
+                const nextY = i < pixelPoints.length - 1 ? pixelPoints[i + 1].y : point.y;
+
+                // In canvas, lower Y = higher on screen
+                // Valley: point.y > both neighbors (point is lower on chart)
+                // Peak: point.y < both neighbors (point is higher on chart)
+                isValley = point.y > prevY || point.y > nextY;
+            }
+
+            if (isValley) {
+                // Below the point (for valleys/lower points)
+                ctx.textBaseline = 'top';
+                ctx.fillText(label, point.x, point.y + 8 * dpr);
+            } else {
+                // Above the point (for peaks/higher points)
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(label, point.x, point.y - 8 * dpr);
             }
         }
     }
