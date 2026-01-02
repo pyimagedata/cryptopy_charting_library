@@ -69,7 +69,8 @@ export type DrawingType =
     | 'triangle'
     | 'arc'
     | 'path'
-    | 'circle';
+    | 'circle'
+    | 'polyline';
 
 /** Drawing state */
 export type DrawingState = 'creating' | 'complete' | 'selected' | 'editing';

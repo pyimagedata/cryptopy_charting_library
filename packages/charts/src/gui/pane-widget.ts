@@ -34,7 +34,8 @@ import {
     TriangleDrawing,
     ArcDrawing,
     PathDrawing,
-    CircleDrawing
+    CircleDrawing,
+    PolylineDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -548,6 +549,13 @@ export class PaneWidget implements Disposable {
                     circleDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     this._drawCircle(ctx, circleDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'polyline') {
+                if (pixelPoints.length >= 2) {
+                    const polylineDrawing = drawing as PolylineDrawing;
+                    polylineDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawPolyline(ctx, polylineDrawing, pixelPoints, dpr, showControlPoints);
                 }
             }
         }
@@ -2587,6 +2595,67 @@ export class PaneWidget implements Disposable {
         ctx.setLineDash([]);
 
         // Draw control points (center and edge)
+        if (isSelected) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            for (const point of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
+        }
+    }
+
+    private _drawPolyline(
+        ctx: CanvasRenderingContext2D,
+        drawing: PolylineDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        if (pixelPoints.length < 2) return;
+
+        // Draw fill if closed
+        if (drawing.isClosed && drawing.style.fillColor) {
+            ctx.beginPath();
+            ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+            for (let i = 1; i < pixelPoints.length; i++) {
+                ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+            }
+            ctx.closePath();
+            ctx.fillStyle = drawing.style.fillColor;
+            ctx.fill();
+        }
+
+        // Draw lines connecting all points
+        ctx.beginPath();
+        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+
+        for (let i = 1; i < pixelPoints.length; i++) {
+            ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+        }
+
+        // Close the path if it's a polygon
+        if (drawing.isClosed) {
+            ctx.closePath();
+        }
+
+        ctx.strokeStyle = drawing.style.color;
+        ctx.lineWidth = drawing.style.lineWidth * dpr;
+        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw control points at each vertex
         if (isSelected) {
             ctx.fillStyle = '#fff';
             ctx.strokeStyle = drawing.style.color;

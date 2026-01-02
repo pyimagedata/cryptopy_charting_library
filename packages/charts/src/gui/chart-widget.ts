@@ -567,6 +567,7 @@ export class ChartWidget implements Disposable {
                 'arc': 'arc',
                 'path': 'path',
                 'circle': 'circle',
+                'polyline': 'polyline',
                 'fibRetracement': 'fibRetracement',
                 'fibExtension': 'fibExtension',
                 'fibChannel': 'fibChannel',
@@ -1090,6 +1091,13 @@ export class ChartWidget implements Disposable {
             const activeDrawing = this._drawingManager.activeDrawing;
             if (activeDrawing && activeDrawing.type === 'path') {
                 this._drawingManager.finishPathDrawing();
+                this._scheduleDraw();
+                return;
+            }
+
+            // Check if we're drawing a polyline - finish it as open polyline
+            if (activeDrawing && activeDrawing.type === 'polyline') {
+                this._drawingManager.finishPolylineDrawing();
                 this._scheduleDraw();
                 return;
             }

@@ -30,6 +30,7 @@ import { TriangleDrawing } from './triangle-drawing';
 import { ArcDrawing } from './arc-drawing';
 import { PathDrawing } from './path-drawing';
 import { CircleDrawing } from './circle-drawing';
+import { PolylineDrawing } from './polyline-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -219,6 +220,9 @@ export class DrawingManager {
             case 'circle':
                 drawing = new CircleDrawing();
                 break;
+            case 'polyline':
+                drawing = new PolylineDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -323,6 +327,31 @@ export class DrawingManager {
             return;
         }
 
+        // Handle polyline drawing (click adds points, click on start closes, ESC finishes open)
+        if (this._activeDrawing.type === 'polyline') {
+            const polylineDrawing = this._activeDrawing as PolylineDrawing;
+
+            // Check if clicking near start point to close the shape
+            if (polylineDrawing.points.length >= 3 && polylineDrawing.isNearStartPoint(x, y)) {
+                polylineDrawing.closeShape();
+                this._activeDrawing = null;
+                this._mode = 'none';
+                this._modeChanged.fire('none');
+                this._drawingsChanged.fire();
+                return;
+            }
+
+            // Confirm current preview point
+            if (typeof polylineDrawing.confirmPreviewPoint === 'function') {
+                polylineDrawing.confirmPreviewPoint();
+            }
+
+            // Polyline keeps adding points - never auto-completes
+            // User must press ESC to finish or click on start to close
+            this._drawingsChanged.fire();
+            return;
+        }
+
         // Handle brush and highlighter drawing (finish stroke on mouse up)
         if (this._activeDrawing.type === 'brush' || this._activeDrawing.type === 'highlighter') {
             const pathDrawing = this._activeDrawing as (BrushDrawing | HighlighterDrawing);
@@ -419,6 +448,29 @@ export class DrawingManager {
         this._drawingsChanged.fire();
     }
 
+    /** Finish polyline drawing (called when ESC is pressed during polyline creation) */
+    finishPolylineDrawing(): void {
+        if (!this._activeDrawing || this._activeDrawing.type !== 'polyline') return;
+
+        const polylineDrawing = this._activeDrawing as PolylineDrawing;
+        if (typeof polylineDrawing.finishPolyline === 'function') {
+            polylineDrawing.finishPolyline();
+        }
+
+        // Keep the drawing if it has at least 2 points
+        if (polylineDrawing.points.length >= 2) {
+            polylineDrawing.state = 'complete';
+        } else {
+            // Not enough points - remove the drawing
+            this._drawings.delete(this._activeDrawing.id);
+        }
+
+        this._activeDrawing = null;
+        this._mode = 'none';
+        this._modeChanged.fire('none');
+        this._drawingsChanged.fire();
+    }
+
     /** Move the selected drawing by a pixel delta */
     moveDrawing(deltaX: number, deltaY: number): void {
         if (!this._selectedDrawing) return;
@@ -474,6 +526,22 @@ export class DrawingManager {
 
         // Update the specific point
         this._selectedDrawing.points[pointIndex] = { time, price };
+
+        // Check if polyline should close: last point moved near start point
+        if (this._selectedDrawing.type === 'polyline') {
+            const polyline = this._selectedDrawing as PolylineDrawing;
+            const lastPointIndex = polyline.points.length - 1;
+
+            // If we're moving the last point and it's near the start
+            if (pointIndex === lastPointIndex && !polyline.isClosed && polyline.points.length >= 3) {
+                if (polyline.isNearStartPoint(x, y)) {
+                    // Snap last point to start point and close the shape
+                    polyline.points[lastPointIndex] = { ...polyline.points[0] };
+                    polyline.isClosed = true;
+                }
+            }
+        }
+
         this._drawingsChanged.fire();
     }
 
@@ -699,6 +767,9 @@ export class DrawingManager {
                     break;
                 case 'circle':
                     drawing = CircleDrawing.fromJSON(item);
+                    break;
+                case 'polyline':
+                    drawing = PolylineDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:
