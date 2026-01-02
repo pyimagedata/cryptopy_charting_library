@@ -26,6 +26,8 @@ export * from './regression-trend-drawing';
 export * from './fibonacci-extension-drawing';
 export * from './fib-channel-drawing';
 export * from './rectangle-drawing';
+export * from './rotated-rectangle-drawing';
 export * from './ellipse-drawing';
 export * from './triangle-drawing';
-export * from './circle-drawing';
+export * from './arc-drawing';
+

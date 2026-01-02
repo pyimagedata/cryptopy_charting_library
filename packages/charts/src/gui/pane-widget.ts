@@ -28,7 +28,11 @@ import {
     ArrowDrawing,
     ArrowMarkerDrawing,
     ArrowIconDrawing,
-    RectangleDrawing
+    RectangleDrawing,
+    RotatedRectangleDrawing,
+    EllipseDrawing,
+    TriangleDrawing,
+    ArcDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -499,6 +503,35 @@ export class PaneWidget implements Disposable {
             } else if (drawing.type === 'arrow') {
                 if (pixelPoints.length >= 2) {
                     this._drawArrow(ctx, drawing as ArrowDrawing, pixelPoints, dpr, drawing.state === 'selected');
+                }
+            } else if (drawing.type === 'rotatedRectangle') {
+                // Need at least 2 points for preview, 3 for complete
+                if (pixelPoints.length >= 2) {
+                    const rotatedRect = drawing as RotatedRectangleDrawing;
+                    rotatedRect.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawRotatedRectangle(ctx, rotatedRect, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'ellipse') {
+                if (pixelPoints.length >= 2) {
+                    const ellipseDrawing = drawing as EllipseDrawing;
+                    ellipseDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawEllipse(ctx, ellipseDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'triangle') {
+                if (pixelPoints.length >= 2) {
+                    const triangleDrawing = drawing as TriangleDrawing;
+                    triangleDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawTriangle(ctx, triangleDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'arc') {
+                if (pixelPoints.length >= 2) {
+                    const arcDrawing = drawing as ArcDrawing;
+                    arcDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    this._drawArc(ctx, arcDrawing, pixelPoints, dpr, showControlPoints);
                 }
             }
         }
@@ -2123,6 +2156,318 @@ export class PaneWidget implements Disposable {
                 ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
                 ctx.fill();
             });
+        }
+    }
+
+    private _drawRotatedRectangle(
+        ctx: CanvasRenderingContext2D,
+        drawing: RotatedRectangleDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        const corners = drawing.getRectangleCorners();
+
+        // If we have full 4 corners, draw the rectangle
+        if (corners && corners.length === 4) {
+            // Scale corners for DPR
+            const scaledCorners = corners.map(c => ({ x: c.x * dpr, y: c.y * dpr }));
+
+            // Draw fill
+            if (drawing.style.fillColor) {
+                ctx.beginPath();
+                ctx.moveTo(scaledCorners[0].x, scaledCorners[0].y);
+                for (let i = 1; i < 4; i++) {
+                    ctx.lineTo(scaledCorners[i].x, scaledCorners[i].y);
+                }
+                ctx.closePath();
+                ctx.fillStyle = drawing.style.fillColor;
+                ctx.fill();
+            }
+
+            // Draw stroke
+            ctx.beginPath();
+            ctx.moveTo(scaledCorners[0].x, scaledCorners[0].y);
+            for (let i = 1; i < 4; i++) {
+                ctx.lineTo(scaledCorners[i].x, scaledCorners[i].y);
+            }
+            ctx.closePath();
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = drawing.style.lineWidth * dpr;
+            ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+        } else if (pixelPoints.length >= 2) {
+            // Only 2 points - draw preview line
+            const p1 = pixelPoints[0];
+            const p2 = pixelPoints[1];
+
+            ctx.beginPath();
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = drawing.style.lineWidth * dpr;
+            ctx.setLineDash([6 * dpr, 4 * dpr]); // Dashed for preview
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw control points at rectangle corners (not original click positions)
+        if (isSelected) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            // Use rectangle corners for control points (if available)
+            const corners = drawing.getRectangleCorners();
+            const controlPoints = corners
+                ? corners.slice(0, 3).map(c => ({ x: c.x * dpr, y: c.y * dpr })) // First 3 corners
+                : pixelPoints;
+
+            for (const point of controlPoints) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
+        }
+    }
+
+    private _drawEllipse(
+        ctx: CanvasRenderingContext2D,
+        drawing: EllipseDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        // If only 2 points (before 2nd click is confirmed), draw a line preview
+        if (pixelPoints.length === 2 && drawing.state === 'creating') {
+            const p0 = pixelPoints[0];
+            const p1 = pixelPoints[1];
+
+            ctx.beginPath();
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = drawing.style.lineWidth * dpr;
+            ctx.setLineDash([6 * dpr, 4 * dpr]); // Dashed for preview
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            return;
+        }
+
+        // 3+ points: draw ellipse
+        const params = drawing.getEllipseParams();
+
+        if (params) {
+            const { cx, cy, rx, ry, rotation } = params;
+            const scaledCx = cx * dpr;
+            const scaledCy = cy * dpr;
+            const scaledRx = rx * dpr;
+            const scaledRy = ry * dpr;
+
+            // Draw fill
+            if (drawing.style.fillColor && scaledRx > 0 && scaledRy > 0) {
+                ctx.beginPath();
+                ctx.ellipse(scaledCx, scaledCy, scaledRx, scaledRy, rotation, 0, Math.PI * 2);
+                ctx.fillStyle = drawing.style.fillColor;
+                ctx.fill();
+            }
+
+            // Draw stroke
+            if (scaledRx > 0 && scaledRy > 0) {
+                ctx.beginPath();
+                ctx.ellipse(scaledCx, scaledCy, scaledRx, scaledRy, rotation, 0, Math.PI * 2);
+                ctx.strokeStyle = drawing.style.color;
+                ctx.lineWidth = drawing.style.lineWidth * dpr;
+                ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        // Draw control points on ellipse edges
+        if (isSelected && pixelPoints.length >= 2) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            // Use control points on the ellipse edges (if available)
+            const controlPoints = drawing.getControlPoints();
+            const pointsToDraw = controlPoints
+                ? controlPoints.map(p => ({ x: p.x * dpr, y: p.y * dpr }))
+                : pixelPoints;
+
+            for (const point of pointsToDraw) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
+        }
+    }
+
+    private _drawTriangle(
+        ctx: CanvasRenderingContext2D,
+        drawing: TriangleDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        // If only 2 points (before 2nd click is confirmed), draw a line preview
+        if (pixelPoints.length === 2 && drawing.state === 'creating') {
+            const p0 = pixelPoints[0];
+            const p1 = pixelPoints[1];
+
+            ctx.beginPath();
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = drawing.style.lineWidth * dpr;
+            ctx.setLineDash([6 * dpr, 4 * dpr]); // Dashed for preview
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            return;
+        }
+
+        // 3 points: draw triangle
+        if (pixelPoints.length >= 3) {
+            const p0 = pixelPoints[0];
+            const p1 = pixelPoints[1];
+            const p2 = pixelPoints[2];
+
+            // Draw fill
+            if (drawing.style.fillColor) {
+                ctx.beginPath();
+                ctx.moveTo(p0.x, p0.y);
+                ctx.lineTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.closePath();
+                ctx.fillStyle = drawing.style.fillColor;
+                ctx.fill();
+            }
+
+            // Draw stroke
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.closePath();
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = drawing.style.lineWidth * dpr;
+            ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw control points at vertices
+        if (isSelected && pixelPoints.length >= 3) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            for (const point of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
+        }
+    }
+
+    private _drawArc(
+        ctx: CanvasRenderingContext2D,
+        drawing: ArcDrawing,
+        pixelPoints: { x: number; y: number }[],
+        dpr: number,
+        isSelected: boolean
+    ): void {
+        // If only 2 points (before 2nd click is confirmed), draw a line preview
+        if (pixelPoints.length === 2 && drawing.state === 'creating') {
+            const p0 = pixelPoints[0];
+            const p1 = pixelPoints[1];
+
+            ctx.beginPath();
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = drawing.style.lineWidth * dpr;
+            ctx.setLineDash([6 * dpr, 4 * dpr]); // Dashed for preview
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            return;
+        }
+
+        // 3 points: draw quadratic bezier curve that PASSES THROUGH the 3rd point
+        if (pixelPoints.length >= 3) {
+            const p0 = pixelPoints[0]; // Start
+            const p1 = pixelPoints[1]; // End  
+            const p2 = pixelPoints[2]; // Point ON the curve (we calculate control point from this)
+
+            // Calculate control point so that curve passes through p2 at t=0.5
+            // For quadratic bezier: B(0.5) = 0.25*P0 + 0.5*C + 0.25*P1 = P2
+            // So: C = 2*P2 - 0.5*P0 - 0.5*P1
+            const controlX = 2 * p2.x - 0.5 * p0.x - 0.5 * p1.x;
+            const controlY = 2 * p2.y - 0.5 * p0.y - 0.5 * p1.y;
+
+            // Draw fill first (curve + chord line)
+            if (drawing.style.fillColor) {
+                ctx.beginPath();
+                ctx.moveTo(p0.x, p0.y);
+                ctx.quadraticCurveTo(controlX, controlY, p1.x, p1.y);
+                ctx.lineTo(p0.x, p0.y); // Close with chord
+                ctx.fillStyle = drawing.style.fillColor;
+                ctx.fill();
+            }
+
+            // Draw curve stroke
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.quadraticCurveTo(controlX, controlY, p1.x, p1.y);
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = drawing.style.lineWidth * dpr;
+            ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw control points at vertices
+        if (isSelected && pixelPoints.length >= 3) {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+
+            for (const point of pixelPoints) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = drawing.style.color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+            }
         }
     }
 }

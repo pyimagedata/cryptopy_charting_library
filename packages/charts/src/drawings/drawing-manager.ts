@@ -24,9 +24,10 @@ import { ArrowDrawing } from './arrow-drawing';
 import { ArrowMarkerDrawing } from './arrow-marker-drawing';
 import { ArrowIconDrawing } from './arrow-icon-drawing';
 import { RectangleDrawing } from './rectangle-drawing';
+import { RotatedRectangleDrawing } from './rotated-rectangle-drawing';
 import { EllipseDrawing } from './ellipse-drawing';
 import { TriangleDrawing } from './triangle-drawing';
-import { CircleDrawing } from './circle-drawing';
+import { ArcDrawing } from './arc-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -198,14 +199,17 @@ export class DrawingManager {
             case 'rectangle':
                 drawing = new RectangleDrawing();
                 break;
+            case 'rotatedRectangle':
+                drawing = new RotatedRectangleDrawing();
+                break;
             case 'ellipse':
                 drawing = new EllipseDrawing();
                 break;
             case 'triangle':
                 drawing = new TriangleDrawing();
                 break;
-            case 'circle':
-                drawing = new CircleDrawing();
+            case 'arc':
+                drawing = new ArcDrawing();
                 break;
             // Add more types here...
             default:
@@ -268,8 +272,8 @@ export class DrawingManager {
             }
         }
 
-        // Handle three-point drawings (ParallelChannel, FibExtension, FibChannel)
-        if (this._activeDrawing.type === 'parallelChannel' || this._activeDrawing.type === 'fibExtension' || this._activeDrawing.type === 'fibChannel') {
+        // Handle three-point drawings (ParallelChannel, FibExtension, FibChannel, RotatedRectangle, Ellipse)
+        if (this._activeDrawing.type === 'parallelChannel' || this._activeDrawing.type === 'fibExtension' || this._activeDrawing.type === 'fibChannel' || this._activeDrawing.type === 'rotatedRectangle' || this._activeDrawing.type === 'ellipse' || this._activeDrawing.type === 'triangle' || this._activeDrawing.type === 'arc') {
             const drawing = this._activeDrawing as any; // Use any for flexibility with confirmPreviewPoint
 
             // First, finalize the preview point position
@@ -632,14 +636,17 @@ export class DrawingManager {
                 case 'rectangle':
                     drawing = RectangleDrawing.fromJSON(item);
                     break;
+                case 'rotatedRectangle':
+                    drawing = RotatedRectangleDrawing.fromJSON(item);
+                    break;
                 case 'ellipse':
                     drawing = EllipseDrawing.fromJSON(item);
                     break;
                 case 'triangle':
                     drawing = TriangleDrawing.fromJSON(item);
                     break;
-                case 'circle':
-                    drawing = CircleDrawing.fromJSON(item);
+                case 'arc':
+                    drawing = ArcDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:

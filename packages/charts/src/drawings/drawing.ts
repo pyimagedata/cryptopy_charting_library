@@ -44,8 +44,6 @@ export type DrawingType =
     | 'arrowMarkedDown'
     | 'rectangle'
     | 'ellipse'
-    | 'triangle'
-    | 'circle'
     | 'brush'
     | 'highlighter'
     | 'fibRetracement'
@@ -65,7 +63,11 @@ export type DrawingType =
     | 'dateRange'
     | 'datePriceRange'
     | 'flagMarked'
-    | 'sticker';
+    | 'sticker'
+    | 'rotatedRectangle'
+    | 'ellipse'
+    | 'triangle'
+    | 'arc';
 
 /** Drawing state */
 export type DrawingState = 'creating' | 'complete' | 'selected' | 'editing';

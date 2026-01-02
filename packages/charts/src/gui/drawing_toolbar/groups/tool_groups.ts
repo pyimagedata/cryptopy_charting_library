@@ -64,6 +64,10 @@ export const TOOL_GROUPS: ToolGroup[] = [
             { id: 'arrowMarkedUp', name: 'Arrow Marked Up', icon: DRAWING_ICONS.arrowMarkedUp },
             { id: 'arrowMarkedDown', name: 'Arrow Marked Down', icon: DRAWING_ICONS.arrowMarkedDown },
             { id: 'rectangle', name: 'Rectangle', icon: DRAWING_ICONS.rectangle },
+            { id: 'rotatedRectangle', name: 'Rotated Rectangle', icon: DRAWING_ICONS.rotatedRectangle },
+            { id: 'ellipse', name: 'Ellipse', icon: DRAWING_ICONS.ellipse },
+            { id: 'triangle', name: 'Triangle', icon: DRAWING_ICONS.triangle },
+            { id: 'arc', name: 'Arc', icon: DRAWING_ICONS.arc },
         ]
     },
     {

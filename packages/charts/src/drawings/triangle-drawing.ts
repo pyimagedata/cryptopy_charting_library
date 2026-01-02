@@ -1,5 +1,10 @@
 /**
- * Triangle Drawing Implementation
+ * Triangle Drawing Implementation (3-point)
+ * 
+ * A 3-point triangle where:
+ * - Point 0: First vertex
+ * - Point 1: Second vertex
+ * - Point 2: Third vertex
  */
 
 import {
@@ -44,6 +49,12 @@ export class TriangleDrawing implements Drawing, DrawingSettingsProvider {
     state: DrawingState = 'creating';
     visible: boolean = true;
     locked: boolean = false;
+
+    // Preview point tracking (like parallelChannel)
+    private _previewPointIndex: number = -1;
+
+    // Cached pixel coordinates
+    private _pixelPoints: { x: number; y: number }[] = [];
 
     constructor(options: TriangleOptions = {}) {
         this.id = generateDrawingId();
@@ -130,9 +141,15 @@ export class TriangleDrawing implements Drawing, DrawingSettingsProvider {
         }
     }
 
+    // =========================================================================
+    // Point Management (3-point pattern like parallelChannel)
+    // =========================================================================
+
     /** Add a point to the drawing */
     addPoint(time: number, price: number): void {
         this.points.push({ time, price });
+
+        // Complete after 3 points
         if (this.points.length >= 3) {
             this.state = 'complete';
         }
@@ -143,19 +160,30 @@ export class TriangleDrawing implements Drawing, DrawingSettingsProvider {
         return this.points.length >= 3;
     }
 
-    /** Update the last point (during preview) */
+    /** Update the last point (during preview) - parallelChannel pattern */
     updateLastPoint(time: number, price: number): void {
-        if (this.points.length > 0) {
-            if (this.points.length < 3) {
+        if (this.state === 'creating') {
+            if (this._previewPointIndex === -1) {
+                // No preview exists - add one
                 this.points.push({ time, price });
+                this._previewPointIndex = this.points.length - 1;
             } else {
-                this.points[2] = { time, price };
+                // Update existing preview
+                this.points[this._previewPointIndex] = { time, price };
+            }
+        } else {
+            // Editing: update the last point
+            const lastIndex = this.points.length - 1;
+            if (lastIndex >= 0) {
+                this.points[lastIndex] = { time, price };
             }
         }
     }
 
-    // Cached pixel coordinates
-    private _pixelPoints: { x: number; y: number }[] = [];
+    /** Confirm the preview point (called on click) */
+    confirmPreviewPoint(): void {
+        this._previewPointIndex = -1;
+    }
 
     /** Set cached pixel coordinates */
     setPixelPoints(points: { x: number; y: number }[]): void {
@@ -167,50 +195,68 @@ export class TriangleDrawing implements Drawing, DrawingSettingsProvider {
         return this._pixelPoints;
     }
 
-    /** Check if point is inside the triangle using barycentric coordinates */
-    private _pointInTriangle(px: number, py: number, p1: { x: number; y: number }, p2: { x: number; y: number }, p3: { x: number; y: number }): boolean {
-        const denom = (p2.y - p3.y) * (p1.x - p3.x) + (p3.x - p2.x) * (p1.y - p3.y);
-        if (denom === 0) return false;
+    // =========================================================================
+    // Hit Testing
+    // =========================================================================
 
-        const a = ((p2.y - p3.y) * (px - p3.x) + (p3.x - p2.x) * (py - p3.y)) / denom;
-        const b = ((p3.y - p1.y) * (px - p3.x) + (p1.x - p3.x) * (py - p3.y)) / denom;
-        const c = 1 - a - b;
-
-        return a >= 0 && a <= 1 && b >= 0 && b <= 1 && c >= 0 && c <= 1;
-    }
-
-    /** Distance from point to line segment */
-    private _distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const l2 = dx * dx + dy * dy;
-
-        if (l2 === 0) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
-
-        let t = ((px - x1) * dx + (py - y1) * dy) / l2;
-        t = Math.max(0, Math.min(1, t));
-
-        const projX = x1 + t * dx;
-        const projY = y1 + t * dy;
-
-        return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
-    }
-
-    /** Hit test on the triangle border or body */
     hitTest(x: number, y: number, threshold: number = 5): boolean {
         if (this._pixelPoints.length < 3) return false;
 
-        const [p1, p2, p3] = this._pixelPoints;
+        const p0 = this._pixelPoints[0];
+        const p1 = this._pixelPoints[1];
+        const p2 = this._pixelPoints[2];
 
-        // Check inside triangle
-        if (this._pointInTriangle(x, y, p1, p2, p3)) return true;
+        // Check if point is inside triangle using barycentric coordinates
+        const v0x = p2.x - p0.x;
+        const v0y = p2.y - p0.y;
+        const v1x = p1.x - p0.x;
+        const v1y = p1.y - p0.y;
+        const v2x = x - p0.x;
+        const v2y = y - p0.y;
 
-        // Check edges
-        if (this._distToSegment(x, y, p1.x, p1.y, p2.x, p2.y) <= threshold) return true;
-        if (this._distToSegment(x, y, p2.x, p2.y, p3.x, p3.y) <= threshold) return true;
-        if (this._distToSegment(x, y, p3.x, p3.y, p1.x, p1.y) <= threshold) return true;
+        const dot00 = v0x * v0x + v0y * v0y;
+        const dot01 = v0x * v1x + v0y * v1y;
+        const dot02 = v0x * v2x + v0y * v2y;
+        const dot11 = v1x * v1x + v1y * v1y;
+        const dot12 = v1x * v2x + v1y * v2y;
+
+        const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+        const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+        // Check if point is inside triangle
+        if (u >= 0 && v >= 0 && u + v <= 1) return true;
+
+        // Check if point is near any edge
+        const edges = [[p0, p1], [p1, p2], [p2, p0]];
+        for (const [a, b] of edges) {
+            const dist = this._pointToLineDistance(x, y, a.x, a.y, b.x, b.y);
+            if (dist <= threshold) return true;
+        }
 
         return false;
+    }
+
+    private _pointToLineDistance(
+        px: number, py: number,
+        x1: number, y1: number,
+        x2: number, y2: number
+    ): number {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lengthSq = dx * dx + dy * dy;
+
+        if (lengthSq === 0) {
+            return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+        }
+
+        let t = ((px - x1) * dx + (py - y1) * dy) / lengthSq;
+        t = Math.max(0, Math.min(1, t));
+
+        const nearestX = x1 + t * dx;
+        const nearestY = y1 + t * dy;
+
+        return Math.sqrt((px - nearestX) ** 2 + (py - nearestY) ** 2);
     }
 
     getBounds(): { x: number; y: number; width: number; height: number } | null {

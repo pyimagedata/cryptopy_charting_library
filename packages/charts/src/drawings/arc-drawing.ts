@@ -1,12 +1,10 @@
 /**
- * Ellipse Drawing Implementation (3-point, edge-based like TradingView)
+ * Arc Drawing Implementation (3-point)
  * 
- * A 3-point ellipse where:
- * - Point 0: Left edge of ellipse (one end of horizontal axis)
- * - Point 1: Right edge of ellipse (other end of horizontal axis) 
- * - Point 2: Top or bottom edge (determines vertical radius)
- * 
- * Center is calculated as midpoint between points 0 and 1.
+ * A 3-point arc where:
+ * - Point 0: Start of the arc
+ * - Point 1: End of the arc
+ * - Point 2: Control point that determines the curvature
  */
 
 import {
@@ -31,7 +29,7 @@ import {
     lineStyleRow,
 } from './drawing-settings-config';
 
-export interface EllipseOptions {
+export interface ArcOptions {
     color?: string;
     lineWidth?: number;
     lineDash?: number[];
@@ -40,11 +38,11 @@ export interface EllipseOptions {
 }
 
 /**
- * Ellipse - A 3-point shape (left edge + right edge + height)
+ * Arc - A 3-point curved line
  */
-export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
+export class ArcDrawing implements Drawing, DrawingSettingsProvider {
     readonly id: string;
-    readonly type: DrawingType = 'ellipse';
+    readonly type: DrawingType = 'arc';
 
     points: DrawingPoint[] = [];
     style: DrawingStyle;
@@ -58,7 +56,7 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
     // Cached pixel coordinates
     private _pixelPoints: { x: number; y: number }[] = [];
 
-    constructor(options: EllipseOptions = {}) {
+    constructor(options: ArcOptions = {}) {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
@@ -79,9 +77,9 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
             tabs: [
                 createStyleTab([
                     {
-                        title: 'Border',
+                        title: 'Line',
                         rows: [
-                            colorRow('color', 'Border Color'),
+                            colorRow('color', 'Color'),
                             lineWidthRow('lineWidth'),
                             lineStyleRow('lineStyle'),
                         ]
@@ -89,7 +87,7 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
                     {
                         title: 'Background',
                         rows: [
-                            colorRow('fillColor', 'Background Color'),
+                            colorRow('fillColor', 'Fill Color'),
                         ]
                     }
                 ]),
@@ -100,10 +98,10 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
 
     getAttributeBarItems(): AttributeBarItem[] {
         return [
-            { type: 'color', key: 'color', tooltip: 'Border Color' },
-            { type: 'color', key: 'fillColor', tooltip: 'Background Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Border Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Border Style' },
+            { type: 'color', key: 'color', tooltip: 'Line Color' },
+            { type: 'color', key: 'fillColor', tooltip: 'Fill Color' },
+            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
+            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
         ];
     }
 
@@ -198,94 +196,48 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     /**
-     * Get ellipse parameters for rendering
-     * Center is calculated from points 0 and 1
-     * rx = distance from center to point 0 (or 1)
-     * ry = perpendicular distance from point 2 to the line between 0 and 1
+     * Calculate arc parameters from 3 points
+     * Returns center, radius, start angle, and end angle
      */
-    getEllipseParams(): {
-        cx: number; cy: number;
-        rx: number; ry: number;
-        rotation: number
+    getArcParams(): {
+        cx: number;
+        cy: number;
+        radius: number;
+        startAngle: number;
+        endAngle: number;
+        counterClockwise: boolean;
     } | null {
-        if (this._pixelPoints.length < 2) return null;
+        if (this._pixelPoints.length < 3) return null;
 
-        const p0 = this._pixelPoints[0]; // Left edge
-        const p1 = this._pixelPoints[1]; // Right edge
+        const p0 = this._pixelPoints[0]; // Start
+        const p1 = this._pixelPoints[1]; // End
+        const p2 = this._pixelPoints[2]; // Control point (on arc)
 
-        // Center is midpoint of p0 and p1
-        const cx = (p0.x + p1.x) / 2;
-        const cy = (p0.y + p1.y) / 2;
+        // Calculate the circumcircle of the 3 points
+        const ax = p0.x, ay = p0.y;
+        const bx = p1.x, by = p1.y;
+        const cx = p2.x, cy = p2.y;
 
-        // First radius (horizontal) = half distance between p0 and p1
-        const dx = p1.x - p0.x;
-        const dy = p1.y - p0.y;
-        const rx = Math.sqrt(dx * dx + dy * dy) / 2;
+        const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
 
-        // Rotation angle of the major axis
-        const rotation = Math.atan2(dy, dx);
-
-        if (this._pixelPoints.length < 3) {
-            // Preview with 2 points - use half of rx for ry
-            return { cx, cy, rx, ry: rx * 0.5, rotation };
+        if (Math.abs(d) < 0.0001) {
+            // Points are collinear, no valid circle
+            return null;
         }
 
-        // Third point determines the second radius (perpendicular to major axis)
-        const p2 = this._pixelPoints[2];
+        const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
+        const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
 
-        // Vector from center to p2
-        const dx2 = p2.x - cx;
-        const dy2 = p2.y - cy;
+        const radius = Math.sqrt((ax - ux) ** 2 + (ay - uy) ** 2);
+        const startAngle = Math.atan2(ay - uy, ax - ux);
+        const endAngle = Math.atan2(by - uy, bx - ux);
+        const controlAngle = Math.atan2(cy - uy, cx - ux);
 
-        // Perpendicular direction to the major axis
-        const perpX = -Math.sin(rotation);
-        const perpY = Math.cos(rotation);
+        // Determine direction based on control point position
+        const crossProduct = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+        const counterClockwise = crossProduct > 0;
 
-        // Project vector onto perpendicular axis to get ry
-        const ry = Math.abs(dx2 * perpX + dy2 * perpY);
-
-        return { cx, cy, rx, ry, rotation };
-    }
-
-    /**
-     * Get control point positions (on the ellipse edges)
-     * Returns positions for: left, right, top, bottom of ellipse
-     */
-    getControlPoints(): { x: number; y: number }[] | null {
-        const params = this.getEllipseParams();
-        if (!params) return null;
-
-        const { cx, cy, rx, ry, rotation } = params;
-
-        // Calculate the 4 control points on the ellipse
-        const cosR = Math.cos(rotation);
-        const sinR = Math.sin(rotation);
-
-        // Left point (negative rx direction)
-        const left = {
-            x: cx - rx * cosR,
-            y: cy - rx * sinR
-        };
-
-        // Right point (positive rx direction)
-        const right = {
-            x: cx + rx * cosR,
-            y: cy + rx * sinR
-        };
-
-        // Top point (negative ry in perpendicular direction)
-        const top = {
-            x: cx - ry * (-sinR),
-            y: cy - ry * cosR
-        };
-
-        // Bottom point (positive ry in perpendicular direction)
-        const bottom = {
-            x: cx + ry * (-sinR),
-            y: cy + ry * cosR
-        };
-
-        return [left, right, bottom, top];
+        return { cx: ux, cy: uy, radius, startAngle, endAngle, counterClockwise };
     }
 
     // =========================================================================
@@ -293,46 +245,80 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
     // =========================================================================
 
     hitTest(x: number, y: number, threshold: number = 5): boolean {
-        const params = this.getEllipseParams();
-        if (!params) return false;
+        if (this._pixelPoints.length < 3) {
+            // Fallback to line test if not enough points
+            if (this._pixelPoints.length >= 2) {
+                return this._pointToLineDistance(x, y,
+                    this._pixelPoints[0].x, this._pixelPoints[0].y,
+                    this._pixelPoints[1].x, this._pixelPoints[1].y) <= threshold;
+            }
+            return false;
+        }
 
-        const { cx, cy, rx, ry, rotation } = params;
-        if (rx === 0 || ry === 0) return false;
+        // Check distance to quadratic bezier curve by sampling
+        const p0 = this._pixelPoints[0]; // Start
+        const p1 = this._pixelPoints[1]; // End
+        const p2 = this._pixelPoints[2]; // Point ON curve
 
-        // Rotate the test point to align with ellipse axes
-        const cosR = Math.cos(-rotation);
-        const sinR = Math.sin(-rotation);
-        const dx = x - cx;
-        const dy = y - cy;
-        const rotatedX = dx * cosR - dy * sinR;
-        const rotatedY = dx * sinR + dy * cosR;
+        // Calculate control point so that curve passes through p2 at t=0.5
+        // C = 2*P2 - 0.5*P0 - 0.5*P1
+        const controlX = 2 * p2.x - 0.5 * p0.x - 0.5 * p1.x;
+        const controlY = 2 * p2.y - 0.5 * p0.y - 0.5 * p1.y;
 
-        // Check if inside ellipse (with threshold for border)
-        const normalizedDist = (rotatedX * rotatedX) / (rx * rx) + (rotatedY * rotatedY) / (ry * ry);
+        // Sample the curve at multiple points and check distance
+        const samples = 20;
+        for (let i = 0; i <= samples; i++) {
+            const t = i / samples;
+            // Quadratic bezier formula: B(t) = (1-t)²P0 + 2(1-t)t*C + t²P1
+            const mt = 1 - t;
+            const bx = mt * mt * p0.x + 2 * mt * t * controlX + t * t * p1.x;
+            const by = mt * mt * p0.y + 2 * mt * t * controlY + t * t * p1.y;
 
-        // Inside ellipse
-        if (normalizedDist <= 1) return true;
+            const dist = Math.sqrt((x - bx) ** 2 + (y - by) ** 2);
+            if (dist <= threshold) return true;
+        }
 
-        // Near border (within threshold)
-        const outerRx = rx + threshold;
-        const outerRy = ry + threshold;
-        if (outerRx === 0 || outerRy === 0) return false;
+        return false;
+    }
 
-        const outerDist = (rotatedX * rotatedX) / (outerRx * outerRx) + (rotatedY * rotatedY) / (outerRy * outerRy);
-        return outerDist <= 1;
+    private _pointToLineDistance(
+        px: number, py: number,
+        x1: number, y1: number,
+        x2: number, y2: number
+    ): number {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lengthSq = dx * dx + dy * dy;
+
+        if (lengthSq === 0) {
+            return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+        }
+
+        let t = ((px - x1) * dx + (py - y1) * dy) / lengthSq;
+        t = Math.max(0, Math.min(1, t));
+
+        const nearestX = x1 + t * dx;
+        const nearestY = y1 + t * dy;
+
+        return Math.sqrt((px - nearestX) ** 2 + (py - nearestY) ** 2);
     }
 
     getBounds(): { x: number; y: number; width: number; height: number } | null {
-        const params = this.getEllipseParams();
-        if (!params) return null;
+        if (this._pixelPoints.length < 2) return null;
 
-        const { cx, cy, rx, ry } = params;
+        const xs = this._pixelPoints.map(p => p.x);
+        const ys = this._pixelPoints.map(p => p.y);
+
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
 
         return {
-            x: cx - rx,
-            y: cy - ry,
-            width: rx * 2,
-            height: ry * 2
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY
         };
     }
 
@@ -352,8 +338,8 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
         };
     }
 
-    static fromJSON(data: SerializedDrawing): EllipseDrawing {
-        const drawing = new EllipseDrawing({
+    static fromJSON(data: SerializedDrawing): ArcDrawing {
+        const drawing = new ArcDrawing({
             color: data.style.color,
             lineWidth: data.style.lineWidth,
             lineDash: data.style.lineDash,

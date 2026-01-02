@@ -1,12 +1,10 @@
 /**
- * Ellipse Drawing Implementation (3-point, edge-based like TradingView)
+ * Rotated Rectangle Drawing Implementation
  * 
- * A 3-point ellipse where:
- * - Point 0: Left edge of ellipse (one end of horizontal axis)
- * - Point 1: Right edge of ellipse (other end of horizontal axis) 
- * - Point 2: Top or bottom edge (determines vertical radius)
- * 
- * Center is calculated as midpoint between points 0 and 1.
+ * A 3-point rectangle where:
+ * - Point 0: First corner
+ * - Point 1: Second corner (defines one edge and rotation)
+ * - Point 2: Defines width perpendicular to first edge
  */
 
 import {
@@ -31,7 +29,7 @@ import {
     lineStyleRow,
 } from './drawing-settings-config';
 
-export interface EllipseOptions {
+export interface RotatedRectangleOptions {
     color?: string;
     lineWidth?: number;
     lineDash?: number[];
@@ -40,11 +38,11 @@ export interface EllipseOptions {
 }
 
 /**
- * Ellipse - A 3-point shape (left edge + right edge + height)
+ * Rotated Rectangle - 3-point shape with rotation support
  */
-export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
+export class RotatedRectangleDrawing implements Drawing, DrawingSettingsProvider {
     readonly id: string;
-    readonly type: DrawingType = 'ellipse';
+    readonly type: DrawingType = 'rotatedRectangle';
 
     points: DrawingPoint[] = [];
     style: DrawingStyle;
@@ -52,13 +50,12 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
     visible: boolean = true;
     locked: boolean = false;
 
-    // Preview point tracking (like parallelChannel)
+    // Cached pixel coordinates (updated by renderer)
+    private _pixelPoints: { x: number; y: number }[] = [];
+    // Index of the current preview point (-1 if none)
     private _previewPointIndex: number = -1;
 
-    // Cached pixel coordinates
-    private _pixelPoints: { x: number; y: number }[] = [];
-
-    constructor(options: EllipseOptions = {}) {
+    constructor(options: RotatedRectangleOptions = {}) {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
@@ -144,14 +141,14 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     // =========================================================================
-    // Point Management (3-point pattern like parallelChannel)
+    // Point Management - Same pattern as ParallelChannel
     // =========================================================================
 
     /** Add a point to the drawing */
     addPoint(time: number, price: number): void {
         this.points.push({ time, price });
 
-        // Complete after 3 points
+        // Rotated rectangle has exactly 3 points
         if (this.points.length >= 3) {
             this.state = 'complete';
         }
@@ -159,35 +156,45 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
 
     /** Check if drawing is complete */
     isComplete(): boolean {
-        return this.points.length >= 3;
+        return this.points.length >= 3 && this.state === 'complete';
     }
 
-    /** Update the last point (during preview) - parallelChannel pattern */
+    /** Update the last point (during drawing preview) */
     updateLastPoint(time: number, price: number): void {
+        if (this.points.length === 0) return;
+
         if (this.state === 'creating') {
+            // Check if we need to add a preview point or update existing one
             if (this._previewPointIndex === -1) {
-                // No preview exists - add one
+                // Add a new preview point
                 this.points.push({ time, price });
                 this._previewPointIndex = this.points.length - 1;
             } else {
-                // Update existing preview
+                // Update existing preview point
                 this.points[this._previewPointIndex] = { time, price };
             }
         } else {
-            // Editing: update the last point
+            // Editing mode - just update the last point
             const lastIndex = this.points.length - 1;
-            if (lastIndex >= 0) {
-                this.points[lastIndex] = { time, price };
-            }
+            this.points[lastIndex] = { time, price };
         }
     }
 
-    /** Confirm the preview point (called on click) */
+    /** Confirm the current preview point as permanent */
     confirmPreviewPoint(): void {
         this._previewPointIndex = -1;
     }
 
-    /** Set cached pixel coordinates */
+    /** Get preview point index (-1 if none) */
+    get previewPointIndex(): number {
+        return this._previewPointIndex;
+    }
+
+    // =========================================================================
+    // Pixel Coordinates
+    // =========================================================================
+
+    /** Set cached pixel coordinates (called by renderer) */
     setPixelPoints(points: { x: number; y: number }[]): void {
         this._pixelPoints = points;
     }
@@ -198,141 +205,111 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     /**
-     * Get ellipse parameters for rendering
-     * Center is calculated from points 0 and 1
-     * rx = distance from center to point 0 (or 1)
-     * ry = perpendicular distance from point 2 to the line between 0 and 1
+     * Calculate the 4 corners of the rotated rectangle from 3 control points
      */
-    getEllipseParams(): {
-        cx: number; cy: number;
-        rx: number; ry: number;
-        rotation: number
-    } | null {
-        if (this._pixelPoints.length < 2) return null;
+    getRectangleCorners(): { x: number; y: number }[] | null {
+        if (this._pixelPoints.length < 3) return null;
 
-        const p0 = this._pixelPoints[0]; // Left edge
-        const p1 = this._pixelPoints[1]; // Right edge
+        const [p1, p2, p3] = this._pixelPoints;
 
-        // Center is midpoint of p0 and p1
-        const cx = (p0.x + p1.x) / 2;
-        const cy = (p0.y + p1.y) / 2;
+        // Vector from p1 to p2 (first edge)
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
 
-        // First radius (horizontal) = half distance between p0 and p1
-        const dx = p1.x - p0.x;
-        const dy = p1.y - p0.y;
-        const rx = Math.sqrt(dx * dx + dy * dy) / 2;
+        // Length of first edge
+        const length = Math.sqrt(dx * dx + dy * dy);
+        if (length === 0) return null;
 
-        // Rotation angle of the major axis
-        const rotation = Math.atan2(dy, dx);
+        // Perpendicular unit vector
+        const perpX = -dy / length;
+        const perpY = dx / length;
 
-        if (this._pixelPoints.length < 3) {
-            // Preview with 2 points - use half of rx for ry
-            return { cx, cy, rx, ry: rx * 0.5, rotation };
-        }
+        // Project p3 onto perpendicular to get width
+        const projLength = (p3.x - p1.x) * perpX + (p3.y - p1.y) * perpY;
 
-        // Third point determines the second radius (perpendicular to major axis)
-        const p2 = this._pixelPoints[2];
-
-        // Vector from center to p2
-        const dx2 = p2.x - cx;
-        const dy2 = p2.y - cy;
-
-        // Perpendicular direction to the major axis
-        const perpX = -Math.sin(rotation);
-        const perpY = Math.cos(rotation);
-
-        // Project vector onto perpendicular axis to get ry
-        const ry = Math.abs(dx2 * perpX + dy2 * perpY);
-
-        return { cx, cy, rx, ry, rotation };
-    }
-
-    /**
-     * Get control point positions (on the ellipse edges)
-     * Returns positions for: left, right, top, bottom of ellipse
-     */
-    getControlPoints(): { x: number; y: number }[] | null {
-        const params = this.getEllipseParams();
-        if (!params) return null;
-
-        const { cx, cy, rx, ry, rotation } = params;
-
-        // Calculate the 4 control points on the ellipse
-        const cosR = Math.cos(rotation);
-        const sinR = Math.sin(rotation);
-
-        // Left point (negative rx direction)
-        const left = {
-            x: cx - rx * cosR,
-            y: cy - rx * sinR
+        // Calculate 4th corner
+        const p4 = {
+            x: p2.x + perpX * projLength,
+            y: p2.y + perpY * projLength
         };
 
-        // Right point (positive rx direction)
-        const right = {
-            x: cx + rx * cosR,
-            y: cy + rx * sinR
+        // Correct p3 to be exactly perpendicular
+        const p3Corrected = {
+            x: p1.x + perpX * projLength,
+            y: p1.y + perpY * projLength
         };
 
-        // Top point (negative ry in perpendicular direction)
-        const top = {
-            x: cx - ry * (-sinR),
-            y: cy - ry * cosR
-        };
-
-        // Bottom point (positive ry in perpendicular direction)
-        const bottom = {
-            x: cx + ry * (-sinR),
-            y: cy + ry * cosR
-        };
-
-        return [left, right, bottom, top];
+        return [p1, p2, p4, p3Corrected];
     }
 
     // =========================================================================
     // Hit Testing
     // =========================================================================
 
+    private _distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const l2 = dx * dx + dy * dy;
+
+        if (l2 === 0) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+
+        let t = ((px - x1) * dx + (py - y1) * dy) / l2;
+        t = Math.max(0, Math.min(1, t));
+
+        const projX = x1 + t * dx;
+        const projY = y1 + t * dy;
+
+        return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+    }
+
+    private _pointInPolygon(px: number, py: number, corners: { x: number; y: number }[]): boolean {
+        let inside = false;
+        const n = corners.length;
+
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+            const xi = corners[i].x, yi = corners[i].y;
+            const xj = corners[j].x, yj = corners[j].y;
+
+            if (((yi > py) !== (yj > py)) &&
+                (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
     hitTest(x: number, y: number, threshold: number = 5): boolean {
-        const params = this.getEllipseParams();
-        if (!params) return false;
+        const corners = this.getRectangleCorners();
+        if (!corners) return false;
 
-        const { cx, cy, rx, ry, rotation } = params;
-        if (rx === 0 || ry === 0) return false;
+        // Check inside polygon
+        if (this._pointInPolygon(x, y, corners)) return true;
 
-        // Rotate the test point to align with ellipse axes
-        const cosR = Math.cos(-rotation);
-        const sinR = Math.sin(-rotation);
-        const dx = x - cx;
-        const dy = y - cy;
-        const rotatedX = dx * cosR - dy * sinR;
-        const rotatedY = dx * sinR + dy * cosR;
+        // Check edges
+        for (let i = 0; i < 4; i++) {
+            const c1 = corners[i];
+            const c2 = corners[(i + 1) % 4];
+            if (this._distToSegment(x, y, c1.x, c1.y, c2.x, c2.y) <= threshold) {
+                return true;
+            }
+        }
 
-        // Check if inside ellipse (with threshold for border)
-        const normalizedDist = (rotatedX * rotatedX) / (rx * rx) + (rotatedY * rotatedY) / (ry * ry);
-
-        // Inside ellipse
-        if (normalizedDist <= 1) return true;
-
-        // Near border (within threshold)
-        const outerRx = rx + threshold;
-        const outerRy = ry + threshold;
-        if (outerRx === 0 || outerRy === 0) return false;
-
-        const outerDist = (rotatedX * rotatedX) / (outerRx * outerRx) + (rotatedY * rotatedY) / (outerRy * outerRy);
-        return outerDist <= 1;
+        return false;
     }
 
     getBounds(): { x: number; y: number; width: number; height: number } | null {
-        const params = this.getEllipseParams();
-        if (!params) return null;
+        const corners = this.getRectangleCorners();
+        if (!corners) return null;
 
-        const { cx, cy, rx, ry } = params;
+        const xs = corners.map(c => c.x);
+        const ys = corners.map(c => c.y);
 
         return {
-            x: cx - rx,
-            y: cy - ry,
-            width: rx * 2,
-            height: ry * 2
+            x: Math.min(...xs),
+            y: Math.min(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys)
         };
     }
 
@@ -352,8 +329,8 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
         };
     }
 
-    static fromJSON(data: SerializedDrawing): EllipseDrawing {
-        const drawing = new EllipseDrawing({
+    static fromJSON(data: SerializedDrawing): RotatedRectangleDrawing {
+        const drawing = new RotatedRectangleDrawing({
             color: data.style.color,
             lineWidth: data.style.lineWidth,
             lineDash: data.style.lineDash,
