@@ -36,7 +36,9 @@ import {
     drawBrush,
     drawArrowMarker,
     drawArrowIcon,
-    drawArrow
+    drawArrow,
+    drawLongPosition,
+    drawShortPosition
 } from './pane_widget/renderers';
 import {
     Drawing,
@@ -69,7 +71,9 @@ import {
     ThreeDrivesDrawing,
     HeadShouldersDrawing,
     ABCDPatternDrawing,
-    TrianglePatternDrawing
+    TrianglePatternDrawing,
+    LongPositionDrawing,
+    ShortPositionDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -616,6 +620,20 @@ export class PaneWidget implements Disposable {
                         labels = ['A', 'B', 'C', 'D'];
                     } // threeDrives and headShoulders have their own labels
                     drawPatternWave(ctx, patternDrawing, pixelPoints, dpr, showControlPoints, labels);
+                }
+            } else if (drawing.type === 'longPosition') {
+                if (pixelPoints.length >= 2) {
+                    const positionDrawing = drawing as LongPositionDrawing;
+                    positionDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    drawLongPosition(ctx, positionDrawing, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'shortPosition') {
+                if (pixelPoints.length >= 2) {
+                    const positionDrawing = drawing as ShortPositionDrawing;
+                    positionDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    drawShortPosition(ctx, positionDrawing, dpr, showControlPoints);
                 }
             }
         }

@@ -39,6 +39,8 @@ import { ThreeDrivesDrawing } from './three-drives-drawing';
 import { HeadShouldersDrawing } from './head-shoulders-drawing';
 import { ABCDPatternDrawing } from './abcd-pattern-drawing';
 import { TrianglePatternDrawing } from './triangle-pattern-drawing';
+import { LongPositionDrawing } from './long-position-drawing';
+import { ShortPositionDrawing } from './short-position-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -254,6 +256,12 @@ export class DrawingManager {
                 break;
             case 'trianglePattern':
                 drawing = new TrianglePatternDrawing();
+                break;
+            case 'longPosition':
+                drawing = new LongPositionDrawing();
+                break;
+            case 'shortPosition':
+                drawing = new ShortPositionDrawing();
                 break;
             // Add more types here...
             default:
