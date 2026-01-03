@@ -11,7 +11,7 @@ import {
     HeadShouldersDrawing,
     ABCDPatternDrawing,
     TrianglePatternDrawing
-} from '../../drawings';
+} from '../../../drawings';
 
 export type PatternDrawing =
     | XABCDPatternDrawing

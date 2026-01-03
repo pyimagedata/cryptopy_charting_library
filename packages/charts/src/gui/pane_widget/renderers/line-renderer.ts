@@ -3,7 +3,7 @@
  * Renders line-based drawings: TrendLine, TrendAngle, HorizontalRay, CrossLine, InfoLine
  */
 
-import { InfoLineDrawing } from '../../drawings/info-line-drawing';
+import { InfoLineDrawing } from '../../../drawings/info-line-drawing';
 
 /**
  * Draws a trend line with optional text and extensions

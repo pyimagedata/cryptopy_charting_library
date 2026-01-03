@@ -4,15 +4,15 @@
  * ParallelChannel, RegressionTrend, Brush, ArrowMarker, ArrowIcon, Arrow
  */
 
-import { FibRetracementDrawing } from '../../drawings/fibonacci-retracement-drawing';
-import { FibExtensionDrawing } from '../../drawings/fibonacci-extension-drawing';
-import { FibChannelDrawing } from '../../drawings/fib-channel-drawing';
-import { ParallelChannelDrawing } from '../../drawings/parallel-channel-drawing';
-import { RegressionTrendDrawing } from '../../drawings/regression-trend-drawing';
-import { BrushDrawing } from '../../drawings/brush-drawing';
-import { ArrowMarkerDrawing } from '../../drawings/arrow-marker-drawing';
-import { ArrowIconDrawing } from '../../drawings/arrow-icon-drawing';
-import { ArrowDrawing } from '../../drawings/arrow-drawing';
+import { FibRetracementDrawing } from '../../../drawings/fibonacci-retracement-drawing';
+import { FibExtensionDrawing } from '../../../drawings/fibonacci-extension-drawing';
+import { FibChannelDrawing } from '../../../drawings/fib-channel-drawing';
+import { ParallelChannelDrawing } from '../../../drawings/parallel-channel-drawing';
+import { RegressionTrendDrawing } from '../../../drawings/regression-trend-drawing';
+import { BrushDrawing } from '../../../drawings/brush-drawing';
+import { ArrowMarkerDrawing } from '../../../drawings/arrow-marker-drawing';
+import { ArrowIconDrawing } from '../../../drawings/arrow-icon-drawing';
+import { ArrowDrawing } from '../../../drawings/arrow-drawing';
 import { hexToRgba } from './utils';
 
 /**

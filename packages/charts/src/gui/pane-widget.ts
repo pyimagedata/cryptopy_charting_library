@@ -37,7 +37,7 @@ import {
     drawArrowMarker,
     drawArrowIcon,
     drawArrow
-} from './renderers';
+} from './pane_widget/renderers';
 import {
     Drawing,
     TrendLineDrawing,

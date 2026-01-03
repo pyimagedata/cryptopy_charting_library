@@ -13,7 +13,7 @@ import {
     CircleDrawing,
     PolylineDrawing,
     CurveDrawing,
-} from '../../drawings';
+} from '../../../drawings';
 
 // ============================================================================
 // Rectangle
