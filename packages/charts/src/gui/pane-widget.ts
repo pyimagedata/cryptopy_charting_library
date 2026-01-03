@@ -40,7 +40,8 @@ import {
     XABCDPatternDrawing,
     ElliottImpulseDrawing,
     ElliottCorrectionDrawing,
-    ThreeDrivesDrawing
+    ThreeDrivesDrawing,
+    HeadShouldersDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -569,9 +570,9 @@ export class PaneWidget implements Disposable {
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     this._drawCurve(ctx, curveDrawing, pixelPoints, dpr, showControlPoints);
                 }
-            } else if (drawing.type === 'xabcdPattern' || drawing.type === 'elliotImpulse' || drawing.type === 'elliotCorrection' || drawing.type === 'threeDrives') {
+            } else if (drawing.type === 'xabcdPattern' || drawing.type === 'elliotImpulse' || drawing.type === 'elliotCorrection' || drawing.type === 'threeDrives' || drawing.type === 'headShoulders') {
                 if (pixelPoints.length >= 2) {
-                    const patternDrawing = drawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing;
+                    const patternDrawing = drawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing;
                     patternDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     let labels: string[] = [];
@@ -2781,7 +2782,7 @@ export class PaneWidget implements Disposable {
 
     private _drawPatternWave(
         ctx: CanvasRenderingContext2D,
-        drawing: XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing,
+        drawing: XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing,
         pixelPoints: { x: number; y: number }[],
         dpr: number,
         showControlPoints: boolean,
@@ -2789,8 +2790,8 @@ export class PaneWidget implements Disposable {
     ): void {
         if (pixelPoints.length < 2) return;
 
-        // Draw fills: XAB triangle and BCD triangle (NOT XBD area)
-        if (drawing.style.fillColor) {
+        // Draw fills: XAB triangle and BCD triangle (NOT for headShoulders - it has custom fills)
+        if (drawing.style.fillColor && drawing.type !== 'headShoulders') {
             ctx.fillStyle = drawing.style.fillColor;
 
             // Fill XAB triangle (X, A, B)
@@ -2878,6 +2879,175 @@ export class PaneWidget implements Disposable {
 
             ctx.stroke();
             ctx.setLineDash([]);
+        }
+
+        // Draw Head and Shoulders: 7-point pattern
+        // P0 = Start point (NOT on neckline)
+        // P1 = Left Shoulder dip
+        // P2 = First neckline point
+        // P3 = Head dip
+        // P4 = Second neckline point
+        // P5 = Right Shoulder dip
+        // P6 = End point (NOT on neckline)
+        // Neckline slope is defined by P2-P4
+        if (drawing.type === 'headShoulders' && pixelPoints.length >= 2) {
+            ctx.fillStyle = drawing.style.fillColor || 'rgba(206, 147, 216, 0.4)';
+
+            // Calculate neckline slope from P2 to P4 (when available)
+            let necklineSlope = 0;
+            if (pixelPoints.length >= 5) {
+                const dx = pixelPoints[4].x - pixelPoints[2].x;
+                if (dx !== 0) {
+                    necklineSlope = (pixelPoints[4].y - pixelPoints[2].y) / dx;
+                }
+            } else if (pixelPoints.length >= 3) {
+                // Before P4 is available, estimate slope from P0-P2
+                const dx = pixelPoints[2].x - pixelPoints[0].x;
+                if (dx !== 0) {
+                    necklineSlope = (pixelPoints[2].y - pixelPoints[0].y) / dx;
+                }
+            }
+
+            // Helper: calculate Y on neckline at given X (based on P2)
+            const calcNecklineY = (targetX: number): number => {
+                if (pixelPoints.length >= 3) {
+                    return pixelPoints[2].y + necklineSlope * (targetX - pixelPoints[2].x);
+                }
+                return pixelPoints[0].y;
+            };
+
+            // LEFT SHOULDER FILL + HEAD FILL: Preview starts after P3 (5+ points)
+            if (pixelPoints.length >= 5) {
+                // LEFT SHOULDER FILL: Triangle with vertex at P1
+                // Left corner: intersection of P0-P1 line with neckline
+                // Calculate where line P0-P1 intersects the neckline
+                const p0 = pixelPoints[0];
+                const p1 = pixelPoints[1];
+                const p2 = pixelPoints[2];
+
+                // Line P0-P1: y = p0.y + ((p1.y - p0.y) / (p1.x - p0.x)) * (x - p0.x)
+                // Neckline: y = p2.y + necklineSlope * (x - p2.x)
+                // Solve for intersection
+                const lineSlope = (p1.y - p0.y) / (p1.x - p0.x);
+                // lineSlope * (x - p0.x) + p0.y = necklineSlope * (x - p2.x) + p2.y
+                // lineSlope * x - lineSlope * p0.x + p0.y = necklineSlope * x - necklineSlope * p2.x + p2.y
+                // x * (lineSlope - necklineSlope) = -necklineSlope * p2.x + p2.y + lineSlope * p0.x - p0.y
+                const slopeDiff = lineSlope - necklineSlope;
+                let lsLeftX: number, lsLeftY: number;
+                if (Math.abs(slopeDiff) > 0.0001) {
+                    lsLeftX = (-necklineSlope * p2.x + p2.y + lineSlope * p0.x - p0.y) / slopeDiff;
+                    lsLeftY = calcNecklineY(lsLeftX);
+                } else {
+                    // Lines are parallel, use P1's x position
+                    lsLeftX = p1.x - (p2.x - p1.x) * 0.5;
+                    lsLeftY = calcNecklineY(lsLeftX);
+                }
+
+                ctx.beginPath();
+                ctx.moveTo(lsLeftX, lsLeftY); // Neckline intersection
+                ctx.lineTo(p1.x, p1.y); // LS dip (P1)
+                ctx.lineTo(p2.x, p2.y); // P2 (neckline)
+                ctx.closePath();
+                ctx.fill();
+
+                // HEAD FILL: P2-P3-P4
+                ctx.beginPath();
+                ctx.moveTo(pixelPoints[2].x, pixelPoints[2].y); // P2
+                ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y); // Head dip
+                ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y); // P4
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // RIGHT SHOULDER FILL: Shows with 6+ points (preview) or 7 points (complete)
+            if (pixelPoints.length >= 6) {
+                const p4 = pixelPoints[4];
+                const p5 = pixelPoints[5];
+
+                // Right corner: intersection of P5-P6 line with neckline (or estimate if P6 not available)
+                let rsRightX: number, rsRightY: number;
+
+                if (pixelPoints.length >= 7) {
+                    const p6 = pixelPoints[6];
+                    // Line P5-P6: calculate intersection with neckline
+                    const lineSlope = (p6.y - p5.y) / (p6.x - p5.x);
+                    const slopeDiff = lineSlope - necklineSlope;
+                    if (Math.abs(slopeDiff) > 0.0001) {
+                        rsRightX = (-necklineSlope * p4.x + p4.y + lineSlope * p5.x - p5.y) / slopeDiff;
+                        rsRightY = calcNecklineY(rsRightX);
+                    } else {
+                        rsRightX = p5.x + (p5.x - p4.x) * 0.5;
+                        rsRightY = calcNecklineY(rsRightX);
+                    }
+                } else {
+                    // P6 not available yet, estimate right corner symmetrically
+                    rsRightX = p5.x + (p5.x - p4.x) * 0.5;
+                    rsRightY = calcNecklineY(rsRightX);
+                }
+
+                ctx.beginPath();
+                ctx.moveTo(p4.x, p4.y); // P4 (neckline)
+                ctx.lineTo(p5.x, p5.y); // RS dip (P5)
+                ctx.lineTo(rsRightX, rsRightY); // Neckline intersection
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Draw dashed neckline (aligned with fill edges)
+            if (pixelPoints.length >= 5) {
+                ctx.beginPath();
+                ctx.setLineDash([4 * dpr, 4 * dpr]);
+                ctx.strokeStyle = drawing.style.color;
+                ctx.lineWidth = 1 * dpr;
+
+                // Neckline start: intersection of P0-P1 with neckline (same as LS fill left corner)
+                const p0 = pixelPoints[0];
+                const p1 = pixelPoints[1];
+                const p2 = pixelPoints[2];
+                const lineSlope01 = (p1.y - p0.y) / (p1.x - p0.x);
+                const slopeDiff01 = lineSlope01 - necklineSlope;
+                let neckStartX: number, neckStartY: number;
+                if (Math.abs(slopeDiff01) > 0.0001) {
+                    neckStartX = (-necklineSlope * p2.x + p2.y + lineSlope01 * p0.x - p0.y) / slopeDiff01;
+                    neckStartY = calcNecklineY(neckStartX);
+                } else {
+                    neckStartX = p1.x - (p2.x - p1.x) * 0.5;
+                    neckStartY = calcNecklineY(neckStartX);
+                }
+
+                // Neckline end: intersection of P5-P6 with neckline (or estimate)
+                let neckEndX: number, neckEndY: number;
+                if (pixelPoints.length >= 7) {
+                    const p4 = pixelPoints[4];
+                    const p5 = pixelPoints[5];
+                    const p6 = pixelPoints[6];
+                    const lineSlope56 = (p6.y - p5.y) / (p6.x - p5.x);
+                    const slopeDiff56 = lineSlope56 - necklineSlope;
+                    if (Math.abs(slopeDiff56) > 0.0001) {
+                        neckEndX = (-necklineSlope * p4.x + p4.y + lineSlope56 * p5.x - p5.y) / slopeDiff56;
+                        neckEndY = calcNecklineY(neckEndX);
+                    } else {
+                        neckEndX = p5.x + (p5.x - p4.x) * 0.5;
+                        neckEndY = calcNecklineY(neckEndX);
+                    }
+                } else if (pixelPoints.length >= 6) {
+                    // P6 not available, estimate from P5
+                    const p4 = pixelPoints[4];
+                    const p5 = pixelPoints[5];
+                    neckEndX = p5.x + (p5.x - p4.x) * 0.5;
+                    neckEndY = calcNecklineY(neckEndX);
+                } else {
+                    // Only P4 available, extend from P4
+                    neckEndX = pixelPoints[4].x + (pixelPoints[4].x - p2.x) * 0.5;
+                    neckEndY = calcNecklineY(neckEndX);
+                }
+
+                ctx.moveTo(neckStartX, neckStartY);
+                ctx.lineTo(neckEndX, neckEndY);
+
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
         }
 
         // Draw control points (only when selected/creating)

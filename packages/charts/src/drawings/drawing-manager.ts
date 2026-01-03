@@ -36,6 +36,7 @@ import { XABCDPatternDrawing } from './xabcd-pattern-drawing';
 import { ElliottImpulseDrawing } from './elliott-impulse-drawing';
 import { ElliottCorrectionDrawing } from './elliott-correction-drawing';
 import { ThreeDrivesDrawing } from './three-drives-drawing';
+import { HeadShouldersDrawing } from './head-shoulders-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -243,6 +244,9 @@ export class DrawingManager {
             case 'threeDrives':
                 drawing = new ThreeDrivesDrawing();
                 break;
+            case 'headShoulders':
+                drawing = new HeadShouldersDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -351,8 +355,9 @@ export class DrawingManager {
         if (this._activeDrawing.type === 'xabcdPattern' ||
             this._activeDrawing.type === 'elliotImpulse' ||
             this._activeDrawing.type === 'elliotCorrection' ||
-            this._activeDrawing.type === 'threeDrives') {
-            const patternDrawing = this._activeDrawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing;
+            this._activeDrawing.type === 'threeDrives' ||
+            this._activeDrawing.type === 'headShoulders') {
+            const patternDrawing = this._activeDrawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing;
 
             // If there's a preview point, confirm it and update to click position
             if (patternDrawing.points.length > 0) {
@@ -371,6 +376,7 @@ export class DrawingManager {
             if (this._activeDrawing.type === 'elliotImpulse') requiredPoints = 6;
             else if (this._activeDrawing.type === 'elliotCorrection') requiredPoints = 4;
             else if (this._activeDrawing.type === 'threeDrives') requiredPoints = 7;
+            else if (this._activeDrawing.type === 'headShoulders') requiredPoints = 7;
             if (patternDrawing.points.length >= requiredPoints) {
                 patternDrawing.state = 'complete';
                 this._activeDrawing = null;
@@ -890,6 +896,9 @@ export class DrawingManager {
                     break;
                 case 'threeDrives':
                     drawing = ThreeDrivesDrawing.fromJSON(item);
+                    break;
+                case 'headShoulders':
+                    drawing = HeadShouldersDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:

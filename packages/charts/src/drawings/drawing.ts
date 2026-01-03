@@ -75,7 +75,8 @@ export type DrawingType =
     | 'xabcdPattern'
     | 'elliotImpulse'
     | 'elliotCorrection'
-    | 'threeDrives';
+    | 'threeDrives'
+    | 'headShoulders';
 
 /** Drawing state */
 export type DrawingState = 'creating' | 'complete' | 'selected' | 'editing';
@@ -144,6 +145,9 @@ export const DEFAULT_DRAWING_STYLE: DrawingStyle = {
     lineWidth: 2,
     lineDash: [],
 };
+
+export * from './three-drives-drawing';
+export * from './head-shoulders-drawing';
 
 /** Generate unique drawing ID */
 export function generateDrawingId(): string {
