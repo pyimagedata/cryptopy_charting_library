@@ -13,3 +13,6 @@ export * from './shape-renderer';
 
 // Line renderer (TrendLine, TrendAngle, HorizontalRay, CrossLine, InfoLine)
 export * from './line-renderer';
+
+// Fib, Channel, Annotation renderer
+export * from './fib-channel-annotation-renderer';
