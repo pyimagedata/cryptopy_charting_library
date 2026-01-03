@@ -20,6 +20,24 @@ import { FloatingAttributeBar } from './attribute_bar';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartStateManager } from '../state';
 import { AddTextTooltipHelper } from './tooltips';
+import {
+    ChartWidgetContext,
+    handleWheel as handleWheelEvent,
+    handleMouseDown as handleMouseDownEvent,
+    handleMouseMove as handleMouseMoveEvent,
+    handleKeyDown as handleKeyDownEvent,
+    handleMouseLeave as handleMouseLeaveEvent,
+    handleMouseUp as handleMouseUpEvent,
+    handlePriceAxisMouseDown as handlePriceAxisMouseDownEvent,
+    handlePriceAxisDoubleClick as handlePriceAxisDoubleClickEvent
+} from './chart_widget';
+import {
+    handleContextSettings,
+    handleContextCopyPrice,
+    handleContextScreenshot,
+    handleContextFullscreen,
+    handleContextResetChart
+} from './chart_widget';
 
 
 /** Disposable interface for cleanup */
@@ -862,300 +880,70 @@ export class ChartWidget implements Disposable {
     }
 
     private _onWheel(e: WheelEvent): void {
-        e.preventDefault();
-
-        const rect = (e.target as HTMLElement).getBoundingClientRect();
-        const x = e.clientX - rect.left;
-
-        // Distinguish between horizontal scroll (Panning) and vertical/pinch (Zooming)
-        // deltaX is primarily for horizontal movement (two-finger swipe on trackpad)
-        // deltaY is for vertical movement or pinch-to-zoom
-
-        const isHorizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
-
-        if (isHorizontal && !e.ctrlKey) {
-            // Horizontal Pan (two-finger swipe left/right)
-            // No need for sensitivity adjustment here as it's a direct pixel mapping
-            this._model.timeScale.scrollBy(e.deltaX);
-        } else {
-            // Zoom (Vertical swipe, Mouse wheel, or Pinch)
-            // pinch-to-zoom usually carries ctrlKey = true
-            const isPinch = e.ctrlKey;
-
-            // Adjust sensitivity
-            // Trackpads send many small events, mouse wheels send fewer large ones.
-            // pinch gestures need higher sensitivity than normal swipes.
-            const sensitivity = isPinch ? 0.05 : 0.2;
-
-            // deltaY < 0 (swipe up / zoom in) -> sign 1
-            // deltaY > 0 (swipe down / zoom out) -> sign -1
-            const sign = e.deltaY > 0 ? -1 : 1;
-
-            this._model.timeScale.zoom(x as any, sign * sensitivity);
-        }
-
-        this._model.recalculateAllPanes();
+        handleWheelEvent(e, this._getEventContext());
     }
 
     private _onMouseDown(e: MouseEvent): void {
-        const paneRect = this._paneWidget?.canvas?.getBoundingClientRect();
-        if (!paneRect) return;
-
-        const x = e.clientX - paneRect.left;
-        const y = e.clientY - paneRect.top;
-        const isOverPane = x >= 0 && x <= paneRect.width && y >= 0 && y <= paneRect.height;
-
-        if (!isOverPane) {
-            // Normal panning mode for areas outside pane
-            this._isDragging = true;
-            this._lastMouseX = e.clientX;
-            this._lastMouseY = e.clientY;
-            return;
-        }
-
-        // Check if clicking on a control point of selected drawing (for resizing)
-        const selected = this._drawingManager.selectedDrawing;
-        if (selected) {
-            const controlPointIndex = this._hitTestControlPoint(x, y, selected);
-            if (controlPointIndex >= 0) {
-                // Start resizing
-                this._isDraggingDrawing = true;
-                this._draggingControlPoint = controlPointIndex;
-                this._dragStartX = x;
-                this._dragStartY = y;
-                return;
-            }
-
-            // Check if clicking on the line itself (for moving)
-            if (selected.hitTest(x, y, 8)) {
-                this._isDraggingDrawing = true;
-                this._draggingControlPoint = 99; // Moving whole drawing
-                this._dragStartX = x;
-                this._dragStartY = y;
-                return;
-            }
-        }
-
-        // Try to select a drawing (Allow selection even if we're in a drawing mode)
-        const hitDrawing = this._drawingManager.selectDrawingAt(x, y);
-        if (hitDrawing) {
-            // Start dragging the newly selected drawing
-            this._isDraggingDrawing = true;
-            this._draggingControlPoint = 99;
-            this._dragStartX = x;
-            this._dragStartY = y;
-            return;
-        }
-
-        // Check if we're in drawing mode (creating new drawings) - After hit testing
-        if (this._drawingManager.mode !== 'none') {
-            if (this._drawingManager.activeDrawing) {
-                // If it's a brush or highlighter, we don't finish on click, we finish on mouseup
-                if (this._drawingManager.activeDrawing.type !== 'brush' && this._drawingManager.activeDrawing.type !== 'highlighter') {
-                    this._drawingManager.finishDrawing(x, y);
-                }
-            } else {
-                this._drawingManager.startDrawing(x, y);
-            }
-            return;
-        }
-
-        // Normal panning mode
-        this._isDragging = true;
-        this._lastMouseX = e.clientX;
-        this._lastMouseY = e.clientY;
-
-        // If auto-scale is off, start vertical scrolling too
-        if (!this._model.rightPriceScale.isAutoScale) {
-            const canvas = this._paneWidget?.canvas;
-            if (canvas) {
-                const rect = canvas.getBoundingClientRect();
-                this._model.rightPriceScale.startScroll(e.clientY - rect.top);
-            }
-        }
-    }
-
-    /** Check if point hits a control point of the drawing, returns index or -1 */
-    private _hitTestControlPoint(x: number, y: number, drawing: any): number {
-        if (!drawing.getPixelPoints) return -1;
-
-        const points = drawing.getPixelPoints();
-        const threshold = 10;
-
-        for (let i = 0; i < points.length; i++) {
-            const dx = x - points[i].x;
-            const dy = y - points[i].y;
-            if (Math.sqrt(dx * dx + dy * dy) <= threshold) {
-                return i;
-            }
-        }
-        return -1;
+        const stateUpdates = handleMouseDownEvent(e, this._getEventContext());
+        this._applyEventState(stateUpdates);
     }
 
     private _onMouseMove(e: MouseEvent): void {
-        const deltaX = e.clientX - this._lastMouseX;
-        const deltaY = e.clientY - this._lastMouseY;
-
-        this._lastMouseX = e.clientX;
-        this._lastMouseY = e.clientY;
-
-        // Get pane rect for coordinate conversion
-        const paneRect = this._paneWidget?.canvas?.getBoundingClientRect();
-
-        // Handle drawing dragging (move or resize)
-        if (this._isDraggingDrawing && paneRect) {
-            const x = e.clientX - paneRect.left;
-            const y = e.clientY - paneRect.top;
-
-            const selected = this._drawingManager.selectedDrawing;
-            if (selected) {
-                if (this._draggingControlPoint === 99) {
-                    // Moving the whole drawing
-                    this._drawingManager.moveDrawing(x - this._dragStartX, y - this._dragStartY);
-                    this._dragStartX = x;
-                    this._dragStartY = y;
-                } else if (this._draggingControlPoint >= 0) {
-                    // Resizing - move a specific control point
-                    this._drawingManager.moveControlPoint(this._draggingControlPoint, x, y);
-                }
-            }
-
-            // Show crosshair during drawing edit for precision positioning
-            this._model.setCrosshairPosition(x, y, true);
-            return;
-        }
-
-        // Update drawing preview if there's an active drawing
-        if (paneRect && this._drawingManager.activeDrawing) {
-            const x = e.clientX - paneRect.left;
-            const y = e.clientY - paneRect.top;
-            this._drawingManager.updateDrawing(x, y);
-        }
-
-        if (this._isDragging) {
-            this._model.timeScale.scrollBy(-deltaX);
-
-            // If auto-scale is off, also scroll vertically
-            if (!this._model.rightPriceScale.isAutoScale) {
-                const canvas = this._paneWidget?.canvas;
-                if (canvas) {
-                    const rect = canvas.getBoundingClientRect();
-                    this._model.rightPriceScale.scrollTo(e.clientY - rect.top);
-                }
-            }
-
-            this._model.recalculateAllPanes();
-        }
-
-        if (this._isPriceScaleDragging) {
-            this._model.rightPriceScale.scaleTo(deltaY);
-            this._scheduleDraw();
-        }
-
-        // Crosshair logic (Global for all panes) - show during drawing drag too for precision
-        if (!this._isDragging && !this._isPriceScaleDragging && this._element) {
-            if (paneRect) {
-                const x = e.clientX - paneRect.left;
-                const y = e.clientY - paneRect.top;
-                const chartAreaWidth = paneRect.width;
-
-                if (x >= 0 && x <= chartAreaWidth && y >= 0 && y <= paneRect.height) {
-                    this._model.setCrosshairPosition(x, y, true);
-                } else if (x >= 0 && x <= chartAreaWidth) {
-                    // Mouse is horizontally over chart but vertically outside main pane
-                    // Still show vertical crosshair line
-                    this._model.setCrosshairPosition(x, y, true);
-                } else {
-                    this._model.setCrosshairPosition(0, 0, false);
-                }
-            } else {
-                this._model.setCrosshairPosition(0, 0, false);
-            }
-        }
+        const stateUpdates = handleMouseMoveEvent(e, this._getEventContext());
+        this._applyEventState(stateUpdates);
     }
 
     private _onKeyDown(e: KeyboardEvent): void {
-        // Delete selected drawing with Delete or Backspace key
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-            const selected = this._drawingManager.selectedDrawing;
-            if (selected) {
-                // Prevent default browser behavior (e.g., navigating back)
-                e.preventDefault();
-                this._drawingManager.deleteDrawing(selected.id);
-                this._scheduleDraw();
-            }
-        }
+        handleKeyDownEvent(e, this._getEventContext());
+    }
 
-        // Escape to deselect drawing, finish path, or cancel current mode
-        if (e.key === 'Escape') {
-            // Check if we're drawing a path - finish it properly
-            const activeDrawing = this._drawingManager.activeDrawing;
-            if (activeDrawing && activeDrawing.type === 'path') {
-                this._drawingManager.finishPathDrawing();
-                this._scheduleDraw();
-                return;
-            }
+    /** Create context object for event handlers */
+    private _getEventContext(): ChartWidgetContext {
+        return {
+            model: this._model,
+            drawingManager: this._drawingManager,
+            paneCanvas: this._paneWidget?.canvas ?? null,
+            element: this._element,
+            isDragging: this._isDragging,
+            isDraggingDrawing: this._isDraggingDrawing,
+            draggingControlPoint: this._draggingControlPoint,
+            isPriceScaleDragging: this._isPriceScaleDragging,
+            lastMouseX: this._lastMouseX,
+            lastMouseY: this._lastMouseY,
+            dragStartX: this._dragStartX,
+            dragStartY: this._dragStartY,
+            scheduleDraw: () => this._scheduleDraw()
+        };
+    }
 
-            // Check if we're drawing a polyline - finish it as open polyline
-            if (activeDrawing && activeDrawing.type === 'polyline') {
-                this._drawingManager.finishPolylineDrawing();
-                this._scheduleDraw();
-                return;
-            }
-
-            // Try to deselect selected drawing
-            const selected = this._drawingManager.selectedDrawing;
-            if (selected) {
-                selected.state = 'complete';
-                this._drawingManager.setMode('none');
-                this._scheduleDraw();
-            }
-        }
+    /** Apply state updates from event handlers */
+    private _applyEventState(state: Partial<ChartWidgetContext>): void {
+        if (state.isDragging !== undefined) this._isDragging = state.isDragging;
+        if (state.isDraggingDrawing !== undefined) this._isDraggingDrawing = state.isDraggingDrawing;
+        if (state.draggingControlPoint !== undefined) this._draggingControlPoint = state.draggingControlPoint;
+        if (state.isPriceScaleDragging !== undefined) this._isPriceScaleDragging = state.isPriceScaleDragging;
+        if (state.lastMouseX !== undefined) this._lastMouseX = state.lastMouseX;
+        if (state.lastMouseY !== undefined) this._lastMouseY = state.lastMouseY;
+        if (state.dragStartX !== undefined) this._dragStartX = state.dragStartX;
+        if (state.dragStartY !== undefined) this._dragStartY = state.dragStartY;
     }
 
     private _onMouseLeave(): void {
-        this._model.setCrosshairPosition(0, 0, false);
+        handleMouseLeaveEvent(this._getEventContext());
     }
 
     private _onMouseUp(e: MouseEvent): void {
-        const canvas = this._paneWidget?.canvas;
-        if (!canvas) return;
-
-        const paneRect = canvas.getBoundingClientRect();
-
-        if (this._isDragging) {
-            this._isDragging = false;
-            // End vertical scroll if it was active
-            this._model.rightPriceScale.endScroll();
-        }
-        if (this._isPriceScaleDragging) {
-            this._model.rightPriceScale.endScale();
-            this._isPriceScaleDragging = false;
-        }
-        // End drawing drag
-        if (this._isDraggingDrawing) {
-            this._isDraggingDrawing = false;
-            this._draggingControlPoint = -1;
-        }
-
-        // Finish brush or highlighter drawing on mouse up
-        if (paneRect && this._drawingManager.activeDrawing && (this._drawingManager.activeDrawing.type === 'brush' || this._drawingManager.activeDrawing.type === 'highlighter')) {
-            const x = e.clientX - paneRect.left;
-            const y = e.clientY - paneRect.top;
-            this._drawingManager.finishDrawing(x, y);
-        }
+        const stateUpdates = handleMouseUpEvent(e, this._getEventContext());
+        this._applyEventState(stateUpdates);
     }
 
     private _onPriceAxisMouseDown(e: MouseEvent): void {
-        const rect = (e.target as HTMLElement).getBoundingClientRect();
-        this._isPriceScaleDragging = true;
-        this._lastMouseY = rect.top;
-        this._model.rightPriceScale.startScale(e.clientY - rect.top);
+        const stateUpdates = handlePriceAxisMouseDownEvent(e, this._getEventContext());
+        this._applyEventState(stateUpdates);
     }
 
     private _onPriceAxisDoubleClick(): void {
-        this._model.rightPriceScale.setAutoScale(true);
-        this._model.recalculateAllPanes();
+        handlePriceAxisDoubleClickEvent(this._getEventContext());
     }
 
     /** Handle mouse move on pane - show Add Text tooltip on line midpoint */
@@ -1423,104 +1211,30 @@ export class ChartWidget implements Disposable {
     // --- Context Menu Actions ---
 
     private _onContextSettings(): void {
-        // TODO: Open settings modal
-        console.log('📋 Settings clicked - Modal will be implemented');
-        alert('Settings feature coming soon!');
+        handleContextSettings();
     }
 
     private _onContextCopyPrice(): void {
-        // Get the price that was set when context menu was opened
-        const priceScale = this._model.rightPriceScale;
-        const priceRange = priceScale.priceRange;
-        if (!priceRange) return;
-
-        // Get crosshair position for accurate price
-        const crosshair = this._model.crosshairPosition;
-        let price = 0;
-        if (crosshair && crosshair.visible) {
-            price = priceScale.coordinateToPrice(crosshair.y as any);
-        } else {
-            // Use middle of visible range as fallback
-            price = (priceRange.min + priceRange.max) / 2;
-        }
-
-        // Format and copy to clipboard
-        const formattedPrice = price.toLocaleString('en-US', {
-            minimumFractionDigits: 1,
-            maximumFractionDigits: 2
-        });
-
-        navigator.clipboard.writeText(formattedPrice).then(() => {
-            console.log(`📋 Copied price: ${formattedPrice}`);
-        }).catch(err => {
-            console.warn('Copy failed:', err);
-        });
+        handleContextCopyPrice(this._model);
     }
 
     private _onContextScreenshot(): void {
-        const canvas = this._paneWidget?.canvas;
-        if (!canvas) return;
-
-        // Create a combined canvas with all elements
-        const combinedCanvas = document.createElement('canvas');
-        combinedCanvas.width = this._width;
-        combinedCanvas.height = this._height;
-        const ctx = combinedCanvas.getContext('2d');
-        if (!ctx) return;
-
-        // Fill background
-        ctx.fillStyle = this._model.options.layout.backgroundColor;
-        ctx.fillRect(0, 0, combinedCanvas.width, combinedCanvas.height);
-
-        // Draw pane canvas
-        ctx.drawImage(canvas, 0, 0);
-
-        // Draw price axis if available
-        const priceCanvas = this._priceAxisWidget?.canvas;
-        if (priceCanvas) {
-            ctx.drawImage(priceCanvas, canvas.width, 0);
-        }
-
-        // Draw time axis if available
-        const timeCanvas = this._timeAxisWidget?.canvas;
-        if (timeCanvas) {
-            ctx.drawImage(timeCanvas, 0, canvas.height);
-        }
-
-        // Download
-        const link = document.createElement('a');
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        link.download = `chart-screenshot-${timestamp}.png`;
-        link.href = combinedCanvas.toDataURL('image/png');
-        link.click();
+        handleContextScreenshot(
+            this._model,
+            this._width,
+            this._height,
+            this._paneWidget,
+            this._priceAxisWidget,
+            this._timeAxisWidget
+        );
     }
 
     private _onContextFullscreen(): void {
-        if (!this._element) return;
-
-        if (document.fullscreenElement) {
-            document.exitFullscreen();
-        } else {
-            this._element.requestFullscreen().catch(err => {
-                console.warn('Fullscreen failed:', err);
-            });
-        }
+        handleContextFullscreen(this._element);
     }
 
     private _onContextResetChart(): void {
-        // Reset time scale to default values
-        this._model.timeScale.setBarSpacing(8);
-        this._model.timeScale.setRightOffset(10);
-
-        // Reset scroll position to 0 (show most recent data)
-        this._model.timeScale.scrollToPosition(0, false);
-
-        // Reset price scale to auto mode and recalculate range
-        this._model.rightPriceScale.setAutoScale(true);
-        this._model.rightPriceScale.setPriceRange(null); // Force recalculation
-
-        // Full update to recalculate everything
-        this._model.fullUpdate();
+        handleContextResetChart(this._model);
     }
 
     // --- Indicator Management ---
