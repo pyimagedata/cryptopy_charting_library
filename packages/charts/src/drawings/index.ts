@@ -39,3 +39,5 @@ export * from './elliott-impulse-drawing';
 export * from './elliott-correction-drawing';
 export * from './three-drives-drawing';
 export * from './head-shoulders-drawing';
+export * from './abcd-pattern-drawing';
+export * from './triangle-pattern-drawing';

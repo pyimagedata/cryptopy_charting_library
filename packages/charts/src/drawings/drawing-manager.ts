@@ -37,6 +37,8 @@ import { ElliottImpulseDrawing } from './elliott-impulse-drawing';
 import { ElliottCorrectionDrawing } from './elliott-correction-drawing';
 import { ThreeDrivesDrawing } from './three-drives-drawing';
 import { HeadShouldersDrawing } from './head-shoulders-drawing';
+import { ABCDPatternDrawing } from './abcd-pattern-drawing';
+import { TrianglePatternDrawing } from './triangle-pattern-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -247,6 +249,12 @@ export class DrawingManager {
             case 'headShoulders':
                 drawing = new HeadShouldersDrawing();
                 break;
+            case 'abcd':
+                drawing = new ABCDPatternDrawing();
+                break;
+            case 'trianglePattern':
+                drawing = new TrianglePatternDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -351,13 +359,15 @@ export class DrawingManager {
             }
         }
 
-        // Handle multi-point patterns (XABCD, Elliott, Three Drives)
+        // Handle multi-point patterns (XABCD, Elliott, Three Drives, ABCD)
         if (this._activeDrawing.type === 'xabcdPattern' ||
             this._activeDrawing.type === 'elliotImpulse' ||
             this._activeDrawing.type === 'elliotCorrection' ||
             this._activeDrawing.type === 'threeDrives' ||
-            this._activeDrawing.type === 'headShoulders') {
-            const patternDrawing = this._activeDrawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing;
+            this._activeDrawing.type === 'headShoulders' ||
+            this._activeDrawing.type === 'abcd' ||
+            this._activeDrawing.type === 'trianglePattern') {
+            const patternDrawing = this._activeDrawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing | ABCDPatternDrawing | TrianglePatternDrawing;
 
             // If there's a preview point, confirm it and update to click position
             if (patternDrawing.points.length > 0) {
@@ -377,6 +387,8 @@ export class DrawingManager {
             else if (this._activeDrawing.type === 'elliotCorrection') requiredPoints = 4;
             else if (this._activeDrawing.type === 'threeDrives') requiredPoints = 7;
             else if (this._activeDrawing.type === 'headShoulders') requiredPoints = 7;
+            else if (this._activeDrawing.type === 'abcd') requiredPoints = 4;
+            else if (this._activeDrawing.type === 'trianglePattern') requiredPoints = 4;
             if (patternDrawing.points.length >= requiredPoints) {
                 patternDrawing.state = 'complete';
                 this._activeDrawing = null;
@@ -899,6 +911,12 @@ export class DrawingManager {
                     break;
                 case 'headShoulders':
                     drawing = HeadShouldersDrawing.fromJSON(item);
+                    break;
+                case 'abcd':
+                    drawing = ABCDPatternDrawing.fromJSON(item);
+                    break;
+                case 'trianglePattern':
+                    drawing = TrianglePatternDrawing.fromJSON(item);
                     break;
                 // Add more types as needed...
                 default:

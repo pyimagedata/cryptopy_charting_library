@@ -41,7 +41,9 @@ import {
     ElliottImpulseDrawing,
     ElliottCorrectionDrawing,
     ThreeDrivesDrawing,
-    HeadShouldersDrawing
+    HeadShouldersDrawing,
+    ABCDPatternDrawing,
+    TrianglePatternDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -570,9 +572,9 @@ export class PaneWidget implements Disposable {
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     this._drawCurve(ctx, curveDrawing, pixelPoints, dpr, showControlPoints);
                 }
-            } else if (drawing.type === 'xabcdPattern' || drawing.type === 'elliotImpulse' || drawing.type === 'elliotCorrection' || drawing.type === 'threeDrives' || drawing.type === 'headShoulders') {
+            } else if (drawing.type === 'xabcdPattern' || drawing.type === 'elliotImpulse' || drawing.type === 'elliotCorrection' || drawing.type === 'threeDrives' || drawing.type === 'headShoulders' || drawing.type === 'abcd' || drawing.type === 'trianglePattern') {
                 if (pixelPoints.length >= 2) {
-                    const patternDrawing = drawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing;
+                    const patternDrawing = drawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing | ABCDPatternDrawing | TrianglePatternDrawing;
                     patternDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     let labels: string[] = [];
@@ -582,7 +584,11 @@ export class PaneWidget implements Disposable {
                         labels = ['(0)', '(1)', '(2)', '(3)', '(4)', '(5)'];
                     } else if (drawing.type === 'elliotCorrection') {
                         labels = ['(0)', '(A)', '(B)', '(C)'];
-                    } // threeDrives has no labels
+                    } else if (drawing.type === 'abcd') {
+                        labels = ['A', 'B', 'C', 'D'];
+                    } else if (drawing.type === 'trianglePattern') {
+                        labels = ['A', 'B', 'C', 'D'];
+                    } // threeDrives and headShoulders have their own labels
                     this._drawPatternWave(ctx, patternDrawing, pixelPoints, dpr, showControlPoints, labels);
                 }
             }
@@ -2782,7 +2788,7 @@ export class PaneWidget implements Disposable {
 
     private _drawPatternWave(
         ctx: CanvasRenderingContext2D,
-        drawing: XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing,
+        drawing: XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing | ABCDPatternDrawing | TrianglePatternDrawing,
         pixelPoints: { x: number; y: number }[],
         dpr: number,
         showControlPoints: boolean,
@@ -2875,6 +2881,168 @@ export class PaneWidget implements Disposable {
             if (pixelPoints.length >= 6) {
                 ctx.moveTo(pixelPoints[3].x, pixelPoints[3].y);
                 ctx.lineTo(pixelPoints[5].x, pixelPoints[5].y);
+            }
+
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw ABCD pattern: dashed diagonal lines A-C and B-D with Fibonacci ratios
+        if (drawing.type === 'abcd' && pixelPoints.length >= 3) {
+            ctx.beginPath();
+            ctx.setLineDash([4 * dpr, 4 * dpr]);
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 1 * dpr;
+
+            // A-C dashed line (indices 0 and 2)
+            ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+            ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
+
+            // B-D dashed line (indices 1 and 3)
+            if (pixelPoints.length >= 4) {
+                ctx.moveTo(pixelPoints[1].x, pixelPoints[1].y);
+                ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y);
+            }
+
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw Fibonacci ratio labels
+            const abcdDrawing = drawing as ABCDPatternDrawing;
+            ctx.font = `bold ${11 * dpr}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // BC/AB ratio on A-C line
+            const bcRatio = abcdDrawing.getBCRatio();
+            if (bcRatio !== null && pixelPoints.length >= 3) {
+                const labelX = (pixelPoints[0].x + pixelPoints[2].x) / 2;
+                const labelY = (pixelPoints[0].y + pixelPoints[2].y) / 2 - 15 * dpr;
+
+                // Draw background
+                const ratioText = bcRatio.toFixed(3);
+                const textWidth = ctx.measureText(ratioText).width;
+                ctx.fillStyle = drawing.style.color;
+                ctx.fillRect(labelX - textWidth / 2 - 4 * dpr, labelY - 8 * dpr, textWidth + 8 * dpr, 16 * dpr);
+
+                // Draw text
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(ratioText, labelX, labelY);
+            }
+
+            // CD/BC ratio on B-D line
+            const cdRatio = abcdDrawing.getCDRatio();
+            if (cdRatio !== null && pixelPoints.length >= 4) {
+                const labelX = (pixelPoints[1].x + pixelPoints[3].x) / 2;
+                const labelY = (pixelPoints[1].y + pixelPoints[3].y) / 2 - 15 * dpr;
+
+                // Draw background
+                const ratioText = cdRatio.toFixed(3);
+                const textWidth = ctx.measureText(ratioText).width;
+                ctx.fillStyle = drawing.style.color;
+                ctx.fillRect(labelX - textWidth / 2 - 4 * dpr, labelY - 8 * dpr, textWidth + 8 * dpr, 16 * dpr);
+
+                // Draw text
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(ratioText, labelX, labelY);
+            }
+        }
+
+        // Draw Triangle Pattern: converging trendlines with fill
+        // A = start (bottom left), B = first peak, C = bottom, D = second peak (lower)
+        // Top trendline: from above A through B and D to apex
+        // Bottom trendline: from A through C to apex
+        if (drawing.type === 'trianglePattern' && pixelPoints.length >= 3) {
+            const triangleDrawing = drawing as TrianglePatternDrawing;
+
+            // Calculate apex point (where trendlines converge)
+            let apexX: number | null = null;
+            let apexY: number | null = null;
+
+            if (pixelPoints.length >= 4) {
+                const A = pixelPoints[0];
+                const B = pixelPoints[1];
+                const C = pixelPoints[2];
+                const D = pixelPoints[3];
+
+                // Top trendline: through B and D
+                const topSlope = (D.y - B.y) / (D.x - B.x);
+                // Bottom trendline: through A and C
+                const bottomSlope = (C.y - A.y) / (C.x - A.x);
+
+                // Calculate intersection (apex)
+                if (Math.abs(topSlope - bottomSlope) > 0.0001) {
+                    apexX = (-bottomSlope * A.x + A.y + topSlope * B.x - B.y) / (topSlope - bottomSlope);
+                    apexY = A.y + bottomSlope * (apexX - A.x);
+                }
+            }
+
+            // Draw filled triangle area
+            if (drawing.style.fillColor) {
+                ctx.beginPath();
+                ctx.fillStyle = drawing.style.fillColor;
+
+                if (pixelPoints.length >= 4 && apexX !== null && apexY !== null) {
+                    // Full triangle: from A's vertical level, through B, to apex, through C, back
+                    const A = pixelPoints[0];
+                    const B = pixelPoints[1];
+                    const C = pixelPoints[2];
+                    const D = pixelPoints[3];
+
+                    // Top edge: from vertical start above A, through B and D to apex
+                    const topSlope = (D.y - B.y) / (D.x - B.x);
+                    const topStartY = B.y - topSlope * (B.x - A.x); // Y at A.x on top line
+
+                    ctx.moveTo(A.x, topStartY);
+                    ctx.lineTo(apexX, apexY);
+                    ctx.lineTo(A.x, A.y); // Bottom left (A)
+                    ctx.closePath();
+                    ctx.fill();
+                } else if (pixelPoints.length >= 3) {
+                    // Partial triangle: A, B, C triangle
+                    ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+                    ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
+                    ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+
+            // Draw dashed trendlines
+            ctx.beginPath();
+            ctx.setLineDash([4 * dpr, 4 * dpr]);
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 1 * dpr;
+
+            if (pixelPoints.length >= 4 && apexX !== null && apexY !== null) {
+                const A = pixelPoints[0];
+                const B = pixelPoints[1];
+                const C = pixelPoints[2];
+                const D = pixelPoints[3];
+
+                // Top trendline: from vertical start at A.x, through B and D to apex
+                const topSlope = (D.y - B.y) / (D.x - B.x);
+                const topStartY = B.y - topSlope * (B.x - A.x);
+                ctx.moveTo(A.x, topStartY);
+                ctx.lineTo(apexX, apexY);
+
+                // Bottom trendline: from A through C to apex
+                ctx.moveTo(A.x, A.y);
+                ctx.lineTo(apexX, apexY);
+            } else if (pixelPoints.length >= 3) {
+                // Partial trendlines
+                const A = pixelPoints[0];
+                const B = pixelPoints[1];
+                const C = pixelPoints[2];
+
+                // Extend from A upward (estimate)
+                const topStartY = B.y - (B.x - A.x) * 0.3;
+                ctx.moveTo(A.x, topStartY);
+                ctx.lineTo(B.x + (B.x - A.x), B.y + (B.y - topStartY) * 0.5);
+
+                // Bottom from A through C
+                ctx.moveTo(A.x, A.y);
+                ctx.lineTo(C.x + (C.x - A.x) * 0.5, C.y + (C.y - A.y) * 0.5);
             }
 
             ctx.stroke();
