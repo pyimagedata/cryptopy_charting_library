@@ -10,3 +10,6 @@ export * from './pattern-renderer';
 
 // Shape renderer (Rectangle, Ellipse, Triangle, Arc, Circle, etc.)
 export * from './shape-renderer';
+
+// Line renderer (TrendLine, TrendAngle, HorizontalRay, CrossLine, InfoLine)
+export * from './line-renderer';
