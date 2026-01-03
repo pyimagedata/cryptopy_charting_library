@@ -12,7 +12,18 @@ import { TimePointIndex, coordinate } from '../model/coordinate';
 import { isBarData } from '../model/data';
 import { OverlayIndicatorRenderer } from '../indicators/overlay-indicator-renderer';
 import { OverlayIndicator } from '../indicators/indicator';
-import { drawPatternWave } from './renderers';
+import {
+    drawPatternWave,
+    drawRectangle,
+    drawRotatedRectangle,
+    drawEllipse,
+    drawTriangleShape,
+    drawArc,
+    drawPath,
+    drawCircle,
+    drawPolyline,
+    drawCurve
+} from './renderers';
 import {
     Drawing,
     TrendLineDrawing,
@@ -440,7 +451,7 @@ export class PaneWidget implements Disposable {
 
             if (drawing instanceof RectangleDrawing) {
                 if (pixelPoints.length >= 2) {
-                    this._drawRectangle(ctx, drawing, pixelPoints, dpr, drawing.state === 'selected');
+                    drawRectangle(ctx, drawing, pixelPoints, dpr, drawing.state === 'selected');
                 }
                 continue;
             }
@@ -522,56 +533,56 @@ export class PaneWidget implements Disposable {
                     const rotatedRect = drawing as RotatedRectangleDrawing;
                     rotatedRect.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawRotatedRectangle(ctx, rotatedRect, pixelPoints, dpr, showControlPoints);
+                    drawRotatedRectangle(ctx, rotatedRect, pixelPoints, dpr, showControlPoints);
                 }
             } else if (drawing.type === 'ellipse') {
                 if (pixelPoints.length >= 2) {
                     const ellipseDrawing = drawing as EllipseDrawing;
                     ellipseDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawEllipse(ctx, ellipseDrawing, pixelPoints, dpr, showControlPoints);
+                    drawEllipse(ctx, ellipseDrawing, pixelPoints, dpr, showControlPoints);
                 }
             } else if (drawing.type === 'triangle') {
                 if (pixelPoints.length >= 2) {
                     const triangleDrawing = drawing as TriangleDrawing;
                     triangleDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawTriangle(ctx, triangleDrawing, pixelPoints, dpr, showControlPoints);
+                    drawTriangleShape(ctx, triangleDrawing, pixelPoints, dpr, showControlPoints);
                 }
             } else if (drawing.type === 'arc') {
                 if (pixelPoints.length >= 2) {
                     const arcDrawing = drawing as ArcDrawing;
                     arcDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawArc(ctx, arcDrawing, pixelPoints, dpr, showControlPoints);
+                    drawArc(ctx, arcDrawing, pixelPoints, dpr, showControlPoints);
                 }
             } else if (drawing.type === 'path') {
                 if (pixelPoints.length >= 2) {
                     const pathDrawing = drawing as PathDrawing;
                     pathDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawPath(ctx, pathDrawing, pixelPoints, dpr, showControlPoints);
+                    drawPath(ctx, pathDrawing, pixelPoints, dpr, showControlPoints);
                 }
             } else if (drawing.type === 'circle') {
                 if (pixelPoints.length >= 2) {
                     const circleDrawing = drawing as CircleDrawing;
                     circleDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawCircle(ctx, circleDrawing, pixelPoints, dpr, showControlPoints);
+                    drawCircle(ctx, circleDrawing, pixelPoints, dpr, showControlPoints);
                 }
             } else if (drawing.type === 'polyline') {
                 if (pixelPoints.length >= 2) {
                     const polylineDrawing = drawing as PolylineDrawing;
                     polylineDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawPolyline(ctx, polylineDrawing, pixelPoints, dpr, showControlPoints);
+                    drawPolyline(ctx, polylineDrawing, pixelPoints, dpr, showControlPoints);
                 }
             } else if (drawing.type === 'curve') {
                 if (pixelPoints.length >= 2) {
                     const curveDrawing = drawing as CurveDrawing;
                     curveDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    this._drawCurve(ctx, curveDrawing, pixelPoints, dpr, showControlPoints);
+                    drawCurve(ctx, curveDrawing, pixelPoints, dpr, showControlPoints);
                 }
             } else if (drawing.type === 'xabcdPattern' || drawing.type === 'elliotImpulse' || drawing.type === 'elliotCorrection' || drawing.type === 'threeDrives' || drawing.type === 'headShoulders' || drawing.type === 'abcd' || drawing.type === 'trianglePattern') {
                 if (pixelPoints.length >= 2) {
@@ -2145,645 +2156,5 @@ export class PaneWidget implements Disposable {
         this._element.appendChild(this._loadingElement);
 
         container.appendChild(this._element);
-    }
-
-
-    private _drawRectangle(
-        ctx: CanvasRenderingContext2D,
-        drawing: RectangleDrawing,
-        points: { x: number; y: number }[],
-        dpr: number,
-        isSelected: boolean
-    ): void {
-        if (points.length < 2) return;
-
-        const p1 = points[0];
-        const p2 = points[1];
-        const style = drawing.style;
-
-        const x = Math.min(p1.x, p2.x);
-        const y = Math.min(p1.y, p2.y);
-        const w = Math.abs(p2.x - p1.x);
-        const h = Math.abs(p2.y - p1.y);
-
-        // Draw Fill
-        if (style.fillColor) {
-            ctx.save();
-            ctx.globalAlpha = style.fillOpacity !== undefined ? style.fillOpacity : 0.2;
-            ctx.fillStyle = style.fillColor;
-            ctx.fillRect(x, y, w, h);
-            ctx.restore();
-        }
-
-        // Draw Border
-        ctx.beginPath();
-        ctx.strokeStyle = style.color;
-        ctx.lineWidth = style.lineWidth * dpr;
-
-        if (style.lineDash && style.lineDash.length > 0) {
-            ctx.setLineDash(style.lineDash.map(d => d * dpr));
-        } else {
-            ctx.setLineDash([]);
-        }
-
-        ctx.rect(x, y, w, h);
-        ctx.stroke();
-
-        ctx.setLineDash([]); // Reset
-
-        // Draw selection points
-        if (isSelected) {
-            const corners = [
-                { x: p1.x, y: p1.y },
-                { x: p2.x, y: p2.y },
-                { x: p2.x, y: p1.y },
-                { x: p1.x, y: p2.y }
-            ];
-
-            ctx.lineWidth = 1 * dpr;
-            ctx.strokeStyle = '#2962ff';
-
-            corners.forEach(p => {
-                ctx.fillStyle = '#ffffff';
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = '#2962ff';
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-            });
-        }
-    }
-
-    private _drawRotatedRectangle(
-        ctx: CanvasRenderingContext2D,
-        drawing: RotatedRectangleDrawing,
-        pixelPoints: { x: number; y: number }[],
-        dpr: number,
-        isSelected: boolean
-    ): void {
-        const corners = drawing.getRectangleCorners();
-
-        // If we have full 4 corners, draw the rectangle
-        if (corners && corners.length === 4) {
-            // Scale corners for DPR
-            const scaledCorners = corners.map(c => ({ x: c.x * dpr, y: c.y * dpr }));
-
-            // Draw fill
-            if (drawing.style.fillColor) {
-                ctx.beginPath();
-                ctx.moveTo(scaledCorners[0].x, scaledCorners[0].y);
-                for (let i = 1; i < 4; i++) {
-                    ctx.lineTo(scaledCorners[i].x, scaledCorners[i].y);
-                }
-                ctx.closePath();
-                ctx.fillStyle = drawing.style.fillColor;
-                ctx.fill();
-            }
-
-            // Draw stroke
-            ctx.beginPath();
-            ctx.moveTo(scaledCorners[0].x, scaledCorners[0].y);
-            for (let i = 1; i < 4; i++) {
-                ctx.lineTo(scaledCorners[i].x, scaledCorners[i].y);
-            }
-            ctx.closePath();
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = drawing.style.lineWidth * dpr;
-            ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-        } else if (pixelPoints.length >= 2) {
-            // Only 2 points - draw preview line
-            const p1 = pixelPoints[0];
-            const p2 = pixelPoints[1];
-
-            ctx.beginPath();
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = drawing.style.lineWidth * dpr;
-            ctx.setLineDash([6 * dpr, 4 * dpr]); // Dashed for preview
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        // Draw control points at rectangle corners (not original click positions)
-        if (isSelected) {
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = 2 * dpr;
-
-            // Use rectangle corners for control points (if available)
-            const corners = drawing.getRectangleCorners();
-            const controlPoints = corners
-                ? corners.slice(0, 3).map(c => ({ x: c.x * dpr, y: c.y * dpr })) // First 3 corners
-                : pixelPoints;
-
-            for (const point of controlPoints) {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = drawing.style.color;
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-            }
-        }
-    }
-
-    private _drawEllipse(
-        ctx: CanvasRenderingContext2D,
-        drawing: EllipseDrawing,
-        pixelPoints: { x: number; y: number }[],
-        dpr: number,
-        isSelected: boolean
-    ): void {
-        // If only 2 points (before 2nd click is confirmed), draw a line preview
-        if (pixelPoints.length === 2 && drawing.state === 'creating') {
-            const p0 = pixelPoints[0];
-            const p1 = pixelPoints[1];
-
-            ctx.beginPath();
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = drawing.style.lineWidth * dpr;
-            ctx.setLineDash([6 * dpr, 4 * dpr]); // Dashed for preview
-            ctx.moveTo(p0.x, p0.y);
-            ctx.lineTo(p1.x, p1.y);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            return;
-        }
-
-        // 3+ points: draw ellipse
-        const params = drawing.getEllipseParams();
-
-        if (params) {
-            const { cx, cy, rx, ry, rotation } = params;
-            const scaledCx = cx * dpr;
-            const scaledCy = cy * dpr;
-            const scaledRx = rx * dpr;
-            const scaledRy = ry * dpr;
-
-            // Draw fill
-            if (drawing.style.fillColor && scaledRx > 0 && scaledRy > 0) {
-                ctx.beginPath();
-                ctx.ellipse(scaledCx, scaledCy, scaledRx, scaledRy, rotation, 0, Math.PI * 2);
-                ctx.fillStyle = drawing.style.fillColor;
-                ctx.fill();
-            }
-
-            // Draw stroke
-            if (scaledRx > 0 && scaledRy > 0) {
-                ctx.beginPath();
-                ctx.ellipse(scaledCx, scaledCy, scaledRx, scaledRy, rotation, 0, Math.PI * 2);
-                ctx.strokeStyle = drawing.style.color;
-                ctx.lineWidth = drawing.style.lineWidth * dpr;
-                ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-                ctx.stroke();
-                ctx.setLineDash([]);
-            }
-        }
-
-        // Draw control points on ellipse edges
-        if (isSelected && pixelPoints.length >= 2) {
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = 2 * dpr;
-
-            // Use control points on the ellipse edges (if available)
-            const controlPoints = drawing.getControlPoints();
-            const pointsToDraw = controlPoints
-                ? controlPoints.map(p => ({ x: p.x * dpr, y: p.y * dpr }))
-                : pixelPoints;
-
-            for (const point of pointsToDraw) {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = drawing.style.color;
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-            }
-        }
-    }
-
-    private _drawTriangle(
-        ctx: CanvasRenderingContext2D,
-        drawing: TriangleDrawing,
-        pixelPoints: { x: number; y: number }[],
-        dpr: number,
-        isSelected: boolean
-    ): void {
-        // If only 2 points (before 2nd click is confirmed), draw a line preview
-        if (pixelPoints.length === 2 && drawing.state === 'creating') {
-            const p0 = pixelPoints[0];
-            const p1 = pixelPoints[1];
-
-            ctx.beginPath();
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = drawing.style.lineWidth * dpr;
-            ctx.setLineDash([6 * dpr, 4 * dpr]); // Dashed for preview
-            ctx.moveTo(p0.x, p0.y);
-            ctx.lineTo(p1.x, p1.y);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            return;
-        }
-
-        // 3 points: draw triangle
-        if (pixelPoints.length >= 3) {
-            const p0 = pixelPoints[0];
-            const p1 = pixelPoints[1];
-            const p2 = pixelPoints[2];
-
-            // Draw fill
-            if (drawing.style.fillColor) {
-                ctx.beginPath();
-                ctx.moveTo(p0.x, p0.y);
-                ctx.lineTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y);
-                ctx.closePath();
-                ctx.fillStyle = drawing.style.fillColor;
-                ctx.fill();
-            }
-
-            // Draw stroke
-            ctx.beginPath();
-            ctx.moveTo(p0.x, p0.y);
-            ctx.lineTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.closePath();
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = drawing.style.lineWidth * dpr;
-            ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        // Draw control points at vertices
-        if (isSelected && pixelPoints.length >= 3) {
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = 2 * dpr;
-
-            for (const point of pixelPoints) {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = drawing.style.color;
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-            }
-        }
-    }
-
-    private _drawArc(
-        ctx: CanvasRenderingContext2D,
-        drawing: ArcDrawing,
-        pixelPoints: { x: number; y: number }[],
-        dpr: number,
-        isSelected: boolean
-    ): void {
-        // If only 2 points (before 2nd click is confirmed), draw a line preview
-        if (pixelPoints.length === 2 && drawing.state === 'creating') {
-            const p0 = pixelPoints[0];
-            const p1 = pixelPoints[1];
-
-            ctx.beginPath();
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = drawing.style.lineWidth * dpr;
-            ctx.setLineDash([6 * dpr, 4 * dpr]); // Dashed for preview
-            ctx.moveTo(p0.x, p0.y);
-            ctx.lineTo(p1.x, p1.y);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            return;
-        }
-
-        // 3 points: draw quadratic bezier curve that PASSES THROUGH the 3rd point
-        if (pixelPoints.length >= 3) {
-            const p0 = pixelPoints[0]; // Start
-            const p1 = pixelPoints[1]; // End  
-            const p2 = pixelPoints[2]; // Point ON the curve (we calculate control point from this)
-
-            // Calculate control point so that curve passes through p2 at t=0.5
-            // For quadratic bezier: B(0.5) = 0.25*P0 + 0.5*C + 0.25*P1 = P2
-            // So: C = 2*P2 - 0.5*P0 - 0.5*P1
-            const controlX = 2 * p2.x - 0.5 * p0.x - 0.5 * p1.x;
-            const controlY = 2 * p2.y - 0.5 * p0.y - 0.5 * p1.y;
-
-            // Draw fill first (curve + chord line)
-            if (drawing.style.fillColor) {
-                ctx.beginPath();
-                ctx.moveTo(p0.x, p0.y);
-                ctx.quadraticCurveTo(controlX, controlY, p1.x, p1.y);
-                ctx.lineTo(p0.x, p0.y); // Close with chord
-                ctx.fillStyle = drawing.style.fillColor;
-                ctx.fill();
-            }
-
-            // Draw curve stroke
-            ctx.beginPath();
-            ctx.moveTo(p0.x, p0.y);
-            ctx.quadraticCurveTo(controlX, controlY, p1.x, p1.y);
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = drawing.style.lineWidth * dpr;
-            ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        // Draw control points at vertices
-        if (isSelected && pixelPoints.length >= 3) {
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = 2 * dpr;
-
-            for (const point of pixelPoints) {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = drawing.style.color;
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-            }
-        }
-    }
-
-    private _drawPath(
-        ctx: CanvasRenderingContext2D,
-        drawing: PathDrawing,
-        pixelPoints: { x: number; y: number }[],
-        dpr: number,
-        isSelected: boolean
-    ): void {
-        if (pixelPoints.length < 2) return;
-
-        // Draw lines connecting all points
-        ctx.beginPath();
-        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-
-        for (let i = 1; i < pixelPoints.length; i++) {
-            ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
-        }
-
-        ctx.strokeStyle = drawing.style.color;
-        ctx.lineWidth = drawing.style.lineWidth * dpr;
-        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw arrow head at the last point
-        if (pixelPoints.length >= 2) {
-            const lastPoint = pixelPoints[pixelPoints.length - 1];
-            const prevPoint = pixelPoints[pixelPoints.length - 2];
-
-            // Calculate angle
-            const angle = Math.atan2(lastPoint.y - prevPoint.y, lastPoint.x - prevPoint.x);
-            const arrowSize = 10 * dpr;
-
-            // Draw arrow head
-            ctx.beginPath();
-            ctx.moveTo(lastPoint.x, lastPoint.y);
-            ctx.lineTo(
-                lastPoint.x - arrowSize * Math.cos(angle - Math.PI / 6),
-                lastPoint.y - arrowSize * Math.sin(angle - Math.PI / 6)
-            );
-            ctx.lineTo(
-                lastPoint.x - arrowSize * Math.cos(angle + Math.PI / 6),
-                lastPoint.y - arrowSize * Math.sin(angle + Math.PI / 6)
-            );
-            ctx.closePath();
-            ctx.fillStyle = drawing.style.color;
-            ctx.fill();
-        }
-
-        // Draw control points at each vertex
-        if (isSelected) {
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = 2 * dpr;
-
-            for (const point of pixelPoints) {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = drawing.style.color;
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-            }
-        }
-    }
-
-    private _drawCircle(
-        ctx: CanvasRenderingContext2D,
-        drawing: CircleDrawing,
-        pixelPoints: { x: number; y: number }[],
-        dpr: number,
-        isSelected: boolean
-    ): void {
-        if (pixelPoints.length < 2) return;
-
-        const center = pixelPoints[0];
-        const edge = pixelPoints[1];
-        const radius = Math.sqrt((edge.x - center.x) ** 2 + (edge.y - center.y) ** 2);
-
-        // Draw fill
-        if (drawing.style.fillColor) {
-            ctx.beginPath();
-            ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
-            ctx.fillStyle = drawing.style.fillColor;
-            ctx.fill();
-        }
-
-        // Draw stroke
-        ctx.beginPath();
-        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = drawing.style.color;
-        ctx.lineWidth = drawing.style.lineWidth * dpr;
-        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw control points (center and edge)
-        if (isSelected) {
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = 2 * dpr;
-
-            for (const point of pixelPoints) {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = drawing.style.color;
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-            }
-        }
-    }
-
-    private _drawPolyline(
-        ctx: CanvasRenderingContext2D,
-        drawing: PolylineDrawing,
-        pixelPoints: { x: number; y: number }[],
-        dpr: number,
-        isSelected: boolean
-    ): void {
-        if (pixelPoints.length < 2) return;
-
-        // Draw fill if closed
-        if (drawing.isClosed && drawing.style.fillColor) {
-            ctx.beginPath();
-            ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-            for (let i = 1; i < pixelPoints.length; i++) {
-                ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
-            }
-            ctx.closePath();
-            ctx.fillStyle = drawing.style.fillColor;
-            ctx.fill();
-        }
-
-        // Draw lines connecting all points
-        ctx.beginPath();
-        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-
-        for (let i = 1; i < pixelPoints.length; i++) {
-            ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
-        }
-
-        // Close the path if it's a polygon
-        if (drawing.isClosed) {
-            ctx.closePath();
-        }
-
-        ctx.strokeStyle = drawing.style.color;
-        ctx.lineWidth = drawing.style.lineWidth * dpr;
-        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw control points at each vertex
-        if (isSelected) {
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = 2 * dpr;
-
-            for (const point of pixelPoints) {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = drawing.style.color;
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-            }
-        }
-    }
-
-    private _drawCurve(
-        ctx: CanvasRenderingContext2D,
-        drawing: CurveDrawing,
-        pixelPoints: { x: number; y: number }[],
-        dpr: number,
-        showControlPoints: boolean
-    ): void {
-        if (pixelPoints.length < 2) return;
-
-        // Draw quadratic bezier curve
-        ctx.beginPath();
-        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-
-        if (pixelPoints.length >= 3) {
-            // pixelPoints[1] is the point ON THE CURVE at t=0.5
-            // Calculate bezier control point: P1 = 2*Pm - 0.5*(P0 + P2)
-            const p0 = pixelPoints[0];
-            const pm = pixelPoints[1]; // Point on curve
-            const p2 = pixelPoints[2];
-
-            const controlX = 2 * pm.x - 0.5 * (p0.x + p2.x);
-            const controlY = 2 * pm.y - 0.5 * (p0.y + p2.y);
-
-            ctx.quadraticCurveTo(
-                controlX, controlY,      // Calculated bezier control
-                p2.x, p2.y               // End point
-            );
-        } else {
-            // Preview: just straight line
-            ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
-        }
-
-        ctx.strokeStyle = drawing.style.color;
-        ctx.lineWidth = drawing.style.lineWidth * dpr;
-        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Draw control points
-        if (showControlPoints) {
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = drawing.style.color;
-            ctx.lineWidth = 2 * dpr;
-
-            for (let i = 0; i < pixelPoints.length; i++) {
-                const point = pixelPoints[i];
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-
-                // Center dot
-                ctx.fillStyle = drawing.style.color;
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-            }
-
-            // Draw dashed lines from endpoints to control point
-            if (pixelPoints.length >= 3) {
-                ctx.strokeStyle = 'rgba(41, 98, 255, 0.5)';
-                ctx.lineWidth = 1 * dpr;
-                ctx.setLineDash([4 * dpr, 4 * dpr]);
-
-                ctx.beginPath();
-                ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-                ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
-                ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
-                ctx.stroke();
-
-                ctx.setLineDash([]);
-            }
-        }
     }
 }

@@ -7,3 +7,6 @@ export * from './utils';
 
 // Pattern renderer (XABCD, Elliott, ABCD, Triangle, H&S, Three Drives)
 export * from './pattern-renderer';
+
+// Shape renderer (Rectangle, Ellipse, Triangle, Arc, Circle, etc.)
+export * from './shape-renderer';
