@@ -37,8 +37,7 @@ import {
     drawArrowMarker,
     drawArrowIcon,
     drawArrow,
-    drawLongPosition,
-    drawShortPosition
+    drawLongPosition
 } from './pane_widget/renderers';
 import {
     Drawing,
@@ -72,8 +71,7 @@ import {
     HeadShouldersDrawing,
     ABCDPatternDrawing,
     TrianglePatternDrawing,
-    LongPositionDrawing,
-    ShortPositionDrawing
+    LongPositionDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -626,14 +624,7 @@ export class PaneWidget implements Disposable {
                     const positionDrawing = drawing as LongPositionDrawing;
                     positionDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    drawLongPosition(ctx, positionDrawing, dpr, showControlPoints);
-                }
-            } else if (drawing.type === 'shortPosition') {
-                if (pixelPoints.length >= 2) {
-                    const positionDrawing = drawing as ShortPositionDrawing;
-                    positionDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
-                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    drawShortPosition(ctx, positionDrawing, dpr, showControlPoints);
+                    drawLongPosition(ctx, positionDrawing, pixelPoints, dpr, showControlPoints, priceToPixel);
                 }
             }
         }

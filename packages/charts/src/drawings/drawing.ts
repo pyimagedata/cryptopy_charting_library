@@ -58,7 +58,6 @@ export type DrawingType =
     | 'abcd'
     | 'trianglePattern'
     | 'longPosition'
-    | 'shortPosition'
     | 'priceRange'
     | 'dateRange'
     | 'datePriceRange'

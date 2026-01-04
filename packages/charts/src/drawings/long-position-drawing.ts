@@ -1,6 +1,14 @@
 /**
  * Long Position Drawing Implementation
- * Trading projection tool showing entry, target, and stop-loss with P&L calculations
+ * 
+ * A 2-point drawing tool for visualizing long trade setups.
+ * Shows entry level, profit zone (green), and loss zone (red).
+ * 
+ * Points:
+ * - Point 0: Entry left edge (time1, entryPrice)
+ * - Point 1: Entry right edge (time2, entryPrice)
+ * 
+ * Target and Stop are calculated as fixed percentages from entry.
  */
 
 import {
@@ -26,20 +34,12 @@ import {
 export interface LongPositionOptions {
     profitColor?: string;
     lossColor?: string;
-    borderColor?: string;
-    textColor?: string;
+    entryColor?: string;
     quantity?: number;
-    accountCurrency?: string;
+    profitPercent?: number;  // Default: 3%
+    stopPercent?: number;    // Default: 1.5%
 }
 
-/**
- * Long Position - A 3-point projection showing entry, target, and stop levels
- * 
- * Points:
- * - Point 0: Entry left (defines entry price and left edge)
- * - Point 1: Entry right (defines right edge, same price as point 0)
- * - Point 2: Target/Stop (above entry = target, below = stop)
- */
 export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
     readonly id: string;
     readonly type: DrawingType = 'longPosition';
@@ -51,33 +51,32 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
     locked: boolean = false;
 
     // Position specific properties
-    private _profitColor: string = 'rgba(38, 166, 154, 0.5)';  // Teal/Green
-    private _lossColor: string = 'rgba(239, 83, 80, 0.5)';     // Coral/Red
-    private _borderColor: string = '#26a69a';
-    private _textColor: string = '#ffffff';
+    private _profitColor: string = 'rgba(38, 166, 154, 0.4)';  // Green
+    private _lossColor: string = 'rgba(239, 83, 80, 0.4)';     // Red
+    private _entryColor: string = '#26a69a';                    // Teal
     private _quantity: number = 1;
-    private _accountCurrency: string = 'USDT';
+    private _profitPercent: number = 3;   // 3% profit target
+    private _stopPercent: number = 1.5;   // 1.5% stop loss
 
     // Cached pixel coordinates
     private _pixelPoints: { x: number; y: number }[] = [];
-    private _entryY: number = 0;
-    private _targetY: number = 0;
-    private _stopY: number = 0;
+    private _cachedTargetY: number = 0;
+    private _cachedStopY: number = 0;
 
     constructor(options: LongPositionOptions = {}) {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
-            color: options.borderColor || '#26a69a',
-            lineWidth: 1,
+            color: options.entryColor || '#26a69a',
+            lineWidth: 2,
         };
 
         if (options.profitColor) this._profitColor = options.profitColor;
         if (options.lossColor) this._lossColor = options.lossColor;
-        if (options.borderColor) this._borderColor = options.borderColor;
-        if (options.textColor) this._textColor = options.textColor;
+        if (options.entryColor) this._entryColor = options.entryColor;
         if (options.quantity) this._quantity = options.quantity;
-        if (options.accountCurrency) this._accountCurrency = options.accountCurrency;
+        if (options.profitPercent) this._profitPercent = options.profitPercent;
+        if (options.stopPercent) this._stopPercent = options.stopPercent;
     }
 
     // =========================================================================
@@ -90,17 +89,17 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
     get lossColor(): string { return this._lossColor; }
     set lossColor(value: string) { this._lossColor = value; }
 
-    get borderColor(): string { return this._borderColor; }
-    set borderColor(value: string) { this._borderColor = value; }
-
-    get textColor(): string { return this._textColor; }
-    set textColor(value: string) { this._textColor = value; }
+    get entryColor(): string { return this._entryColor; }
+    set entryColor(value: string) { this._entryColor = value; }
 
     get quantity(): number { return this._quantity; }
     set quantity(value: number) { this._quantity = value; }
 
-    get accountCurrency(): string { return this._accountCurrency; }
-    set accountCurrency(value: string) { this._accountCurrency = value; }
+    get profitPercent(): number { return this._profitPercent; }
+    set profitPercent(value: number) { this._profitPercent = value; }
+
+    get stopPercent(): number { return this._stopPercent; }
+    set stopPercent(value: number) { this._stopPercent = value; }
 
     // =========================================================================
     // DrawingSettingsProvider Implementation
@@ -115,7 +114,7 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
                         rows: [
                             colorRow('profitColor', 'Profit Zone'),
                             colorRow('lossColor', 'Loss Zone'),
-                            colorRow('borderColor', 'Border'),
+                            colorRow('entryColor', 'Entry Line'),
                         ]
                     },
                     {
@@ -125,7 +124,27 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
                                 type: 'number',
                                 key: 'quantity',
                                 label: 'Quantity',
+                                min: 0.001,
+                                step: 0.1,
                                 defaultValue: 1
+                            },
+                            {
+                                type: 'number',
+                                key: 'profitPercent',
+                                label: 'Profit %',
+                                min: 0.1,
+                                max: 100,
+                                step: 0.1,
+                                defaultValue: 3
+                            },
+                            {
+                                type: 'number',
+                                key: 'stopPercent',
+                                label: 'Stop %',
+                                min: 0.1,
+                                max: 100,
+                                step: 0.1,
+                                defaultValue: 1.5
                             }
                         ]
                     }
@@ -146,8 +165,10 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
         switch (key) {
             case 'profitColor': return this._profitColor;
             case 'lossColor': return this._lossColor;
-            case 'borderColor': return this._borderColor;
+            case 'entryColor': return this._entryColor;
             case 'quantity': return this._quantity;
+            case 'profitPercent': return this._profitPercent;
+            case 'stopPercent': return this._stopPercent;
             case 'visible': return this.visible;
             default: return undefined;
         }
@@ -157,74 +178,75 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
         switch (key) {
             case 'profitColor': this._profitColor = value; break;
             case 'lossColor': this._lossColor = value; break;
-            case 'borderColor': this._borderColor = value; this.style.color = value; break;
+            case 'entryColor': this._entryColor = value; this.style.color = value; break;
             case 'quantity': this._quantity = value; break;
+            case 'profitPercent': this._profitPercent = value; break;
+            case 'stopPercent': this._stopPercent = value; break;
             case 'visible': this.visible = value; break;
         }
     }
 
     // =========================================================================
-    // Drawing Interface Implementation
+    // Drawing Interface Implementation (2-point like Rectangle)
     // =========================================================================
 
     addPoint(time: number, price: number): void {
         this.points.push({ time, price });
 
-        if (this.points.length >= 3) {
+        if (this.points.length >= 2) {
             this.state = 'complete';
         }
     }
 
     isComplete(): boolean {
-        return this.points.length >= 3;
+        return this.points.length >= 2;
     }
 
     updateLastPoint(time: number, price: number): void {
         if (this.points.length === 0) return;
 
         if (this.points.length === 1) {
-            // Second point - same price as first, different time
+            // Add second point with SAME price (horizontal entry line)
             this.points.push({ time, price: this.points[0].price });
-        } else if (this.points.length === 2) {
-            // Third point - target or stop
-            this.points.push({ time: this.points[0].time, price });
         } else {
-            this.points[this.points.length - 1] = { time: this.points[0].time, price };
+            // Update second point, keep price same as first
+            this.points[1] = { time, price: this.points[0].price };
         }
     }
+
+    // =========================================================================
+    // Pixel Coordinates
+    // =========================================================================
 
     setPixelPoints(points: { x: number; y: number }[]): void {
         this._pixelPoints = [...points];
-
-        if (points.length >= 2) {
-            this._entryY = points[0].y;
-
-            if (points.length >= 3) {
-                if (points[2].y < this._entryY) {
-                    // Point 2 is above entry = target
-                    this._targetY = points[2].y;
-                    const profitDistance = this._entryY - this._targetY;
-                    this._stopY = this._entryY + (profitDistance / 2);
-                } else {
-                    // Point 2 is below entry = stop
-                    this._stopY = points[2].y;
-                    const lossDistance = this._stopY - this._entryY;
-                    this._targetY = this._entryY - (lossDistance * 2);
-                }
-            }
-        }
     }
 
+    /** Cache the target and stop Y positions (set by renderer) */
+    setCachedZoneY(targetY: number, stopY: number): void {
+        this._cachedTargetY = targetY;
+        this._cachedStopY = stopY;
+    }
+
+    /** Returns 4 control points: [Left, Right, Target, Stop] */
     getPixelPoints(): { x: number; y: number }[] {
-        return this._pixelPoints;
-    }
+        if (this._pixelPoints.length < 2) return this._pixelPoints;
 
-    getEntryY(): number { return this._entryY; }
-    getTargetY(): number { return this._targetY; }
-    getStopY(): number { return this._stopY; }
+        const p1 = this._pixelPoints[0];
+        const p2 = this._pixelPoints[1];
+        const centerX = (p1.x + p2.x) / 2;
+
+        // Return 4 points for control: Left, Right, Target, Stop
+        return [
+            p1,  // Index 0: Left
+            p2,  // Index 1: Right
+            { x: centerX, y: this._cachedTargetY },  // Index 2: Target
+            { x: centerX, y: this._cachedStopY }     // Index 3: Stop
+        ];
+    }
 
     // =========================================================================
-    // P&L Calculations
+    // Price Calculations
     // =========================================================================
 
     getEntryPrice(): number {
@@ -232,90 +254,77 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     getTargetPrice(): number {
-        if (this.points.length < 3) return 0;
-        const entry = this.points[0].price;
-        const point2 = this.points[2].price;
-
-        if (point2 > entry) {
-            // Point 2 is target
-            return point2;
-        } else {
-            // Point 2 is stop, calculate target
-            const lossDistance = entry - point2;
-            return entry + (lossDistance * 2);
-        }
+        const entry = this.getEntryPrice();
+        return entry * (1 + this._profitPercent / 100);
     }
 
     getStopPrice(): number {
-        if (this.points.length < 3) return 0;
-        const entry = this.points[0].price;
-        const point2 = this.points[2].price;
-
-        if (point2 < entry) {
-            // Point 2 is stop
-            return point2;
-        } else {
-            // Point 2 is target, calculate stop
-            const profitDistance = point2 - entry;
-            return entry - (profitDistance / 2);
-        }
-    }
-
-    getProfitPercent(): number {
         const entry = this.getEntryPrice();
-        if (entry === 0) return 0;
-        return ((this.getTargetPrice() - entry) / entry) * 100;
-    }
-
-    getLossPercent(): number {
-        const entry = this.getEntryPrice();
-        if (entry === 0) return 0;
-        return ((entry - this.getStopPrice()) / entry) * 100;
+        return entry * (1 - this._stopPercent / 100);
     }
 
     getProfitAmount(): number {
-        return (this.getTargetPrice() - this.getEntryPrice()) * this._quantity;
+        const entry = this.getEntryPrice();
+        const target = this.getTargetPrice();
+        return (target - entry) * this._quantity;
     }
 
     getLossAmount(): number {
-        return (this.getEntryPrice() - this.getStopPrice()) * this._quantity;
+        const entry = this.getEntryPrice();
+        const stop = this.getStopPrice();
+        return (entry - stop) * this._quantity;
     }
 
     getRiskRewardRatio(): number {
+        const profit = this.getProfitAmount();
         const loss = this.getLossAmount();
-        if (loss === 0) return 0;
-        return Math.abs(this.getProfitAmount() / loss);
+        return loss > 0 ? profit / loss : 0;
     }
 
     // =========================================================================
-    // Hit Testing & Bounds
+    // Hit Testing
     // =========================================================================
 
-    hitTest(x: number, y: number, threshold: number = 5): boolean {
+    hitTest(x: number, y: number, threshold: number = 8): boolean {
         if (this._pixelPoints.length < 2) return false;
 
-        const left = Math.min(this._pixelPoints[0].x, this._pixelPoints[1].x);
-        const right = Math.max(this._pixelPoints[0].x, this._pixelPoints[1].x);
-        const top = Math.min(this._targetY, this._stopY);
-        const bottom = Math.max(this._targetY, this._stopY);
+        const p1 = this._pixelPoints[0];
+        const p2 = this._pixelPoints[1];
 
-        return x >= left - threshold && x <= right + threshold &&
-            y >= top - threshold && y <= bottom + threshold;
+        const left = Math.min(p1.x, p2.x);
+        const right = Math.max(p1.x, p2.x);
+        const entryY = p1.y;
+
+        // Check if within horizontal bounds
+        if (x < left - threshold || x > right + threshold) return false;
+
+        // Use cached zone heights (set during render)
+        // For now, use a generous vertical range based on entry
+        const verticalRange = 150; // pixels above and below entry
+
+        if (y < entryY - verticalRange - threshold || y > entryY + verticalRange + threshold) {
+            return false;
+        }
+
+        return true;
     }
 
     getBounds(): { x: number; y: number; width: number; height: number } | null {
         if (this._pixelPoints.length < 2) return null;
 
-        const left = Math.min(this._pixelPoints[0].x, this._pixelPoints[1].x);
-        const right = Math.max(this._pixelPoints[0].x, this._pixelPoints[1].x);
-        const top = Math.min(this._targetY, this._stopY);
-        const bottom = Math.max(this._targetY, this._stopY);
+        const p1 = this._pixelPoints[0];
+        const p2 = this._pixelPoints[1];
 
+        const left = Math.min(p1.x, p2.x);
+        const right = Math.max(p1.x, p2.x);
+        const width = right - left;
+
+        // Rough estimate
         return {
             x: left,
-            y: top,
-            width: right - left,
-            height: bottom - top
+            y: p1.y - 100,
+            width: width,
+            height: 200
         };
     }
 
@@ -337,7 +346,7 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
 
     static fromJSON(data: SerializedDrawing): LongPositionDrawing {
         const drawing = new LongPositionDrawing({
-            borderColor: data.style.color,
+            entryColor: data.style.color,
         });
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });

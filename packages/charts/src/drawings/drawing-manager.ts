@@ -40,7 +40,6 @@ import { HeadShouldersDrawing } from './head-shoulders-drawing';
 import { ABCDPatternDrawing } from './abcd-pattern-drawing';
 import { TrianglePatternDrawing } from './triangle-pattern-drawing';
 import { LongPositionDrawing } from './long-position-drawing';
-import { ShortPositionDrawing } from './short-position-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -257,12 +256,25 @@ export class DrawingManager {
             case 'trianglePattern':
                 drawing = new TrianglePatternDrawing();
                 break;
-            case 'longPosition':
-                drawing = new LongPositionDrawing();
+            case 'longPosition': {
+                // Calculate dynamic profit/stop percentages based on visible price range
+                let profitPercent = 3;  // default
+                let stopPercent = 1.5;  // default
+
+                if (this._priceScale) {
+                    const visibleRange = this._priceScale.priceRange;
+                    if (visibleRange) {
+                        const rangeSize = Math.abs(visibleRange.max - visibleRange.min);
+                        const midPrice = (visibleRange.max + visibleRange.min) / 2;
+                        // Target: ~30% of visible range, Stop: ~15% of visible range
+                        profitPercent = (rangeSize * 0.30 / midPrice) * 100;
+                        stopPercent = (rangeSize * 0.15 / midPrice) * 100;
+                    }
+                }
+
+                drawing = new LongPositionDrawing({ profitPercent, stopPercent });
                 break;
-            case 'shortPosition':
-                drawing = new ShortPositionDrawing();
-                break;
+            }
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -277,6 +289,9 @@ export class DrawingManager {
             // If drawing is complete after first point (single-point drawings), finish immediately
             if (drawing.isComplete?.()) {
                 this.setMode('none');
+                this._selectedDrawing = drawing;
+                drawing.state = 'selected';
+                this._selectionChanged.fire(drawing);
                 this._activeDrawing = null;
             } else {
                 this._activeDrawing = drawing;
@@ -331,6 +346,9 @@ export class DrawingManager {
             // Finalize the curve on second click
             if (curveDrawing.points.length >= 3) {
                 curveDrawing.finalizeCurve(time, price);
+                this._selectedDrawing = curveDrawing;
+                curveDrawing.state = 'selected';
+                this._selectionChanged.fire(curveDrawing);
                 this._activeDrawing = null;
                 this._mode = 'none';
                 this._modeChanged.fire('none');
@@ -399,6 +417,9 @@ export class DrawingManager {
             else if (this._activeDrawing.type === 'trianglePattern') requiredPoints = 4;
             if (patternDrawing.points.length >= requiredPoints) {
                 patternDrawing.state = 'complete';
+                this._selectedDrawing = patternDrawing;
+                patternDrawing.state = 'selected';
+                this._selectionChanged.fire(patternDrawing);
                 this._activeDrawing = null;
                 this._mode = 'none';
                 this._modeChanged.fire('none');
@@ -433,6 +454,9 @@ export class DrawingManager {
             // Check if clicking near start point to close the shape
             if (polylineDrawing.points.length >= 3 && polylineDrawing.isNearStartPoint(x, y)) {
                 polylineDrawing.closeShape();
+                this._selectedDrawing = polylineDrawing;
+                polylineDrawing.state = 'selected';
+                this._selectionChanged.fire(polylineDrawing);
                 this._activeDrawing = null;
                 this._mode = 'none';
                 this._modeChanged.fire('none');
@@ -462,8 +486,16 @@ export class DrawingManager {
             return; // Don't change mode
         }
 
+        const finishedDrawing = this._activeDrawing;
         this._activeDrawing = null;
         this.setMode('none');  // Return to cursor mode after drawing
+
+        if (finishedDrawing) {
+            this._selectedDrawing = finishedDrawing;
+            finishedDrawing.state = 'selected';
+            this._selectionChanged.fire(finishedDrawing);
+        }
+
         this._drawingsChanged.fire();
     }
 
@@ -564,9 +596,17 @@ export class DrawingManager {
             this._drawings.delete(this._activeDrawing.id);
         }
 
+        const finishedDrawing = this._activeDrawing;
         this._activeDrawing = null;
         this._mode = 'none';
         this._modeChanged.fire('none');
+
+        if (finishedDrawing && finishedDrawing.state === 'complete') {
+            this._selectedDrawing = finishedDrawing;
+            finishedDrawing.state = 'selected';
+            this._selectionChanged.fire(finishedDrawing);
+        }
+
         this._drawingsChanged.fire();
     }
 
@@ -616,6 +656,40 @@ export class DrawingManager {
     /** Move a specific control point of the selected drawing to new pixel position */
     moveControlPoint(pointIndex: number, x: number, y: number): void {
         if (!this._selectedDrawing) return;
+
+        // Special handling for longPosition - it has 4 virtual control points
+        if (this._selectedDrawing.type === 'longPosition') {
+            const posDrawing = this._selectedDrawing as LongPositionDrawing;
+            const time = this._pixelToTime(x);
+            const price = this._pixelToPrice(y);
+            if (time === null || price === null) return;
+
+            const entryPrice = posDrawing.getEntryPrice();
+
+            if (pointIndex === 0) {
+                // Left point - move entry time (left edge)
+                posDrawing.points[0] = { time, price: entryPrice };
+            } else if (pointIndex === 1) {
+                // Right point - move right edge time
+                posDrawing.points[1] = { time, price: entryPrice };
+            } else if (pointIndex === 2) {
+                // Target point - update profit percentage
+                if (price > entryPrice) {
+                    const newProfitPercent = ((price - entryPrice) / entryPrice) * 100;
+                    posDrawing.profitPercent = newProfitPercent;
+                }
+            } else if (pointIndex === 3) {
+                // Stop point - update stop percentage
+                if (price < entryPrice) {
+                    const newStopPercent = ((entryPrice - price) / entryPrice) * 100;
+                    posDrawing.stopPercent = newStopPercent;
+                }
+            }
+
+            this._drawingsChanged.fire();
+            return;
+        }
+
         if (pointIndex < 0 || pointIndex >= this._selectedDrawing.points.length) return;
 
         // Convert pixel to logical coordinates

@@ -605,7 +605,6 @@ export class ChartWidget implements Disposable {
                 'abcd': 'abcd',
                 'trianglePattern': 'trianglePattern',
                 'longPosition': 'longPosition',
-                'shortPosition': 'shortPosition',
                 'priceRange': 'priceRange',
                 'dateRange': 'dateRange',
                 'datePriceRange': 'datePriceRange',
