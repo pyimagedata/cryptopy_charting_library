@@ -80,6 +80,7 @@ export class DrawingManager {
     // Magnet mode: 'none' | 'weak' | 'strong'
     private _magnetMode: 'none' | 'weak' | 'strong' = 'none';
     private _magnetThreshold: number = 30; // pixel distance for weak magnet
+    private _isLocked: boolean = false;
 
     constructor() { }
 
@@ -139,6 +140,20 @@ export class DrawingManager {
 
     get magnetThreshold(): number {
         return this._magnetThreshold;
+    }
+
+    get isLocked(): boolean {
+        return this._isLocked;
+    }
+
+    set isLocked(value: boolean) {
+        this._isLocked = value;
+        // If locked, clear selection
+        if (value && this._selectedDrawing) {
+            this._selectedDrawing.state = 'complete';
+            this._selectedDrawing = null;
+            this._selectionChanged.fire(null);
+        }
     }
 
     // --- Public Methods ---

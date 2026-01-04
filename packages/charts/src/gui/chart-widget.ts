@@ -632,6 +632,14 @@ export class ChartWidget implements Disposable {
         this._drawingToolbarWidget.deleteAllClicked.subscribe(() => {
             this._drawingManager.deleteAll();
         });
+        this._drawingToolbarWidget.lockToggled.subscribe((isLocked) => {
+            this._drawingManager.isLocked = isLocked;
+            this._scheduleDraw();
+        });
+        this._drawingToolbarWidget.visibilityToggled.subscribe((isHidden) => {
+            this._drawingManager.drawings.forEach(d => d.visible = !isHidden);
+            this._scheduleDraw();
+        });
         this._drawingToolbarWidget.magnetToggled.subscribe((_isOn) => {
             // Magnet is handled via toolChanged, this is just for compatibility
         });

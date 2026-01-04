@@ -101,6 +101,7 @@ const DRAWING_ICONS = {
     weakMagnet: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><g fill="currentColor" fill-rule="evenodd"><path fill-rule="nonzero" d="M14 10a2 2 0 0 0-2 2v11H6V12c0-4.416 3.584-8 8-8s8 3.584 8 8v11h-6V12a2 2 0 0 0-2-2zm-3 2a3 3 0 0 1 6 0v10h4V12c0-3.864-3.136-7-7-7s-7 3.136-7 7v10h4V12z"></path><path d="M6.5 18h5v1h-5zm10 0h5v1h-5z"></path></g></svg>`,
     strongMagnet: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" fill-rule="nonzero" d="M14 5a7 7 0 0 0-7 7v3h4v-3a3 3 0 1 1 6 0v3h4v-3a7 7 0 0 0-7-7zm7 11h-4v3h4v-3zm-10 0H7v3h4v-3zm-5-4a8 8 0 1 1 16 0v8h-6v-8a2 2 0 1 0-4 0v8H6v-8zm3.293 11.294l-1.222-2.037.858-.514 1.777 2.963-2 1 1.223 2.037-.858.514-1.778-2.963 2-1zm9.778-2.551l.858.514-1.223 2.037 2 1-1.777 2.963-.858-.514 1.223-2.037-2-1 1.777-2.963z"></path></svg>`,
     lock: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" fill-rule="evenodd" d="M14 6a3 3 0 0 0-3 3v3h8.5a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 6 21.5v-7A2.5 2.5 0 0 1 8.5 12H10V9a4 4 0 0 1 8 0h-1a3 3 0 0 0-3-3zm-1 11a1 1 0 1 1 2 0v2a1 1 0 1 1-2 0v-2zm-6-2.5c0-.83.67-1.5 1.5-1.5h11c.83 0 1.5.67 1.5 1.5v7c0 .83-.67 1.5-1.5 1.5h-11A1.5 1.5 0 0 1 7 21.5v-7z"></path></svg>`,
+    lockClosed: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" fill-rule="evenodd" d="M14 4a5 5 0 0 0-5 5v3H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V14a2 2 0 0 0-2-2h-2V9a5 5 0 0 0-5-5zm-4 5a4 4 0 1 1 8 0v3h-8V9zm4 8a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"></path></svg>`,
     visible: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><path fill="currentColor" fill-rule="evenodd" d="M5 10.76l-.41-.72-.03-.04.03-.04a15 15 0 012.09-2.9c1.47-1.6 3.6-3.12 6.32-3.12 2.73 0 4.85 1.53 6.33 3.12a15.01 15.01 0 012.08 2.9l.03.04-.03.04a15 15 0 01-2.09 2.9c-1.47 1.6-3.6 3.12-6.32 3.12-2.73 0-4.85-1.53-6.33-3.12a15 15 0 01-1.66-2.18zm17.45-.98L22 10l.45.22-.01.02a5.04 5.04 0 01-.15.28 16.01 16.01 0 01-2.23 3.1c-1.56 1.69-3.94 3.44-7.06 3.44-3.12 0-5.5-1.75-7.06-3.44a16 16 0 01-2.38-3.38v-.02h-.01L4 10l-.45-.22.01-.02a5.4 5.4 0 01.15-.28 16 16 0 012.23-3.1C7.5 4.69 9.88 2.94 13 2.94c3.12 0 5.5 1.75 7.06 3.44a16.01 16.01 0 012.38 3.38v.02h.01zM22 10l.45-.22.1.22-.1.22L22 10zM3.55 9.78L4 10l-.45.22-.1-.22.1-.22zm6.8.22A2.6 2.6 0 0113 7.44 2.6 2.6 0 0115.65 10 2.6 2.6 0 0113 12.56 2.6 2.6 0 0110.35 10zM13 6.44A3.6 3.6 0 009.35 10 3.6 3.6 0 0013 13.56c2 0 3.65-1.58 3.65-3.56A3.6 3.6 0 0013 6.44zm7.85 12l.8-.8.7.71-.79.8a.5.5 0 000 .7l.59.59c.2.2.5.2.7 0l1.8-1.8.7.71-1.79 1.8a1.5 1.5 0 01-2.12 0l-.59-.59a1.5 1.5 0 010-2.12zM16.5 21.5l-.35-.35a.5.5 0 00-.07.07l-1 1.5-1 1.5a.5.5 0 00.42.78h4a2.5 2.5 0 001.73-.77A2.5 2.5 0 0021 22.5a2.5 2.5 0 00-.77-1.73A2.5 2.5 0 0018.5 20a3.1 3.1 0 00-1.65.58 5.28 5.28 0 00-.69.55v.01h-.01l.35.36zm.39.32l-.97 1.46-.49.72h3.07c.34 0 .72-.17 1.02-.48.3-.3.48-.68.48-1.02 0-.34-.17-.72-.48-1.02-.3-.3-.68-.48-1.02-.48-.35 0-.75.18-1.1.42a4.27 4.27 0 00-.51.4z"></path></svg>`,
     trash: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M18 7h5v1h-2.01l-1.33 14.64a1.5 1.5 0 0 1-1.5 1.36H9.84a1.5 1.5 0 0 1-1.49-1.36L7.01 8H5V7h5V6c0-1.1.9-2 2-2h4a2 2 0 0 1 2 2v1Zm-6-2a1 1 0 0 0-1 1v1h6V6a1 1 0 0 0-1-1h-4ZM8.02 8l1.32 14.54a.5.5 0 0 0 .5.46h8.33a.5.5 0 0 0 .5-.46L19.99 8H8.02Z"></path></svg>`,
     favorite: `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -351,6 +352,8 @@ export class DrawingToolbarWidget {
     private _flyoutContainer: HTMLElement | null = null;
     private _activeFlyout: string | null = null;
     private _magnetMode: 'none' | 'weak' | 'strong' = 'none';
+    private _isLocked: boolean = false;
+    private _isVisibilityHidden: boolean = false;
 
     // Events
     private readonly _toolChanged = new Delegate<DrawingTool>();
@@ -406,6 +409,17 @@ export class DrawingToolbarWidget {
     setActiveTool(tool: DrawingTool): void {
         if (this._activeTool === tool) return;
         this._activeTool = tool;
+
+        // If a drawing tool is selected (not cursor tools), auto-unlock
+        const cursorTools = ['crosshair', 'arrowCursor', 'cursor'];
+        const isDrawingTool = !cursorTools.includes(tool);
+
+        if (isDrawingTool && this._isLocked) {
+            this._isLocked = false;
+            this._updateUtilityButtons();
+            this._lockToggled.fire(false);
+        }
+
         this._updateToolButtons();
         this._toolChanged.fire(tool);
     }
@@ -435,6 +449,39 @@ export class DrawingToolbarWidget {
             magnetBtn.style.background = isActive ? '#2962ff' : 'transparent';
             magnetBtn.style.color = isActive ? '#fff' : '#787b86';
             magnetBtn.dataset.active = isActive.toString();
+        }
+    }
+
+    get isLocked(): boolean {
+        return this._isLocked;
+    }
+
+    set isLocked(value: boolean) {
+        this._isLocked = value;
+        this._updateUtilityButtons();
+    }
+
+    get isVisibilityHidden(): boolean {
+        return this._isVisibilityHidden;
+    }
+
+    set isVisibilityHidden(value: boolean) {
+        this._isVisibilityHidden = value;
+        this._updateUtilityButtons();
+    }
+
+    private _updateUtilityButtons(): void {
+        const lockBtn = this._element?.querySelector('button[data-id="lock"]') as HTMLButtonElement;
+        if (lockBtn) {
+            lockBtn.style.background = this._isLocked ? '#ef5350' : 'transparent';
+            lockBtn.style.color = this._isLocked ? '#fff' : '#787b86';
+            lockBtn.innerHTML = this._isLocked ? DRAWING_ICONS.lockClosed : DRAWING_ICONS.lock;
+        }
+
+        const visibilityBtn = this._element?.querySelector('button[data-id="visibility"]') as HTMLButtonElement;
+        if (visibilityBtn) {
+            visibilityBtn.style.background = this._isVisibilityHidden ? '#ef5350' : 'transparent';
+            visibilityBtn.style.color = this._isVisibilityHidden ? '#fff' : '#787b86';
         }
     }
 
@@ -572,9 +619,19 @@ export class DrawingToolbarWidget {
         });
 
         // Utility buttons at the end of the list
-        this._createUtilityButton(DRAWING_ICONS.lock, 'Lock Drawings', () => this._lockToggled.fire(true));
-        this._createUtilityButton(DRAWING_ICONS.visible, 'Hide Drawings', () => this._visibilityToggled.fire(true));
-        this._createUtilityButton(DRAWING_ICONS.trash, 'Delete All', () => this._deleteAllClicked.fire(), true);
+        this._createUtilityButton(DRAWING_ICONS.lock, 'Lock Drawings', () => {
+            this._isLocked = !this._isLocked;
+            this._updateUtilityButtons();
+            this._lockToggled.fire(this._isLocked);
+        }, false, 'lock');
+
+        this._createUtilityButton(DRAWING_ICONS.visible, 'Hide Drawings', () => {
+            this._isVisibilityHidden = !this._isVisibilityHidden;
+            this._updateUtilityButtons();
+            this._visibilityToggled.fire(this._isVisibilityHidden);
+        }, false, 'visibility');
+
+        this._createUtilityButton(DRAWING_ICONS.trash, 'Delete All', () => this._deleteAllClicked.fire(), true, 'trash');
 
         container.appendChild(this._element);
 
@@ -810,8 +867,9 @@ export class DrawingToolbarWidget {
         }
     }
 
-    private _createUtilityButton(icon: string, title: string, onClick: () => void, isDanger: boolean = false): void {
+    private _createUtilityButton(icon: string, title: string, onClick: () => void, isDanger: boolean = false, id?: string): void {
         const btn = document.createElement('button');
+        if (id) btn.dataset.id = id;
         btn.innerHTML = icon;
         btn.title = title;
 

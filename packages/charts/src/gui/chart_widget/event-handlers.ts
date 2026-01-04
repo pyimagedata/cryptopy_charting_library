@@ -96,20 +96,33 @@ export function handleMouseDown(
         };
     }
 
-    // Check if clicking on a control point of selected drawing
-    const selected = ctx.drawingManager.selectedDrawing;
-    if (selected) {
-        const controlPointIndex = hitTestControlPoint(x, y, selected);
-        if (controlPointIndex >= 0) {
-            return {
-                isDraggingDrawing: true,
-                draggingControlPoint: controlPointIndex,
-                dragStartX: x,
-                dragStartY: y
-            };
+    if (!ctx.drawingManager.isLocked) {
+        // Check if clicking on a control point of selected drawing
+        const selected = ctx.drawingManager.selectedDrawing;
+        if (selected) {
+            const controlPointIndex = hitTestControlPoint(x, y, selected);
+            if (controlPointIndex >= 0) {
+                return {
+                    isDraggingDrawing: true,
+                    draggingControlPoint: controlPointIndex,
+                    dragStartX: x,
+                    dragStartY: y
+                };
+            }
+
+            if (selected.hitTest(x, y, 8)) {
+                return {
+                    isDraggingDrawing: true,
+                    draggingControlPoint: 99,
+                    dragStartX: x,
+                    dragStartY: y
+                };
+            }
         }
 
-        if (selected.hitTest(x, y, 8)) {
+        // Try to select a drawing
+        const hitDrawing = ctx.drawingManager.selectDrawingAt(x, y);
+        if (hitDrawing) {
             return {
                 isDraggingDrawing: true,
                 draggingControlPoint: 99,
@@ -117,17 +130,6 @@ export function handleMouseDown(
                 dragStartY: y
             };
         }
-    }
-
-    // Try to select a drawing
-    const hitDrawing = ctx.drawingManager.selectDrawingAt(x, y);
-    if (hitDrawing) {
-        return {
-            isDraggingDrawing: true,
-            draggingControlPoint: 99,
-            dragStartX: x,
-            dragStartY: y
-        };
     }
 
     // Check if we're in drawing mode
