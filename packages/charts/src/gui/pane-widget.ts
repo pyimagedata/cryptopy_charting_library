@@ -38,7 +38,10 @@ import {
     drawArrowIcon,
     drawArrow,
     drawLongPosition,
-    drawShortPosition
+    drawShortPosition,
+    drawPriceRange,
+    drawDateRange,
+    drawDatePriceRange
 } from './pane_widget/renderers';
 import {
     Drawing,
@@ -73,7 +76,10 @@ import {
     ABCDPatternDrawing,
     TrianglePatternDrawing,
     LongPositionDrawing,
-    ShortPositionDrawing
+    ShortPositionDrawing,
+    PriceRangeDrawing,
+    DateRangeDrawing,
+    DatePriceRangeDrawing
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -634,6 +640,69 @@ export class PaneWidget implements Disposable {
                     positionDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     drawShortPosition(ctx, positionDrawing, pixelPoints, dpr, showControlPoints, priceToPixel);
+                }
+            } else if (drawing.type === 'priceRange') {
+                if (pixelPoints.length >= 2) {
+                    const priceRangeDrawing = drawing as PriceRangeDrawing;
+                    priceRangeDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+                    drawPriceRange(ctx, priceRangeDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'dateRange') {
+                if (pixelPoints.length >= 2) {
+                    const dateRangeDrawing = drawing as DateRangeDrawing;
+                    dateRangeDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+
+                    // Calculate bar count and volume
+                    const mainSeries = this._model.serieses[0];
+                    if (mainSeries && mainSeries.data.length > 0) {
+                        const p1 = drawing.points[0];
+                        const p2 = drawing.points[1];
+                        const startTime = Math.min(p1.time, p2.time);
+                        const endTime = Math.max(p1.time, p2.time);
+
+                        let barCount = 0;
+                        let totalVolume = 0;
+                        for (const item of mainSeries.data) {
+                            if (item.time >= startTime && item.time <= endTime) {
+                                barCount++;
+                                totalVolume += (item as any).volume || 0;
+                            }
+                        }
+                        dateRangeDrawing.barCount = barCount;
+                        dateRangeDrawing.volume = totalVolume;
+                    }
+
+                    drawDateRange(ctx, dateRangeDrawing, pixelPoints, dpr, showControlPoints);
+                }
+            } else if (drawing.type === 'datePriceRange') {
+                if (pixelPoints.length >= 2) {
+                    const datePriceRangeDrawing = drawing as DatePriceRangeDrawing;
+                    datePriceRangeDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
+
+                    // Calculate bar count and volume
+                    const mainSeries = this._model.serieses[0];
+                    if (mainSeries && mainSeries.data.length > 0) {
+                        const p1 = drawing.points[0];
+                        const p2 = drawing.points[1];
+                        const startTime = Math.min(p1.time, p2.time);
+                        const endTime = Math.max(p1.time, p2.time);
+
+                        let barCount = 0;
+                        let totalVolume = 0;
+                        for (const item of mainSeries.data) {
+                            if (item.time >= startTime && item.time <= endTime) {
+                                barCount++;
+                                totalVolume += (item as any).volume || 0;
+                            }
+                        }
+                        datePriceRangeDrawing.barCount = barCount;
+                        datePriceRangeDrawing.volume = totalVolume;
+                    }
+
+                    drawDatePriceRange(ctx, datePriceRangeDrawing, pixelPoints, dpr, showControlPoints);
                 }
             }
         }

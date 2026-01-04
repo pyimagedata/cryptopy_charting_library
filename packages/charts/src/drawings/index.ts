@@ -43,3 +43,6 @@ export * from './abcd-pattern-drawing';
 export * from './triangle-pattern-drawing';
 export * from './long-position-drawing';
 export * from './short-position-drawing';
+export * from './price-range-drawing';
+export * from './date-range-drawing';
+export * from './date-price-range-drawing';

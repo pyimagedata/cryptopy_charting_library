@@ -41,6 +41,9 @@ import { ABCDPatternDrawing } from './abcd-pattern-drawing';
 import { TrianglePatternDrawing } from './triangle-pattern-drawing';
 import { LongPositionDrawing } from './long-position-drawing';
 import { ShortPositionDrawing } from './short-position-drawing';
+import { PriceRangeDrawing } from './price-range-drawing';
+import { DateRangeDrawing } from './date-range-drawing';
+import { DatePriceRangeDrawing } from './date-price-range-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -295,6 +298,15 @@ export class DrawingManager {
                 drawing = new ShortPositionDrawing({ profitPercent, stopPercent });
                 break;
             }
+            case 'priceRange':
+                drawing = new PriceRangeDrawing();
+                break;
+            case 'dateRange':
+                drawing = new DateRangeDrawing();
+                break;
+            case 'datePriceRange':
+                drawing = new DatePriceRangeDrawing();
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -348,13 +360,29 @@ export class DrawingManager {
 
         if (time === null || price === null) return;
 
-        // Handle two-point drawings (TrendLine, FibRetracement, Ray, InfoLine, ExtendedLine, TrendAngle, RegressionTrend)
-        if (this._activeDrawing.type === 'trendLine' || this._activeDrawing.type === 'fibRetracement' || this._activeDrawing.type === 'ray' || this._activeDrawing.type === 'infoLine' || this._activeDrawing.type === 'extendedLine' || this._activeDrawing.type === 'trendAngle' || this._activeDrawing.type === 'regressionTrend') {
-            const drawing = this._activeDrawing as { points: { time: number; price: number }[]; state: string; addPoint: (t: number, p: number) => void };
+        // Handle two-point drawings
+        if (this._activeDrawing.type === 'trendLine' ||
+            this._activeDrawing.type === 'fibRetracement' ||
+            this._activeDrawing.type === 'ray' ||
+            this._activeDrawing.type === 'infoLine' ||
+            this._activeDrawing.type === 'extendedLine' ||
+            this._activeDrawing.type === 'trendAngle' ||
+            this._activeDrawing.type === 'regressionTrend' ||
+            this._activeDrawing.type === 'longPosition' ||
+            this._activeDrawing.type === 'shortPosition' ||
+            this._activeDrawing.type === 'priceRange' ||
+            this._activeDrawing.type === 'dateRange' ||
+            this._activeDrawing.type === 'datePriceRange') {
+
+            const drawing = this._activeDrawing as any;
             if (drawing.points.length < 2) {
                 drawing.addPoint(time, price);
             } else {
-                drawing.points[1] = { time, price };
+                if (typeof drawing.updateLastPoint === 'function') {
+                    drawing.updateLastPoint(time, price);
+                } else {
+                    drawing.points[1] = { time, price };
+                }
                 drawing.state = 'complete';
             }
         }
@@ -527,8 +555,8 @@ export class DrawingManager {
                 continue;
             }
 
-            // Update pixel points for accurate hit testing of position drawings
-            if (drawing.type === 'longPosition' || drawing.type === 'shortPosition') {
+            // Update pixel points for accurate hit testing of position and range drawings
+            if (drawing.type === 'longPosition' || drawing.type === 'shortPosition' || drawing.type === 'priceRange' || drawing.type === 'dateRange' || drawing.type === 'datePriceRange') {
                 const p1 = drawing.points[0];
                 const p2 = drawing.points[1];
                 const x1 = this.timeToPixel(p1.time);
@@ -536,7 +564,7 @@ export class DrawingManager {
                 const x2 = this.timeToPixel(p2.time);
                 const y2 = this.priceToPixel(p2.price);
                 if (x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
-                    (drawing as LongPositionDrawing | ShortPositionDrawing).setPixelPoints([{ x: x1, y: y1 }, { x: x2, y: y2 }]);
+                    (drawing as any).setPixelPoints([{ x: x1, y: y1 }, { x: x2, y: y2 }]);
                 }
             }
 
@@ -786,16 +814,11 @@ export class DrawingManager {
             // Only scale when moving endpoints (0 or 2), not middle point (1)
             if (pointIndex === 0 || pointIndex === 2) {
                 const p0 = curve.points[0];
-                const p1 = curve.points[1]; // Middle point (on curve)
                 const p2 = curve.points[2];
 
                 // Calculate new midpoint on line between endpoints
                 const newLineMidTime = (p0.time + p2.time) / 2;
                 const newLineMidPrice = (p0.price + p2.price) / 2;
-
-                // Calculate the offset from old line midpoint
-                const oldLineMidTime = (p0.time + p2.time) / 2;
-                const oldLineMidPrice = (p0.price + p2.price) / 2;
 
                 // Get the relative offset of middle point from line midpoint
                 // Scale based on new distance between endpoints

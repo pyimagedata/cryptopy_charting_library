@@ -20,3 +20,6 @@ export * from './fib-channel-annotation-renderer';
 
 // Position renderer (Long/Short Position)
 export * from './position-renderer';
+
+// Measurement renderer (Price Range)
+export * from './measurement-renderer';
