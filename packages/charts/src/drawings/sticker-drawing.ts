@@ -14,13 +14,18 @@ export class StickerDrawing implements Drawing {
     public visible: boolean = true;
     public locked: boolean = false;
     public content: string = '😀'; // Default emoji
+    private _fontSize: number = 32;
 
     constructor(id: string = Math.random().toString(36).substr(2, 9)) {
         this.id = id;
     }
 
+    get fontSize(): number { return this._fontSize; }
+    set fontSize(value: number) { this._fontSize = value; }
+
     public addPoint(time: number, price: number): void {
         this.points = [{ time, price }];
+        this.state = 'complete';
     }
 
     public updateLastPoint(time: number, price: number): void {
@@ -31,14 +36,27 @@ export class StickerDrawing implements Drawing {
         return this.points.length === 1;
     }
 
-    public hitTest(_x: number, _y: number, _tolerance: number): boolean {
-        // Simple hit test for a single point
+    private _cachedBounds: { x: number; y: number; width: number; height: number } | null = null;
+
+    setCachedBounds(bounds: { x: number; y: number; width: number; height: number }): void {
+        this._cachedBounds = bounds;
+    }
+
+    public hitTest(x: number, y: number, threshold: number = 8): boolean {
+        const bounds = this.getBounds();
+        if (bounds) {
+            return (
+                x >= bounds.x - threshold &&
+                x <= bounds.x + bounds.width + threshold &&
+                y >= bounds.y - threshold &&
+                y <= bounds.y + bounds.height + threshold
+            );
+        }
         return false;
     }
 
     public getBounds(): { x: number; y: number; width: number; height: number } | null {
-        // To be implemented by the renderer
-        return null;
+        return this._cachedBounds;
     }
 
     public toJSON(): SerializedStickerDrawing {
@@ -47,10 +65,11 @@ export class StickerDrawing implements Drawing {
             type: 'sticker',
             points: [...this.points],
             style: { ...this.style },
-            state: this.state,
+            state: this.state === 'selected' ? 'complete' : this.state,
             visible: this.visible,
             locked: this.locked,
             content: this.content,
+            fontSize: this._fontSize,
         };
     }
 
@@ -58,10 +77,11 @@ export class StickerDrawing implements Drawing {
         const drawing = new StickerDrawing(data.id);
         drawing.points = [...data.points];
         drawing.style = { ...data.style };
-        drawing.state = data.state;
+        drawing.state = data.state as any;
         drawing.visible = data.visible;
         drawing.locked = data.locked;
         drawing.content = data.content;
+        if (data.fontSize) drawing.fontSize = data.fontSize;
         return drawing;
     }
 }

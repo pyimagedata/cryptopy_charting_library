@@ -81,81 +81,97 @@ export function drawTrendLine(
         const unitDy = dy / lineLength;
         const halfGap = gapWidth / 2;
 
-        const gapStartX = midX - unitDx * halfGap;
-        const gapStartY = midY - unitDy * halfGap;
-        const gapEndX = midX + unitDx * halfGap;
-        const gapEndY = midY + unitDy * halfGap;
+        // Ensure the line is long enough to have a gap
+        if (lineLength > gapWidth) {
+            const gapStartX = midX - unitDx * halfGap;
+            const gapStartY = midY - unitDy * halfGap;
+            const gapEndX = midX + unitDx * halfGap;
+            const gapEndY = midY + unitDy * halfGap;
 
-        // Draw line segment 1: start to gap
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(gapStartX, gapStartY);
-        ctx.stroke();
+            // Draw line segment 1: start to gap
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(gapStartX, gapStartY);
+            ctx.stroke();
 
-        // Draw line segment 2: gap to end
-        ctx.beginPath();
-        ctx.moveTo(gapEndX, gapEndY);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
+            // Draw line segment 2: gap to end
+            ctx.beginPath();
+            ctx.moveTo(gapEndX, gapEndY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
 
-        // Draw text at midpoint
-        const angle = Math.atan2(dy, dx);
+            // Draw text at midpoint
+            const angle = Math.atan2(dy, dx);
 
-        // Offset based on vertical alignment
-        const vAlign = style.textVAlign || 'middle';
-        let offsetY = 0;
-        if (vAlign === 'top') offsetY = -10 * dpr;
-        else if (vAlign === 'bottom') offsetY = 10 * dpr;
+            // Offset based on vertical alignment
+            const vAlign = style.textVAlign || 'middle';
+            let offsetY = 0;
+            if (vAlign === 'top') offsetY = -10 * dpr;
+            else if (vAlign === 'bottom') offsetY = 10 * dpr;
 
-        ctx.save();
-        ctx.translate(midX, midY);
+            ctx.save();
+            ctx.translate(midX, midY);
 
-        // Rotate text to follow line, but keep readable
-        let textAngle = angle;
-        if (textAngle > Math.PI / 2) textAngle -= Math.PI;
-        if (textAngle < -Math.PI / 2) textAngle += Math.PI;
-        ctx.rotate(textAngle);
+            // Rotate text to follow line, but keep readable
+            let textAngle = angle;
+            if (textAngle > Math.PI / 2) textAngle -= Math.PI;
+            if (textAngle < -Math.PI / 2) textAngle += Math.PI;
+            ctx.rotate(textAngle);
 
-        // Draw text
-        ctx.fillStyle = style.textColor || style.color;
-        const hAlign = style.textHAlign || 'center';
-        ctx.textAlign = hAlign;
-        ctx.textBaseline = 'middle';
-        ctx.fillText(style.text!, 0, offsetY);
-        ctx.restore();
-    } else if (isHoveredForAddText) {
+            // Draw text
+            ctx.fillStyle = style.textColor || style.color;
+            const hAlign = style.textHAlign || 'center';
+            ctx.textAlign = hAlign;
+            ctx.textBaseline = 'middle';
+            ctx.fillText(style.text!, 0, offsetY);
+            ctx.restore();
+        } else {
+            // Line too short for gap, just draw full line
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        }
+    } else if (isHoveredForAddText && lineLength > 0) {
         // Hovered - create gap for "+ Add Text" tooltip
         const tooltipWidth = 70 * dpr;
         const padding = 4 * dpr;
         const gapWidth = tooltipWidth + padding * 2;
 
-        // Calculate midpoint
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
+        // Ensure the line is long enough to have a gap
+        if (lineLength > gapWidth) {
+            const unitDx = dx / lineLength;
+            const unitDy = dy / lineLength;
+            const halfGap = gapWidth / 2;
 
-        // Calculate gap start and end points along the line
-        const unitDx = dx / lineLength;
-        const unitDy = dy / lineLength;
-        const halfGap = gapWidth / 2;
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
 
-        const gapStartX = midX - unitDx * halfGap;
-        const gapStartY = midY - unitDy * halfGap;
-        const gapEndX = midX + unitDx * halfGap;
-        const gapEndY = midY + unitDy * halfGap;
+            const gapStartX = midX - unitDx * halfGap;
+            const gapStartY = midY - unitDy * halfGap;
+            const gapEndX = midX + unitDx * halfGap;
+            const gapEndY = midY + unitDy * halfGap;
 
-        // Draw line segment 1: start to gap
-        ctx.beginPath();
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(gapStartX, gapStartY);
-        ctx.stroke();
+            // Draw line segment 1: start to gap
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(gapStartX, gapStartY);
+            ctx.stroke();
 
-        // Draw line segment 2: gap to end
-        ctx.beginPath();
-        ctx.moveTo(gapEndX, gapEndY);
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
+            // Draw line segment 2: gap to end
+            ctx.beginPath();
+            ctx.moveTo(gapEndX, gapEndY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        } else {
+            // Line too short for gap
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+        }
     } else {
-        // No text, not hovered - draw full line
+        // No text, not hovered or lineLength is 0 - draw full line
         ctx.beginPath();
         ctx.moveTo(startX, startY);
         ctx.lineTo(endX, endY);

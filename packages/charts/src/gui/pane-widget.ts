@@ -41,7 +41,12 @@ import {
     drawShortPosition,
     drawPriceRange,
     drawDateRange,
-    drawDatePriceRange
+    drawDatePriceRange,
+    drawText,
+    drawCallout,
+    drawPriceLabel,
+    drawFlagMarked,
+    drawSticker,
 } from './pane_widget/renderers';
 import {
     Drawing,
@@ -79,7 +84,12 @@ import {
     ShortPositionDrawing,
     PriceRangeDrawing,
     DateRangeDrawing,
-    DatePriceRangeDrawing
+    DatePriceRangeDrawing,
+    TextDrawing,
+    CalloutDrawing,
+    PriceLabelDrawing,
+    FlagMarkedDrawing,
+    StickerDrawing,
 } from '../drawings';
 
 /** Disposable interface for cleanup */
@@ -360,6 +370,7 @@ export class PaneWidget implements Disposable {
 
         const dpr = window.devicePixelRatio || 1;
         const ctx = this._ctx;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         const canvasWidth = this._canvas.width;
         const canvasHeight = this._canvas.height;
 
@@ -469,6 +480,57 @@ export class PaneWidget implements Disposable {
             if (drawing.type === 'arrowMarkedUp' || drawing.type === 'arrowMarkedDown') {
                 if (pixelPoints.length >= 1) {
                     drawArrowIcon(ctx, drawing as ArrowIconDrawing, pixelPoints[0], dpr, drawing.state === 'selected');
+                }
+                continue;
+            }
+
+            if (drawing.type === 'text') {
+                if (pixelPoints.length >= 1) {
+                    const textDrawing = drawing as TextDrawing;
+                    const isSelected = drawing.state === 'selected' || drawing.state === 'creating';
+                    drawText(ctx, textDrawing, pixelPoints[0], dpr, isSelected);
+                }
+                continue;
+            }
+
+            if (drawing.type === 'callout') {
+                if (pixelPoints.length >= 1) {
+                    const calloutDrawing = drawing as CalloutDrawing;
+                    // Update pixel points for hit testing control points
+                    calloutDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+
+                    const isSelected = drawing.state === 'selected' || drawing.state === 'creating';
+                    drawCallout(ctx, calloutDrawing, pixelPoints, dpr, isSelected);
+                }
+                continue;
+            }
+
+            if (drawing.type === 'priceLabel') {
+                if (pixelPoints.length >= 1) {
+                    const priceLabelDrawing = drawing as PriceLabelDrawing;
+                    // Update pixel points for hit testing control points
+                    priceLabelDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+
+                    const isSelected = drawing.state === 'selected' || drawing.state === 'creating';
+                    drawPriceLabel(ctx, priceLabelDrawing, pixelPoints[0], drawing.points[0].price, dpr, isSelected);
+                }
+                continue;
+            }
+
+            if (drawing.type === 'flagMarked') {
+                if (pixelPoints.length >= 1) {
+                    const flagMarkedDrawing = drawing as FlagMarkedDrawing;
+                    const isSelected = drawing.state === 'selected' || drawing.state === 'creating';
+                    drawFlagMarked(ctx, flagMarkedDrawing, pixelPoints[0], dpr, isSelected);
+                }
+                continue;
+            }
+
+            if (drawing.type === 'sticker') {
+                if (pixelPoints.length >= 1) {
+                    const stickerDrawing = drawing as StickerDrawing;
+                    const isSelected = drawing.state === 'selected' || drawing.state === 'creating';
+                    drawSticker(ctx, stickerDrawing, pixelPoints[0], dpr, isSelected);
                 }
                 continue;
             }
@@ -706,7 +768,6 @@ export class PaneWidget implements Disposable {
                 }
             }
         }
-
         ctx.restore();
     }
     dispose(): void {
@@ -783,7 +844,6 @@ export class PaneWidget implements Disposable {
             overlayIndicatorsHtml = '<div style="margin-top: 32px; display: flex; flex-direction: column;">';
             for (let i = 0; i < overlayIndicators.length; i++) {
                 const indicator = overlayIndicators[i];
-                const color = indicator.options.color || '#2962ff';
                 const name = indicator.name || indicator.options.name || 'Indicator';
                 // Get current value if available
                 const lastValue = indicator.data.length > 0 ? indicator.data[indicator.data.length - 1]?.value : null;

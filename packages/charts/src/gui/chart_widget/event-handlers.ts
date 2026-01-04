@@ -25,6 +25,9 @@ export interface ChartWidgetContext {
     dragStartX: number;
     dragStartY: number;
 
+    // Bar data for magnet
+    getBarData?: () => { time: number; open: number; high: number; low: number; close: number }[];
+
     // Callbacks
     scheduleDraw: () => void;
 }
@@ -129,13 +132,33 @@ export function handleMouseDown(
 
     // Check if we're in drawing mode
     if (ctx.drawingManager.mode !== 'none') {
+        // Apply magnet if enabled
+        let finalX = x;
+        let finalY = y;
+        let snappedPrice: number | undefined;
+
+        if (ctx.getBarData) {
+            const barData = ctx.getBarData();
+            const magnetResult = ctx.drawingManager.applyMagnet(x, y, barData);
+
+            // Always snap X to bar center when in drawing mode
+            if (magnetResult.snappedX !== undefined) {
+                finalX = magnetResult.snappedX;
+            }
+
+            if (ctx.drawingManager.magnetMode !== 'none' && magnetResult.snapped) {
+                finalY = magnetResult.y;
+                snappedPrice = magnetResult.snappedPrice;
+            }
+        }
+
         if (ctx.drawingManager.activeDrawing) {
             if (ctx.drawingManager.activeDrawing.type !== 'brush' &&
                 ctx.drawingManager.activeDrawing.type !== 'highlighter') {
-                ctx.drawingManager.finishDrawing(x, y);
+                ctx.drawingManager.finishDrawing(finalX, finalY, snappedPrice);
             }
         } else {
-            ctx.drawingManager.startDrawing(x, y);
+            ctx.drawingManager.startDrawing(finalX, finalY, snappedPrice);
         }
         return {};
     }
@@ -194,9 +217,27 @@ export function handleMouseMove(
 
     // Update drawing preview
     if (paneRect && ctx.drawingManager.activeDrawing) {
-        const x = e.clientX - paneRect.left;
-        const y = e.clientY - paneRect.top;
-        ctx.drawingManager.updateDrawing(x, y);
+        let dx = e.clientX - paneRect.left;
+        let dy = e.clientY - paneRect.top;
+        let snappedPrice: number | undefined;
+
+        // Apply magnet if enabled
+        if (ctx.getBarData) {
+            const barData = ctx.getBarData();
+            const magnetResult = ctx.drawingManager.applyMagnet(dx, dy, barData);
+
+            // Always snap X to bar center when in drawing mode
+            if (magnetResult.snappedX !== undefined) {
+                dx = magnetResult.snappedX;
+            }
+
+            if (ctx.drawingManager.magnetMode !== 'none' && magnetResult.snapped) {
+                dy = magnetResult.y;
+                snappedPrice = magnetResult.snappedPrice;
+            }
+        }
+
+        ctx.drawingManager.updateDrawing(dx, dy, snappedPrice);
     }
 
     if (ctx.isDragging) {
@@ -218,9 +259,26 @@ export function handleMouseMove(
     // Crosshair logic
     if (!ctx.isDragging && !ctx.isPriceScaleDragging && ctx.element) {
         if (paneRect) {
-            const x = e.clientX - paneRect.left;
-            const y = e.clientY - paneRect.top;
+            let x = e.clientX - paneRect.left;
+            let y = e.clientY - paneRect.top;
             const chartAreaWidth = paneRect.width;
+
+            // Apply magnet to crosshair when drawing mode is active
+            if (ctx.drawingManager.mode !== 'none' && ctx.getBarData) {
+                const barData = ctx.getBarData();
+                const magnetResult = ctx.drawingManager.applyMagnet(x, y, barData);
+
+                // Always snap X to bar center when in drawing mode to avoid "sliding" mismatch
+                if (magnetResult.snappedX !== undefined) {
+                    x = magnetResult.snappedX;
+                }
+
+                if (ctx.drawingManager.magnetMode !== 'none') {
+                    if (magnetResult.snapped) {
+                        y = magnetResult.y;
+                    }
+                }
+            }
 
             if (x >= 0 && x <= chartAreaWidth && y >= 0 && y <= paneRect.height) {
                 ctx.model.setCrosshairPosition(x, y, true);

@@ -57,6 +57,25 @@ export interface LineWidthRow {
     label?: string;
 }
 
+export interface TextareaRow {
+    type: 'textarea';
+    key: string;
+    label?: string;
+}
+
+export interface ToggleColorRow {
+    type: 'toggleColor';
+    toggleKey: string;
+    colorKey: string;
+    label: string;
+}
+
+export interface GroupRow {
+    type: 'group';
+    rows: SettingsRow[];
+    label?: string;
+}
+
 // Union of all row types
 export type SettingsRow =
     | ColorRow
@@ -65,7 +84,10 @@ export type SettingsRow =
     | CheckboxRow
     | LineStyleRow
     | SelectRow
-    | LineWidthRow;
+    | LineWidthRow
+    | TextareaRow
+    | ToggleColorRow
+    | GroupRow;
 
 // ========================================
 // Section - Group of related settings
@@ -158,4 +180,16 @@ export function isSelectRow(row: SettingsRow): row is SelectRow {
 
 export function isLineWidthRow(row: SettingsRow): row is LineWidthRow {
     return row.type === 'lineWidth';
+}
+
+export function isTextareaRow(row: SettingsRow): row is TextareaRow {
+    return row.type === 'textarea';
+}
+
+export function isToggleColorRow(row: SettingsRow): row is ToggleColorRow {
+    return row.type === 'toggleColor';
+}
+
+export function isGroupRow(row: SettingsRow): row is GroupRow {
+    return row.type === 'group';
 }

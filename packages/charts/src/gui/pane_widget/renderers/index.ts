@@ -17,6 +17,7 @@ export * from './line-renderer';
 
 // Fib, Channel, Annotation renderer
 export * from './fib-channel-annotation-renderer';
+export * from './annotation-renderer';
 
 // Position renderer (Long/Short Position)
 export * from './position-renderer';

@@ -82,6 +82,15 @@ export interface SelectSettingRow {
     defaultValue?: string;
 }
 
+/** Text input setting */
+export interface TextSettingRow {
+    type: 'text';
+    key: string;
+    label: string;
+    placeholder?: string;
+    defaultValue?: string;
+}
+
 /** Union of all setting row types */
 export type SettingRow =
     | ColorSettingRow
@@ -91,7 +100,30 @@ export type SettingRow =
     | SliderSettingRow
     | NumberSettingRow
     | LevelsGridSettingRow
-    | SelectSettingRow;
+    | SelectSettingRow
+    | TextSettingRow
+    | TextareaSettingRow
+    | ToggleColorSettingRow
+    | GroupSettingRow;
+
+export interface TextareaSettingRow {
+    type: 'textarea';
+    key: string;
+    label?: string;
+}
+
+export interface ToggleColorSettingRow {
+    type: 'toggleColor';
+    toggleKey: string;
+    colorKey: string;
+    label: string;
+}
+
+export interface GroupSettingRow {
+    type: 'group';
+    rows: SettingRow[];
+    label?: string;
+}
 
 // ============================================================================
 // Settings Section and Tab
@@ -121,7 +153,7 @@ export interface DrawingSettingsConfig {
 // ============================================================================
 
 /** Attribute bar item types */
-export type AttributeBarItemType = 'color' | 'lineWidth' | 'lineStyle' | 'toggle' | 'separator';
+export type AttributeBarItemType = 'color' | 'lineWidth' | 'lineStyle' | 'toggle' | 'separator' | 'number';
 
 /** Base attribute bar item */
 export interface AttributeBarItemBase {
@@ -161,13 +193,20 @@ export interface AttributeBarSeparatorItem extends AttributeBarItemBase {
     type: 'separator';
 }
 
+/** Number input in attribute bar */
+export interface AttributeBarNumberItem extends AttributeBarItemBase {
+    type: 'number';
+    key: string;
+}
+
 /** Union of all attribute bar item types */
 export type AttributeBarItem =
     | AttributeBarColorItem
     | AttributeBarLineWidthItem
     | AttributeBarLineStyleItem
     | AttributeBarToggleItem
-    | AttributeBarSeparatorItem;
+    | AttributeBarSeparatorItem
+    | AttributeBarNumberItem;
 
 // ============================================================================
 // Drawing Settings Provider Interface
@@ -267,4 +306,46 @@ export function checkboxRow(key: string, label: string, defaultValue?: boolean):
  */
 export function sliderRow(key: string, label: string, min: number, max: number, unit?: string): SliderSettingRow {
     return { type: 'slider', key, label, min, max, unit };
+}
+
+/**
+ * Standard number row
+ */
+export function numberRow(key: string, label: string, options: { min?: number, max?: number, step?: number } = {}): NumberSettingRow {
+    return { type: 'number', key, label, ...options };
+}
+
+/**
+ * Standard select row
+ */
+export function selectRow(key: string, label: string, options: { value: string; label: string }[]): SelectSettingRow {
+    return { type: 'select', key, label, options };
+}
+
+/**
+ * Standard text row
+ */
+export function textRow(key: string, label: string, placeholder?: string): TextSettingRow {
+    return { type: 'text', key, label, placeholder };
+}
+
+/**
+ * Standard textarea row
+ */
+export function textareaRow(key: string, label?: string): TextareaSettingRow {
+    return { type: 'textarea', key, label };
+}
+
+/**
+ * Combined toggle and color row
+ */
+export function toggleColorRow(label: string, toggleKey: string, colorKey: string): ToggleColorSettingRow {
+    return { type: 'toggleColor', label, toggleKey, colorKey };
+}
+
+/**
+ * Group of controls on one line
+ */
+export function groupRow(rows: SettingRow[], label?: string): GroupSettingRow {
+    return { type: 'group', rows, label };
 }

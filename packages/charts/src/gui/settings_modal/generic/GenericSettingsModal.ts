@@ -18,6 +18,9 @@ import {
     isLineStyleRow,
     isLineWidthRow,
     isSelectRow,
+    isTextareaRow,
+    isToggleColorRow,
+    isGroupRow,
 } from '../base/SettingsTypes';
 import {
     createColorSwatch,
@@ -31,6 +34,7 @@ import {
     createSettingsRow,
     LineStyleValue,
 } from '../base/SettingsComponents';
+import { createTextArea } from '../components/TextArea';
 
 // Import high-level section components
 import {
@@ -151,7 +155,6 @@ export class GenericSettingsModal extends BaseSettingsModal {
         this._renderDefaultStyleTab(container);
     }
 
-    /** Render sections from config (data-driven) */
     private _renderSectionsFromConfig(
         container: HTMLElement,
         sections: SettingsSection[],
@@ -160,6 +163,65 @@ export class GenericSettingsModal extends BaseSettingsModal {
         sections.forEach(section => {
             const sectionEl = createSection(section.title, (content) => {
                 section.rows.forEach(row => {
+                    if (isGroupRow(row)) {
+                        const groupEl = document.createElement('div');
+                        groupEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2B2B43;';
+
+                        if (row.label) {
+                            const labelEl = document.createElement('span');
+                            labelEl.textContent = row.label;
+                            labelEl.style.cssText = 'font-size: 13px; color: #d1d4dc;';
+                            groupEl.appendChild(labelEl);
+                        }
+
+                        const controlsWrapper = document.createElement('div');
+                        controlsWrapper.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+                        row.rows.forEach(subRow => {
+                            const ctrl = this._createControlForRow(subRow, provider);
+                            if (ctrl) controlsWrapper.appendChild(ctrl);
+                        });
+
+                        groupEl.appendChild(controlsWrapper);
+                        content.appendChild(groupEl);
+                        return;
+                    }
+
+                    if (isToggleColorRow(row)) {
+                        const rowEl = document.createElement('div');
+                        rowEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2B2B43;';
+
+                        const checked = provider.getSettingValue(row.toggleKey);
+                        const checkbox = createCheckbox(checked ?? false, row.label, (val) => {
+                            provider.setSettingValue(row.toggleKey, val);
+                            this.notifySettingsChanged();
+                        });
+                        rowEl.appendChild(checkbox);
+
+                        const color = provider.getSettingValue(row.colorKey);
+                        const swatch = createColorSwatch(color || '#000000', (val) => {
+                            provider.setSettingValue(row.colorKey, val);
+                            this.notifySettingsChanged();
+                        });
+                        rowEl.appendChild(swatch);
+
+                        content.appendChild(rowEl);
+                        return;
+                    }
+
+                    if (isTextareaRow(row)) {
+                        const val = provider.getSettingValue(row.key);
+                        const ctrl = createTextArea(val || '', '', (newVal) => {
+                            provider.setSettingValue(row.key, newVal);
+                            this.notifySettingsChanged();
+                        });
+                        const rowEl = document.createElement('div');
+                        rowEl.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #2B2B43;';
+                        rowEl.appendChild(ctrl);
+                        content.appendChild(rowEl);
+                        return;
+                    }
+
                     const control = this._createControlForRow(row, provider);
                     if (control) {
                         const rowEl = createSettingsRow(row.label || '', control);
@@ -171,8 +233,9 @@ export class GenericSettingsModal extends BaseSettingsModal {
         });
     }
 
-    /** Create appropriate control for a settings row */
     private _createControlForRow(row: SettingsRow, provider: Drawing & DrawingSettingsProvider): HTMLElement | null {
+        if (isGroupRow(row) || isToggleColorRow(row) || isTextareaRow(row)) return null;
+
         const currentValue = provider.getSettingValue(row.key);
 
         if (isColorRow(row)) {

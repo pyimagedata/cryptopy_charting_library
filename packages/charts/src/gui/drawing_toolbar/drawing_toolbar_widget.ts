@@ -350,6 +350,7 @@ export class DrawingToolbarWidget {
     private _activeGroupTools: Map<string, string> = new Map();
     private _flyoutContainer: HTMLElement | null = null;
     private _activeFlyout: string | null = null;
+    private _magnetMode: 'none' | 'weak' | 'strong' = 'none';
 
     // Events
     private readonly _toolChanged = new Delegate<DrawingTool>();
@@ -407,6 +408,34 @@ export class DrawingToolbarWidget {
         this._activeTool = tool;
         this._updateToolButtons();
         this._toolChanged.fire(tool);
+    }
+
+    getToolIcon(toolId: string): string | null {
+        for (const group of TOOL_GROUPS) {
+            const tool = group.tools.find(t => t.id === toolId);
+            if (tool) return tool.icon;
+        }
+        return null;
+    }
+
+    get magnetMode(): 'none' | 'weak' | 'strong' {
+        return this._magnetMode;
+    }
+
+    set magnetMode(mode: 'none' | 'weak' | 'strong') {
+        this._magnetMode = mode;
+        this._updateMagnetButtons();
+    }
+
+    private _updateMagnetButtons(): void {
+        // Update magnet group button appearance
+        const magnetBtn = this._element?.querySelector('button[data-group-id="magnet"]') as HTMLButtonElement;
+        if (magnetBtn) {
+            const isActive = this._magnetMode !== 'none';
+            magnetBtn.style.background = isActive ? '#2962ff' : 'transparent';
+            magnetBtn.style.color = isActive ? '#fff' : '#787b86';
+            magnetBtn.dataset.active = isActive.toString();
+        }
     }
 
     // --- Private methods ---
@@ -822,6 +851,16 @@ export class DrawingToolbarWidget {
             const groupId = htmlBtn.dataset.groupId!;
             const group = TOOL_GROUPS.find(g => g.id === groupId);
             if (!group) return;
+
+            // Skip magnet group - it has its own state management
+            if (groupId === 'magnet') {
+                // Keep magnet button state based on _magnetMode
+                const isMagnetActive = this._magnetMode !== 'none';
+                htmlBtn.dataset.active = isMagnetActive.toString();
+                htmlBtn.style.background = isMagnetActive ? '#2962ff' : 'transparent';
+                htmlBtn.style.color = isMagnetActive ? '#fff' : '#787b86';
+                return;
+            }
 
             const groupActiveTool = this._activeGroupTools.get(groupId);
             const isActive = group.tools.some(t => t.id === this._activeTool) && groupActiveTool === this._activeTool;

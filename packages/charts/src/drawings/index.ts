@@ -46,3 +46,7 @@ export * from './short-position-drawing';
 export * from './price-range-drawing';
 export * from './date-range-drawing';
 export * from './date-price-range-drawing';
+export * from './text-drawing';
+export * from './callout-drawing';
+export * from './price-label-drawing';
+export * from './flag-marked-drawing';

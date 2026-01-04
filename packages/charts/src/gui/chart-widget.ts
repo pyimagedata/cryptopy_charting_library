@@ -609,6 +609,9 @@ export class ChartWidget implements Disposable {
                 'priceRange': 'priceRange',
                 'dateRange': 'dateRange',
                 'datePriceRange': 'datePriceRange',
+                'text': 'text',
+                'callout': 'callout',
+                'priceLabel': 'priceLabel',
                 'flagMarked': 'flagMarked',
                 'sticker': 'sticker',
             };
@@ -617,15 +620,47 @@ export class ChartWidget implements Disposable {
             let mode = toolToMode[tool];
             if (!mode && tool.startsWith('sticker-')) {
                 mode = 'sticker';
-                // In a real implementation, we would set the sticker content here
-                // e.g. this._drawingManager.setStickerContent(emoji)
+                const emoji = this._drawingToolbarWidget?.getToolIcon(tool);
+                if (emoji) {
+                    this._drawingManager.stickerContent = emoji;
+                }
             }
 
             this._drawingManager.setMode(mode || 'none');
-            console.log('Drawing mode:', mode);
+            console.log('Drawing mode:', mode, mode === 'sticker' ? `Content: ${this._drawingManager.stickerContent}` : '');
         });
         this._drawingToolbarWidget.deleteAllClicked.subscribe(() => {
             this._drawingManager.deleteAll();
+        });
+        this._drawingToolbarWidget.magnetToggled.subscribe((_isOn) => {
+            // Magnet is handled via toolChanged, this is just for compatibility
+        });
+
+        // Listen to tool changes for magnet handling
+        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
+            if (tool === 'weakMagnet') {
+                // Toggle weak magnet
+                if (this._drawingManager.magnetMode === 'weak') {
+                    this._drawingManager.magnetMode = 'none';
+                    this._drawingToolbarWidget!.magnetMode = 'none';
+                    console.log('Magnet: off');
+                } else {
+                    this._drawingManager.magnetMode = 'weak';
+                    this._drawingToolbarWidget!.magnetMode = 'weak';
+                    console.log('Magnet: weak');
+                }
+            } else if (tool === 'strongMagnet') {
+                // Toggle strong magnet
+                if (this._drawingManager.magnetMode === 'strong') {
+                    this._drawingManager.magnetMode = 'none';
+                    this._drawingToolbarWidget!.magnetMode = 'none';
+                    console.log('Magnet: off');
+                } else {
+                    this._drawingManager.magnetMode = 'strong';
+                    this._drawingToolbarWidget!.magnetMode = 'strong';
+                    console.log('Magnet: strong');
+                }
+            }
         });
 
         // Sync toolbar buttons when drawing mode changes (e.g., after drawing completion)
@@ -641,13 +676,13 @@ export class ChartWidget implements Disposable {
             this._drawingManager.deleteSelected();
             this._floatingAttributeBar?.hide();
         });
-        this._floatingAttributeBar.colorChanged.subscribe((color) => {
+        this._floatingAttributeBar.colorChanged.subscribe((_color) => {
             this._scheduleDraw();  // Refresh to show new color
         });
-        this._floatingAttributeBar.lineWidthChanged.subscribe((width) => {
+        this._floatingAttributeBar.lineWidthChanged.subscribe((_width) => {
             this._scheduleDraw();
         });
-        this._floatingAttributeBar.lineStyleChanged.subscribe((style) => {
+        this._floatingAttributeBar.lineStyleChanged.subscribe((_style) => {
             this._scheduleDraw();
         });
         this._floatingAttributeBar.settingsClicked.subscribe(() => {
@@ -912,6 +947,17 @@ export class ChartWidget implements Disposable {
             lastMouseY: this._lastMouseY,
             dragStartX: this._dragStartX,
             dragStartY: this._dragStartY,
+            getBarData: () => {
+                const series = this._model.serieses[0];
+                if (!series) return [];
+                return series.data.map((d: any) => ({
+                    time: d.time,
+                    open: d.open ?? d.value ?? 0,
+                    high: d.high ?? d.value ?? 0,
+                    low: d.low ?? d.value ?? 0,
+                    close: d.close ?? d.value ?? 0
+                }));
+            },
             scheduleDraw: () => this._scheduleDraw()
         };
     }
@@ -950,6 +996,15 @@ export class ChartWidget implements Disposable {
     private _onPaneMouseMove(e: MouseEvent): void {
         const paneRect = this._paneWidget?.canvas?.getBoundingClientRect();
         if (!paneRect) return;
+
+        // Skip hit testing for "Add Text" if in drawing mode
+        if (this._drawingManager.mode !== 'none') {
+            if (this._drawingManager.hoveredForAddText !== null) {
+                this._drawingManager.hoveredForAddText = null;
+                this._scheduleDraw();
+            }
+            return;
+        }
 
         const x = e.clientX - paneRect.left;
         const y = e.clientY - paneRect.top;

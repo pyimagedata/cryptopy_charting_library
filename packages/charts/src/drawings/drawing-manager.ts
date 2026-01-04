@@ -44,6 +44,10 @@ import { ShortPositionDrawing } from './short-position-drawing';
 import { PriceRangeDrawing } from './price-range-drawing';
 import { DateRangeDrawing } from './date-range-drawing';
 import { DatePriceRangeDrawing } from './date-price-range-drawing';
+import { TextDrawing } from './text-drawing';
+import { CalloutDrawing } from './callout-drawing';
+import { PriceLabelDrawing } from './price-label-drawing';
+import { FlagMarkedDrawing } from './flag-marked-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -59,6 +63,7 @@ export class DrawingManager {
     private _activeDrawing: Drawing | null = null;
     private _selectedDrawing: Drawing | null = null;
     private _mode: DrawingMode = 'none';
+    private _stickerContent: string = '😀';
 
     // References to scales for coordinate conversion
     private _timeScale: TimeScale | null = null;
@@ -71,6 +76,10 @@ export class DrawingManager {
 
     // Hovered drawing for "Add Text" tooltip
     private _hoveredForAddText: string | null = null;
+
+    // Magnet mode: 'none' | 'weak' | 'strong'
+    private _magnetMode: 'none' | 'weak' | 'strong' = 'none';
+    private _magnetThreshold: number = 30; // pixel distance for weak magnet
 
     constructor() { }
 
@@ -96,6 +105,14 @@ export class DrawingManager {
         return this._drawingsChanged;
     }
 
+    get stickerContent(): string {
+        return this._stickerContent;
+    }
+
+    set stickerContent(value: string) {
+        this._stickerContent = value;
+    }
+
     get modeChanged(): Delegate<DrawingMode> {
         return this._modeChanged;
     }
@@ -110,6 +127,18 @@ export class DrawingManager {
 
     set hoveredForAddText(id: string | null) {
         this._hoveredForAddText = id;
+    }
+
+    get magnetMode(): 'none' | 'weak' | 'strong' {
+        return this._magnetMode;
+    }
+
+    set magnetMode(mode: 'none' | 'weak' | 'strong') {
+        this._magnetMode = mode;
+    }
+
+    get magnetThreshold(): number {
+        return this._magnetThreshold;
     }
 
     // --- Public Methods ---
@@ -135,13 +164,14 @@ export class DrawingManager {
     }
 
     /** Start a new drawing at the given coordinates */
-    startDrawing(x: number, y: number): void {
+    startDrawing(x: number, y: number, snappedPrice?: number): void {
         if (this._mode === 'none') return;
         if (!this._timeScale || !this._priceScale) return;
 
         // Convert pixel to logical coordinates
         const time = this._pixelToTime(x);
-        const price = this._pixelToPrice(y);
+        // Use snapped price if provided, otherwise convert from pixel
+        const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
 
         if (time === null || price === null) return;
 
@@ -178,9 +208,6 @@ export class DrawingManager {
                 break;
             case 'crossLine':
                 drawing = new CrossLineDrawing();
-                break;
-            case 'sticker':
-                drawing = new StickerDrawing();
                 break;
             case 'parallelChannel':
                 drawing = new ParallelChannelDrawing();
@@ -307,6 +334,22 @@ export class DrawingManager {
             case 'datePriceRange':
                 drawing = new DatePriceRangeDrawing();
                 break;
+            case 'text':
+                drawing = new TextDrawing();
+                break;
+            case 'callout':
+                drawing = new CalloutDrawing();
+                break;
+            case 'priceLabel':
+                drawing = new PriceLabelDrawing();
+                break;
+            case 'flagMarked':
+                drawing = new FlagMarkedDrawing();
+                break;
+            case 'sticker':
+                drawing = new StickerDrawing();
+                (drawing as StickerDrawing).content = this._stickerContent;
+                break;
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -334,12 +377,12 @@ export class DrawingManager {
     }
 
     /** Update active drawing preview */
-    updateDrawing(x: number, y: number): void {
+    updateDrawing(x: number, y: number, snappedPrice?: number): void {
         if (!this._activeDrawing) return;
         if (!this._timeScale || !this._priceScale) return;
 
         const time = this._pixelToTime(x);
-        const price = this._pixelToPrice(y);
+        const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
 
         if (time === null || price === null) return;
 
@@ -351,12 +394,12 @@ export class DrawingManager {
     }
 
     /** Finish the current drawing */
-    finishDrawing(x: number, y: number): void {
+    finishDrawing(x: number, y: number, snappedPrice?: number): void {
         if (!this._activeDrawing) return;
         if (!this._timeScale || !this._priceScale) return;
 
         const time = this._pixelToTime(x);
-        const price = this._pixelToPrice(y);
+        const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
 
         if (time === null || price === null) return;
 
@@ -372,7 +415,8 @@ export class DrawingManager {
             this._activeDrawing.type === 'shortPosition' ||
             this._activeDrawing.type === 'priceRange' ||
             this._activeDrawing.type === 'dateRange' ||
-            this._activeDrawing.type === 'datePriceRange') {
+            this._activeDrawing.type === 'datePriceRange' ||
+            this._activeDrawing.type === 'callout') {
 
             const drawing = this._activeDrawing as any;
             if (drawing.points.length < 2) {
@@ -385,6 +429,21 @@ export class DrawingManager {
                 }
                 drawing.state = 'complete';
             }
+        }
+
+        // Handle single-point drawings
+        if (this._activeDrawing.type === 'text' ||
+            this._activeDrawing.type === 'sticker' ||
+            this._activeDrawing.type === 'arrowMarkedUp' ||
+            this._activeDrawing.type === 'arrowMarkedDown' ||
+            this._activeDrawing.type === 'priceLabel' ||
+            this._activeDrawing.type === 'flagMarked') {
+
+            const drawing = this._activeDrawing as any;
+            if (drawing.points.length === 0) {
+                drawing.addPoint(time, price);
+            }
+            drawing.state = 'complete';
         }
 
         // Handle curve drawing (2 clicks -> 3 points with auto middle control point)
@@ -557,14 +616,16 @@ export class DrawingManager {
 
             // Update pixel points for accurate hit testing of position and range drawings
             if (drawing.type === 'longPosition' || drawing.type === 'shortPosition' || drawing.type === 'priceRange' || drawing.type === 'dateRange' || drawing.type === 'datePriceRange') {
-                const p1 = drawing.points[0];
-                const p2 = drawing.points[1];
-                const x1 = this.timeToPixel(p1.time);
-                const y1 = this.priceToPixel(p1.price);
-                const x2 = this.timeToPixel(p2.time);
-                const y2 = this.priceToPixel(p2.price);
-                if (x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
-                    (drawing as any).setPixelPoints([{ x: x1, y: y1 }, { x: x2, y: y2 }]);
+                if (drawing.points.length >= 2) {
+                    const p1 = drawing.points[0];
+                    const p2 = drawing.points[1];
+                    const x1 = this.timeToPixel(p1.time);
+                    const y1 = this.priceToPixel(p1.price);
+                    const x2 = this.timeToPixel(p2.time);
+                    const y2 = this.priceToPixel(p2.price);
+                    if (x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
+                        (drawing as any).setPixelPoints([{ x: x1, y: y1 }, { x: x2, y: y2 }]);
+                    }
                 }
             }
 
@@ -1102,6 +1163,18 @@ export class DrawingManager {
                 case 'datePriceRange':
                     drawing = DatePriceRangeDrawing.fromJSON(item);
                     break;
+                case 'text':
+                    drawing = TextDrawing.fromJSON(item);
+                    break;
+                case 'callout':
+                    drawing = CalloutDrawing.fromJSON(item);
+                    break;
+                case 'priceLabel':
+                    drawing = PriceLabelDrawing.fromJSON(item);
+                    break;
+                case 'flagMarked':
+                    drawing = FlagMarkedDrawing.fromJSON(item);
+                    break;
                 // Add more types as needed...
                 default:
                     console.warn(`Unknown drawing type: ${item.type}`);
@@ -1119,6 +1192,81 @@ export class DrawingManager {
     /** Check if there are any drawings */
     hasDrawings(): boolean {
         return this._drawings.size > 0;
+    }
+
+    /**
+     * Apply magnet snap to coordinate - snaps to nearest OHLC value within threshold
+     * Returns adjusted y coordinate (pixel), or original y if no snap
+     */
+    applyMagnet(x: number, y: number, barData: { time: number; open: number; high: number; low: number; close: number }[]): { x: number; y: number; snapped: boolean; snappedPrice?: number; snappedX?: number } {
+        if (this._magnetMode === 'none' || !this._timeScale || !this._priceScale) {
+            return { x, y, snapped: false };
+        }
+
+        if (barData.length === 0) {
+            return { x, y, snapped: false };
+        }
+
+        // Find the bar at this x position
+        const time = this._pixelToTime(x);
+        if (time === null) {
+            return { x, y, snapped: false };
+        }
+
+        // Find closest bar by time
+        let closestBar = null;
+        let minTimeDiff = Infinity;
+        for (const bar of barData) {
+            const diff = Math.abs(bar.time - time);
+            if (diff < minTimeDiff) {
+                minTimeDiff = diff;
+                closestBar = bar;
+            }
+        }
+
+        if (!closestBar) {
+            return { x, y, snapped: false };
+        }
+
+        // Get bar center X
+        const snappedX = this.timeToPixel(closestBar.time) ?? x;
+
+        // Get OHLC values as pixel y coordinates
+        const ohlcPrices = [closestBar.open, closestBar.high, closestBar.low, closestBar.close];
+        const ohlcPixels: { price: number; pixelY: number }[] = [];
+
+        for (const price of ohlcPrices) {
+            const pixelY = this.priceToPixel(price);
+            if (pixelY !== null) {
+                ohlcPixels.push({ price, pixelY });
+            }
+        }
+
+        // Find the closest OHLC value
+        let closestOhlc = null;
+        let minDist = Infinity;
+
+        for (const ohlc of ohlcPixels) {
+            const dist = Math.abs(y - ohlc.pixelY);
+            if (dist < minDist) {
+                minDist = dist;
+                closestOhlc = ohlc;
+            }
+        }
+
+        if (!closestOhlc) {
+            return { x: snappedX, y, snapped: false };
+        }
+
+        // Weak magnet: only snap if within threshold
+        // Strong magnet: always snap
+        const threshold = this._magnetMode === 'weak' ? this._magnetThreshold : Infinity;
+
+        if (minDist <= threshold) {
+            return { x: snappedX, y: closestOhlc.pixelY, snapped: true, snappedPrice: closestOhlc.price, snappedX };
+        }
+
+        return { x: snappedX, y, snapped: false, snappedX };
     }
 
     // --- Cleanup ---
