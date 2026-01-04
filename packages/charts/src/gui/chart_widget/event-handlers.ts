@@ -197,21 +197,38 @@ export function handleMouseMove(
 
     // Handle drawing dragging
     if (ctx.isDraggingDrawing && paneRect) {
-        const x = e.clientX - paneRect.left;
-        const y = e.clientY - paneRect.top;
+        let dx = e.clientX - paneRect.left;
+        let dy = e.clientY - paneRect.top;
+        let snappedPrice: number | undefined;
+
+        // Apply magnet if enabled and moving a control point (not the whole drawing)
+        if (ctx.getBarData && ctx.draggingControlPoint !== 99) {
+            const barData = ctx.getBarData();
+            const magnetResult = ctx.drawingManager.applyMagnet(dx, dy, barData);
+
+            // Always snap X to bar center when moving control points
+            if (magnetResult.snappedX !== undefined) {
+                dx = magnetResult.snappedX;
+            }
+
+            if (ctx.drawingManager.magnetMode !== 'none' && magnetResult.snapped) {
+                dy = magnetResult.y;
+                snappedPrice = magnetResult.snappedPrice;
+            }
+        }
 
         const selected = ctx.drawingManager.selectedDrawing;
         if (selected) {
             if (ctx.draggingControlPoint === 99) {
-                ctx.drawingManager.moveDrawing(x - ctx.dragStartX, y - ctx.dragStartY);
-                result.dragStartX = x;
-                result.dragStartY = y;
+                ctx.drawingManager.moveDrawing(dx - ctx.dragStartX, dy - ctx.dragStartY);
+                result.dragStartX = dx;
+                result.dragStartY = dy;
             } else if (ctx.draggingControlPoint >= 0) {
-                ctx.drawingManager.moveControlPoint(ctx.draggingControlPoint, x, y);
+                ctx.drawingManager.moveControlPoint(ctx.draggingControlPoint, dx, dy, snappedPrice);
             }
         }
 
-        ctx.model.setCrosshairPosition(x, y, true);
+        ctx.model.setCrosshairPosition(dx, dy, true);
         return result;
     }
 

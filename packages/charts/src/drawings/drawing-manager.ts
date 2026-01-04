@@ -776,13 +776,13 @@ export class DrawingManager {
     }
 
     /** Move a specific control point of the selected drawing to new pixel position */
-    moveControlPoint(pointIndex: number, x: number, y: number): void {
+    moveControlPoint(pointIndex: number, x: number, y: number, snappedPrice?: number): void {
         if (!this._selectedDrawing) return;
 
         if (this._selectedDrawing.type === 'longPosition') {
             const posDrawing = this._selectedDrawing as LongPositionDrawing;
             const time = this._pixelToTime(x);
-            const price = this._pixelToPrice(y);
+            const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
             if (time === null || price === null) return;
 
             const entryPrice = posDrawing.getEntryPrice();
@@ -814,7 +814,7 @@ export class DrawingManager {
         if (this._selectedDrawing.type === 'shortPosition') {
             const posDrawing = this._selectedDrawing as ShortPositionDrawing;
             const time = this._pixelToTime(x);
-            const price = this._pixelToPrice(y);
+            const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
             if (time === null || price === null) return;
 
             const entryPrice = posDrawing.getEntryPrice();
@@ -847,7 +847,7 @@ export class DrawingManager {
 
         // Convert pixel to logical coordinates
         const time = this._pixelToTime(x);
-        const price = this._pixelToPrice(y);
+        const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
         if (time === null || price === null) return;
 
         // Update the specific point
