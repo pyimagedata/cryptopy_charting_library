@@ -1,7 +1,7 @@
 /**
- * Long Position Drawing Implementation
+ * Short Position Drawing Implementation
  * 
- * A 2-point drawing tool for visualizing long trade setups.
+ * A 2-point drawing tool for visualizing short trade setups.
  * Shows entry level, profit zone (green), and loss zone (red).
  * 
  * Points:
@@ -31,7 +31,7 @@ import {
     colorRow,
 } from './drawing-settings-config';
 
-export interface LongPositionOptions {
+export interface ShortPositionOptions {
     profitColor?: string;
     lossColor?: string;
     entryColor?: string;
@@ -40,9 +40,9 @@ export interface LongPositionOptions {
     stopPercent?: number;    // Default: 1.5%
 }
 
-export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
+export class ShortPositionDrawing implements Drawing, DrawingSettingsProvider {
     readonly id: string;
-    readonly type: DrawingType = 'longPosition';
+    readonly type: DrawingType = 'shortPosition';
 
     points: DrawingPoint[] = [];
     style: DrawingStyle;
@@ -50,10 +50,10 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
     visible: boolean = true;
     locked: boolean = false;
 
-    // Position specific properties
-    private _profitColor: string = 'rgba(38, 166, 154, 0.4)';  // Green
-    private _lossColor: string = 'rgba(239, 83, 80, 0.4)';     // Red
-    private _entryColor: string = '#26a69a';                    // Teal
+    // Position specific properties (Inverted from long for visualization, but same colors)
+    private _profitColor: string = 'rgba(38, 166, 154, 0.4)';  // Green (Below entry for short)
+    private _lossColor: string = 'rgba(239, 83, 80, 0.4)';     // Red (Above entry for short)
+    private _entryColor: string = '#ef5350';                    // Red/Pink for short entry line? Let's use #ef5350
     private _quantity: number = 1;
     private _profitPercent: number = 3;   // 3% profit target
     private _stopPercent: number = 1.5;   // 1.5% stop loss
@@ -63,11 +63,11 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
     private _cachedTargetY: number = 0;
     private _cachedStopY: number = 0;
 
-    constructor(options: LongPositionOptions = {}) {
+    constructor(options: ShortPositionOptions = {}) {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
-            color: options.entryColor || '#26a69a',
+            color: options.entryColor || '#ef5350',
             lineWidth: 2,
         };
 
@@ -187,7 +187,7 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     // =========================================================================
-    // Drawing Interface Implementation (2-point like Rectangle)
+    // Drawing Interface Implementation
     // =========================================================================
 
     addPoint(time: number, price: number): void {
@@ -236,7 +236,6 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
         const p2 = this._pixelPoints[1];
         const centerX = (p1.x + p2.x) / 2;
 
-        // Return 4 points for control: Left, Right, Target, Stop
         return [
             p1,  // Index 0: Left
             p2,  // Index 1: Right
@@ -246,7 +245,7 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     // =========================================================================
-    // Price Calculations
+    // Price Calculations (Short Position Inverted)
     // =========================================================================
 
     getEntryPrice(): number {
@@ -255,24 +254,26 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
 
     getTargetPrice(): number {
         const entry = this.getEntryPrice();
-        return entry * (1 + this._profitPercent / 100);
+        // For short, profit is price going down
+        return entry * (1 - this._profitPercent / 100);
     }
 
     getStopPrice(): number {
         const entry = this.getEntryPrice();
-        return entry * (1 - this._stopPercent / 100);
+        // For short, loss is price going up
+        return entry * (1 + this._stopPercent / 100);
     }
 
     getProfitAmount(): number {
         const entry = this.getEntryPrice();
         const target = this.getTargetPrice();
-        return (target - entry) * this._quantity;
+        return (entry - target) * this._quantity;
     }
 
     getLossAmount(): number {
         const entry = this.getEntryPrice();
         const stop = this.getStopPrice();
-        return (entry - stop) * this._quantity;
+        return (stop - entry) * this._quantity;
     }
 
     getRiskRewardRatio(): number {
@@ -299,9 +300,10 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
         if (x < left - threshold || x > right + threshold) return false;
 
         // Check vertical bounds using cached target and stop levels
-        // Target is above (lower Y), Stop is below (higher Y) for long
-        const minY = this._cachedTargetY !== 0 ? Math.min(entryY, this._cachedTargetY) : entryY - 150;
-        const maxY = this._cachedStopY !== 0 ? Math.max(entryY, this._cachedStopY) : entryY + 150;
+        // Target is below (higher Y), Stop is above (lower Y) for short
+        // Use a small buffer if cached values aren't set yet
+        const minY = this._cachedStopY !== 0 ? Math.min(entryY, this._cachedStopY) : entryY - 150;
+        const maxY = this._cachedTargetY !== 0 ? Math.max(entryY, this._cachedTargetY) : entryY + 150;
 
         if (y < minY - threshold || y > maxY + threshold) {
             return false;
@@ -320,7 +322,6 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
         const right = Math.max(p1.x, p2.x);
         const width = right - left;
 
-        // Rough estimate
         return {
             x: left,
             y: p1.y - 100,
@@ -345,8 +346,8 @@ export class LongPositionDrawing implements Drawing, DrawingSettingsProvider {
         };
     }
 
-    static fromJSON(data: SerializedDrawing): LongPositionDrawing {
-        const drawing = new LongPositionDrawing({
+    static fromJSON(data: SerializedDrawing): ShortPositionDrawing {
+        const drawing = new ShortPositionDrawing({
             entryColor: data.style.color,
         });
 

@@ -42,3 +42,4 @@ export * from './head-shoulders-drawing';
 export * from './abcd-pattern-drawing';
 export * from './triangle-pattern-drawing';
 export * from './long-position-drawing';
+export * from './short-position-drawing';

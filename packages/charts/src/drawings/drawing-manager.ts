@@ -40,6 +40,7 @@ import { HeadShouldersDrawing } from './head-shoulders-drawing';
 import { ABCDPatternDrawing } from './abcd-pattern-drawing';
 import { TrianglePatternDrawing } from './triangle-pattern-drawing';
 import { LongPositionDrawing } from './long-position-drawing';
+import { ShortPositionDrawing } from './short-position-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
@@ -275,6 +276,25 @@ export class DrawingManager {
                 drawing = new LongPositionDrawing({ profitPercent, stopPercent });
                 break;
             }
+            case 'shortPosition': {
+                // Calculate dynamic profit/stop percentages based on visible price range
+                let profitPercent = 3;  // default
+                let stopPercent = 1.5;  // default
+
+                if (this._priceScale) {
+                    const visibleRange = this._priceScale.priceRange;
+                    if (visibleRange) {
+                        const rangeSize = Math.abs(visibleRange.max - visibleRange.min);
+                        const midPrice = (visibleRange.max + visibleRange.min) / 2;
+                        // Target: ~30% of visible range, Stop: ~15% of visible range
+                        profitPercent = (rangeSize * 0.30 / midPrice) * 100;
+                        stopPercent = (rangeSize * 0.15 / midPrice) * 100;
+                    }
+                }
+
+                drawing = new ShortPositionDrawing({ profitPercent, stopPercent });
+                break;
+            }
             // Add more types here...
             default:
                 console.warn(`Drawing type not implemented: ${this._mode}`);
@@ -507,6 +527,19 @@ export class DrawingManager {
                 continue;
             }
 
+            // Update pixel points for accurate hit testing of position drawings
+            if (drawing.type === 'longPosition' || drawing.type === 'shortPosition') {
+                const p1 = drawing.points[0];
+                const p2 = drawing.points[1];
+                const x1 = this.timeToPixel(p1.time);
+                const y1 = this.priceToPixel(p1.price);
+                const x2 = this.timeToPixel(p2.time);
+                const y2 = this.priceToPixel(p2.price);
+                if (x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
+                    (drawing as LongPositionDrawing | ShortPositionDrawing).setPixelPoints([{ x: x1, y: y1 }, { x: x2, y: y2 }]);
+                }
+            }
+
             if (drawing.hitTest(x, y, 8)) {
                 this._selectedDrawing = drawing;
                 drawing.state = 'selected';
@@ -657,7 +690,6 @@ export class DrawingManager {
     moveControlPoint(pointIndex: number, x: number, y: number): void {
         if (!this._selectedDrawing) return;
 
-        // Special handling for longPosition - it has 4 virtual control points
         if (this._selectedDrawing.type === 'longPosition') {
             const posDrawing = this._selectedDrawing as LongPositionDrawing;
             const time = this._pixelToTime(x);
@@ -682,6 +714,38 @@ export class DrawingManager {
                 // Stop point - update stop percentage
                 if (price < entryPrice) {
                     const newStopPercent = ((entryPrice - price) / entryPrice) * 100;
+                    posDrawing.stopPercent = newStopPercent;
+                }
+            }
+
+            this._drawingsChanged.fire();
+            return;
+        }
+
+        if (this._selectedDrawing.type === 'shortPosition') {
+            const posDrawing = this._selectedDrawing as ShortPositionDrawing;
+            const time = this._pixelToTime(x);
+            const price = this._pixelToPrice(y);
+            if (time === null || price === null) return;
+
+            const entryPrice = posDrawing.getEntryPrice();
+
+            if (pointIndex === 0) {
+                // Left point - move entry time (left edge)
+                posDrawing.points[0] = { time, price: entryPrice };
+            } else if (pointIndex === 1) {
+                // Right point - move right edge time
+                posDrawing.points[1] = { time, price: entryPrice };
+            } else if (pointIndex === 2) {
+                // Target point - update profit percentage (down for short)
+                if (price < entryPrice) {
+                    const newProfitPercent = ((entryPrice - price) / entryPrice) * 100;
+                    posDrawing.profitPercent = newProfitPercent;
+                }
+            } else if (pointIndex === 3) {
+                // Stop point - update stop percentage (up for short)
+                if (price > entryPrice) {
+                    const newStopPercent = ((price - entryPrice) / entryPrice) * 100;
                     posDrawing.stopPercent = newStopPercent;
                 }
             }

@@ -1,9 +1,10 @@
 /**
  * Position Renderer
- * Renders Long Position drawings with profit/loss zones
+ * Renders Long and Short Position drawings with profit/loss zones
  */
 
 import { LongPositionDrawing } from '../../../drawings/long-position-drawing';
+import { ShortPositionDrawing } from '../../../drawings/short-position-drawing';
 
 /**
  * Draw a Long Position projection
@@ -15,6 +16,35 @@ export function drawLongPosition(
     dpr: number,
     showControlPoints: boolean,
     priceToPixel: (price: number) => number | null
+): void {
+    renderPosition(ctx, drawing, pixelPoints, dpr, showControlPoints, priceToPixel, true);
+}
+
+/**
+ * Draw a Short Position projection
+ */
+export function drawShortPosition(
+    ctx: CanvasRenderingContext2D,
+    drawing: ShortPositionDrawing,
+    pixelPoints: { x: number; y: number }[],
+    dpr: number,
+    showControlPoints: boolean,
+    priceToPixel: (price: number) => number | null
+): void {
+    renderPosition(ctx, drawing, pixelPoints, dpr, showControlPoints, priceToPixel, false);
+}
+
+/**
+ * Common rendering logic for Long and Short positions
+ */
+function renderPosition(
+    ctx: CanvasRenderingContext2D,
+    drawing: LongPositionDrawing | ShortPositionDrawing,
+    pixelPoints: { x: number; y: number }[],
+    dpr: number,
+    showControlPoints: boolean,
+    priceToPixel: (price: number) => number | null,
+    isLong: boolean
 ): void {
     if (pixelPoints.length < 2) return;
 
@@ -30,7 +60,7 @@ export function drawLongPosition(
     const targetPrice = drawing.getTargetPrice();
     const stopPrice = drawing.getStopPrice();
 
-    // Convert prices to pixels (multiply by DPR to match canvas coordinates)
+    // Convert prices to pixels
     const entryYRaw = priceToPixel(entryPrice);
     const targetYRaw = priceToPixel(targetPrice);
     const stopYRaw = priceToPixel(stopPrice);
@@ -41,7 +71,7 @@ export function drawLongPosition(
     const targetY = targetYRaw * dpr;
     const stopY = stopYRaw * dpr;
 
-    // Cache the zone Y positions for hit testing (use non-DPR values)
+    // Cache the zone Y positions for hit testing
     drawing.setCachedZoneY(targetYRaw, stopYRaw);
 
     ctx.save();
@@ -52,7 +82,7 @@ export function drawLongPosition(
     const profitHeight = Math.abs(entryY - targetY);
     const lossHeight = Math.abs(stopY - entryY);
 
-    // Draw Profit Zone (green, above entry for long)
+    // Draw Profit Zone (green)
     if (profitHeight > 0) {
         ctx.fillStyle = drawing.profitColor;
         ctx.fillRect(left, Math.min(entryY, targetY), width, profitHeight);
@@ -63,7 +93,7 @@ export function drawLongPosition(
         ctx.strokeRect(left, Math.min(entryY, targetY), width, profitHeight);
     }
 
-    // Draw Loss Zone (red, below entry for long)
+    // Draw Loss Zone (red)
     if (lossHeight > 0) {
         ctx.fillStyle = drawing.lossColor;
         ctx.fillRect(left, Math.min(entryY, stopY), width, lossHeight);
@@ -91,13 +121,15 @@ export function drawLongPosition(
         const boxPadding = 6 * dpr;
         const boxHeight = 20 * dpr;
 
-        // Target Label (top)
+        // Target Label (top or bottom depending on position type)
         const profitPercent = drawing.profitPercent;
         const profitAmount = drawing.getProfitAmount();
         const targetText = `Target: ${targetPrice.toFixed(2)} (+${profitPercent.toFixed(1)}%) $${profitAmount.toFixed(2)}`;
 
         const targetTextWidth = ctx.measureText(targetText).width + boxPadding * 2;
-        const targetLabelY = targetY - boxHeight / 2 - 5 * dpr;
+
+        // Offset label from boundary
+        const targetLabelY = isLong ? targetY - boxHeight / 2 - 5 * dpr : targetY + boxHeight / 2 + 5 * dpr;
 
         ctx.fillStyle = '#26a69a';
         ctx.beginPath();
@@ -107,13 +139,13 @@ export function drawLongPosition(
         ctx.fillStyle = '#ffffff';
         ctx.fillText(targetText, centerX, targetLabelY);
 
-        // Stop Label (bottom)
+        // Stop Label
         const lossPercent = drawing.stopPercent;
         const lossAmount = drawing.getLossAmount();
         const stopText = `Stop: ${stopPrice.toFixed(2)} (-${lossPercent.toFixed(1)}%) $${lossAmount.toFixed(2)}`;
 
         const stopTextWidth = ctx.measureText(stopText).width + boxPadding * 2;
-        const stopLabelY = stopY + boxHeight / 2 + 5 * dpr;
+        const stopLabelY = isLong ? stopY + boxHeight / 2 + 5 * dpr : stopY - boxHeight / 2 - 5 * dpr;
 
         ctx.fillStyle = '#ef5350';
         ctx.beginPath();
@@ -135,7 +167,7 @@ export function drawLongPosition(
         ) + boxPadding * 2;
         const entryBoxHeight = 36 * dpr;
 
-        ctx.fillStyle = 'rgba(38, 166, 154, 0.9)';
+        ctx.fillStyle = isLong ? 'rgba(38, 166, 154, 0.9)' : 'rgba(239, 83, 80, 0.9)';
         ctx.beginPath();
         ctx.roundRect(centerX - entryTextWidth / 2, entryY - entryBoxHeight / 2, entryTextWidth, entryBoxHeight, 4 * dpr);
         ctx.fill();
@@ -167,7 +199,7 @@ export function drawLongPosition(
         ctx.fill();
         ctx.stroke();
 
-        // Target control point (index 2) - top center
+        // Target control point (index 2)
         ctx.fillStyle = '#26a69a';
         ctx.beginPath();
         ctx.rect(centerX - cpRadius, targetY - cpRadius, cpRadius * 2, cpRadius * 2);
@@ -175,7 +207,7 @@ export function drawLongPosition(
         ctx.strokeStyle = '#ffffff';
         ctx.stroke();
 
-        // Stop control point (index 3) - bottom center
+        // Stop control point (index 3)
         ctx.fillStyle = '#ef5350';
         ctx.beginPath();
         ctx.rect(centerX - cpRadius, stopY - cpRadius, cpRadius * 2, cpRadius * 2);
