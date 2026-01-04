@@ -1087,6 +1087,21 @@ export class DrawingManager {
                 case 'trianglePattern':
                     drawing = TrianglePatternDrawing.fromJSON(item);
                     break;
+                case 'longPosition':
+                    drawing = LongPositionDrawing.fromJSON(item);
+                    break;
+                case 'shortPosition':
+                    drawing = ShortPositionDrawing.fromJSON(item);
+                    break;
+                case 'priceRange':
+                    drawing = PriceRangeDrawing.fromJSON(item);
+                    break;
+                case 'dateRange':
+                    drawing = DateRangeDrawing.fromJSON(item);
+                    break;
+                case 'datePriceRange':
+                    drawing = DatePriceRangeDrawing.fromJSON(item);
+                    break;
                 // Add more types as needed...
                 default:
                     console.warn(`Unknown drawing type: ${item.type}`);

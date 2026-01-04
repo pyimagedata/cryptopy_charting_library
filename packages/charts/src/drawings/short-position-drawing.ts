@@ -343,12 +343,20 @@ export class ShortPositionDrawing implements Drawing, DrawingSettingsProvider {
             state: this.state === 'selected' ? 'complete' : this.state,
             visible: this.visible,
             locked: this.locked,
+            profitPercent: this._profitPercent,
+            stopPercent: this._stopPercent,
+            quantity: this._quantity,
+            profitColor: this._profitColor,
+            lossColor: this._lossColor,
+            entryColor: this._entryColor,
         };
     }
 
     static fromJSON(data: SerializedDrawing): ShortPositionDrawing {
         const drawing = new ShortPositionDrawing({
             entryColor: data.style.color,
+            profitColor: data.profitColor,
+            lossColor: data.lossColor,
         });
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
@@ -356,6 +364,11 @@ export class ShortPositionDrawing implements Drawing, DrawingSettingsProvider {
         drawing.state = data.state as DrawingState;
         drawing.visible = data.visible;
         drawing.locked = data.locked;
+
+        if (data.profitPercent !== undefined) drawing.profitPercent = data.profitPercent;
+        if (data.stopPercent !== undefined) drawing.stopPercent = data.stopPercent;
+        if (data.quantity !== undefined) drawing.quantity = data.quantity;
+        if (data.entryColor !== undefined) drawing.entryColor = data.entryColor;
 
         return drawing;
     }

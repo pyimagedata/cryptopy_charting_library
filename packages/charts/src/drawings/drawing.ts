@@ -110,6 +110,14 @@ export interface SerializedDrawing {
     fontStyle?: 'normal' | 'italic';
     textHAlign?: 'left' | 'center' | 'right';
     textVAlign?: 'top' | 'middle' | 'bottom';
+    // Position and Range properties
+    profitPercent?: number;
+    stopPercent?: number;
+    quantity?: number;
+    profitColor?: string;
+    lossColor?: string;
+    entryColor?: string;
+    fillColor?: string;
 }
 
 /** Base drawing interface */
