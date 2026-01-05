@@ -858,6 +858,54 @@ export class DrawingManager {
             return;
         }
 
+        // Special handling for parallel channel to preserve width when moving endpoints
+        if (this._selectedDrawing.type === 'parallelChannel') {
+            const channel = this._selectedDrawing as ParallelChannelDrawing;
+
+            if (pointIndex < 0 || pointIndex >= channel.points.length) return;
+
+            const time = this._pixelToTime(x);
+            const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
+            if (time === null || price === null) return;
+
+            if ((pointIndex === 0 || pointIndex === 1) && channel.points.length >= 3) {
+                // Moving an endpoint - preserve the channel width
+                const currentOffset = channel.getChannelOffset();
+
+                // Update the endpoint
+                channel.points[pointIndex] = { time, price };
+
+                // Recalculate point 2 to maintain the same offset
+                const p0 = channel.points[0];
+                const p1 = channel.points[1];
+
+                // Use midpoint of base line as reference for point 2
+                const midTime = (p0.time + p1.time) / 2;
+                const timeDiff = p1.time - p0.time;
+
+                let midPrice: number;
+                if (Math.abs(timeDiff) < 0.0001) {
+                    // Vertical line - use average price
+                    midPrice = (p0.price + p1.price) / 2;
+                } else {
+                    const baseSlope = (p1.price - p0.price) / timeDiff;
+                    midPrice = p0.price + baseSlope * (midTime - p0.time);
+                }
+
+                // Adjust point 2 to maintain the same offset
+                channel.points[2] = {
+                    time: midTime,
+                    price: midPrice + currentOffset
+                };
+            } else {
+                // Point 2 - allow direct manipulation (this changes width)
+                channel.points[pointIndex] = { time, price };
+            }
+
+            this._drawingsChanged.fire();
+            return;
+        }
+
         if (pointIndex < 0 || pointIndex >= this._selectedDrawing.points.length) return;
 
         // Convert pixel to logical coordinates
@@ -867,6 +915,7 @@ export class DrawingManager {
 
         // Update the specific point
         this._selectedDrawing.points[pointIndex] = { time, price };
+
 
         // Check if polyline should close: last point moved near start point
         if (this._selectedDrawing.type === 'polyline') {
