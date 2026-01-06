@@ -41,19 +41,30 @@ export function handleWheel(e: WheelEvent, ctx: ChartWidgetContext): void {
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
 
+    // Determine if this is a horizontal scroll (trackpad swipe)
     const isHorizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
 
     if (isHorizontal && !e.ctrlKey) {
+        // Horizontal scroll - pan the chart
         ctx.model.timeScale.scrollBy(e.deltaX);
     } else {
-        const isPinch = e.ctrlKey;
-        const sensitivity = isPinch ? 0.05 : 0.2;
-        const sign = e.deltaY > 0 ? -1 : 1;
-        ctx.model.timeScale.zoom(x as any, sign * sensitivity);
+        // Vertical scroll or pinch - zoom the chart
+        // Match TradingView's zoom behavior:
+        // - Factor of 0.1 gives smooth, controlled zoom
+        // - Negative deltaY = scroll up = zoom in (positive scale)
+        // - Positive deltaY = scroll down = zoom out (negative scale)
+        const scrollSpeedAdjustment = e.ctrlKey ? 0.5 : 1.0;
+        const deltaY = -(scrollSpeedAdjustment * e.deltaY / 100);
+
+        if (deltaY !== 0) {
+            const zoomScale = Math.sign(deltaY) * Math.min(1, Math.abs(deltaY));
+            ctx.model.timeScale.zoom(x as any, zoomScale);
+        }
     }
 
     ctx.model.recalculateAllPanes();
 }
+
 
 /**
  * Hit test control point - returns index or -1

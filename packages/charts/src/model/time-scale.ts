@@ -184,18 +184,40 @@ export class TimeScale {
 
     // --- Zooming ---
 
+    /**
+     * Zoom in/out the scale around a zoomPoint
+     * @param zoomPoint - X coordinate of the point to apply the zoom
+     * @param scale - Zoom value. Negative = zoom out, positive = zoom in
+     */
     zoom(zoomPoint: Coordinate, scale: number): void {
-        const floatIndex = this.coordinateToIndex(zoomPoint);
+        // Get float index at zoom point (for precise positioning)
+        const floatIndexAtZoomPoint = this._coordinateToFloatIndex(zoomPoint);
 
         const oldBarSpacing = this._barSpacing;
         const newBarSpacing = oldBarSpacing + scale * (oldBarSpacing / 10);
         this.setBarSpacing(newBarSpacing);
 
-        // Correct right offset to keep zoom point stable
-        const newFloatIndex = this.coordinateToIndex(zoomPoint);
-        this._scrollOffset += floatIndex - newFloatIndex;
+        // Correct scroll offset to keep zoom point stable
+        const newFloatIndexAtZoomPoint = this._coordinateToFloatIndex(zoomPoint);
+        this._scrollOffset += newFloatIndexAtZoomPoint - floatIndexAtZoomPoint;
         this._correctOffset();
     }
+
+    /**
+     * Convert X coordinate to float bar index (for zoom calculations)
+     */
+    private _coordinateToFloatIndex(x: Coordinate): number {
+        if (this._baseIndex === null) {
+            return 0;
+        }
+
+        const deltaFromRight = (this._width - x - 1) / this._barSpacing - 0.5;
+        const index = this._baseIndex + this._rightOffset - this._scrollOffset - deltaFromRight;
+
+        // Round to avoid floating point errors (similar to reference)
+        return Math.round(index * 1000000) / 1000000;
+    }
+
 
     // --- Private ---
 
