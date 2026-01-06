@@ -191,22 +191,22 @@ export class TimeScale {
      */
     zoom(zoomPoint: Coordinate, scale: number): void {
         // Get float index at zoom point (for precise positioning)
-        const floatIndexAtZoomPoint = this._coordinateToFloatIndex(zoomPoint);
+        const floatIndexAtZoomPoint = this.coordinateToFloatIndex(zoomPoint);
 
         const oldBarSpacing = this._barSpacing;
         const newBarSpacing = oldBarSpacing + scale * (oldBarSpacing / 10);
         this.setBarSpacing(newBarSpacing);
 
         // Correct scroll offset to keep zoom point stable
-        const newFloatIndexAtZoomPoint = this._coordinateToFloatIndex(zoomPoint);
+        const newFloatIndexAtZoomPoint = this.coordinateToFloatIndex(zoomPoint);
         this._scrollOffset += newFloatIndexAtZoomPoint - floatIndexAtZoomPoint;
         this._correctOffset();
     }
 
     /**
-     * Convert X coordinate to float bar index (for zoom calculations)
+     * Convert X coordinate to float bar index (for smooth dragging and zoom)
      */
-    private _coordinateToFloatIndex(x: Coordinate): number {
+    coordinateToFloatIndex(x: Coordinate): number {
         if (this._baseIndex === null) {
             return 0;
         }
@@ -217,6 +217,7 @@ export class TimeScale {
         // Round to avoid floating point errors (similar to reference)
         return Math.round(index * 1000000) / 1000000;
     }
+
 
 
     // --- Private ---

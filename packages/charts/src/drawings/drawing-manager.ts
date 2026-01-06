@@ -752,36 +752,41 @@ export class DrawingManager {
         if (!this._selectedDrawing) return;
         if (!this._timeScale || !this._priceScale) return;
 
-        // Convert pixel deltas to logical deltas
-        // Get current first point's pixel position
-        const firstPoint = this._selectedDrawing.points[0];
-        if (!firstPoint) return;
+        // Convert pixel delta directly to logical delta
+        // For time: use bar spacing to convert pixels to time units
+        const barSpacing = this._timeScale.barSpacing;
+        if (barSpacing <= 0) return;
 
-        const currentX = this.timeToPixel(firstPoint.time);
-        const currentY = this.priceToPixel(firstPoint.price);
-        if (currentX === null || currentY === null) return;
+        // Calculate time delta: pixels / barSpacing = bars, then convert bars to time
+        // We need the average time interval between bars
+        if (this._timestamps.length >= 2) {
+            const lastIdx = this._timestamps.length - 1;
+            const avgInterval = (this._timestamps[lastIdx] - this._timestamps[0]) / lastIdx;
 
-        // Calculate new positions
-        const newX = currentX + deltaX;
-        const newY = currentY + deltaY;
+            // Bars moved = pixels / barSpacing
+            // Time moved = bars * interval
+            const barsDelta = deltaX / barSpacing;
+            const timeDelta = barsDelta * avgInterval;
 
-        // Convert back to logical coordinates
-        const newTime = this._pixelToTime(newX);
-        const newPrice = this._pixelToPrice(newY);
-        if (newTime === null || newPrice === null) return;
+            // For price: use price scale's pixel-to-price conversion
+            // Price delta = (pixelDelta / paneHeight) * priceRange
+            // We can approximate by converting two points and taking difference
+            const paneHeight = this._priceScale.height || 1;
+            const priceRange = this._priceScale.priceRange;
+            if (priceRange) {
+                const priceDelta = -(deltaY / paneHeight) * (priceRange.max - priceRange.min);
 
-        // Calculate the delta in logical coordinates
-        const timeDelta = newTime - firstPoint.time;
-        const priceDelta = newPrice - firstPoint.price;
+                // Apply delta to all points
+                for (const point of this._selectedDrawing.points) {
+                    point.time += timeDelta;
+                    point.price += priceDelta;
+                }
 
-        // Apply delta to all points
-        for (const point of this._selectedDrawing.points) {
-            point.time += timeDelta;
-            point.price += priceDelta;
+                this._drawingsChanged.fire();
+            }
         }
-
-        this._drawingsChanged.fire();
     }
+
 
     private _timestamps: number[] = [];
 
@@ -966,29 +971,46 @@ export class DrawingManager {
     private _pixelToTime(x: number): number | null {
         if (!this._timeScale || this._timestamps.length === 0) return null;
 
-        // Get bar index from X coordinate
-        const barIndex = this._timeScale.coordinateToIndex(coordinate(x));
-        if (barIndex === null) return null;
+        // Get float bar index from X coordinate (for smooth dragging)
+        const floatIndex = this._timeScale.coordinateToFloatIndex(coordinate(x));
 
-        // Convert index to timestamp
-        const index = Math.round(barIndex as number);
-        if (index >= 0 && index < this._timestamps.length) {
-            return this._timestamps[index];
+        // Check if within range (with some margin)
+        if (floatIndex >= 0 && floatIndex < this._timestamps.length - 1) {
+            // Interpolate between two timestamps for smooth positioning
+            const idx1 = Math.floor(floatIndex);
+            const idx2 = idx1 + 1;
+            const t1 = this._timestamps[idx1];
+            const t2 = this._timestamps[idx2];
+            const fraction = floatIndex - idx1;
+            return t1 + fraction * (t2 - t1);
+        } else if (floatIndex >= this._timestamps.length - 1 && floatIndex < this._timestamps.length) {
+            // At or near last bar - use last timestamp
+            return this._timestamps[this._timestamps.length - 1];
+        } else if (floatIndex >= 0 && floatIndex < 1) {
+            // Near first bar - interpolate from first bar
+            const t0 = this._timestamps[0];
+            if (this._timestamps.length >= 2) {
+                const t1 = this._timestamps[1];
+                const interval = t1 - t0;
+                return t0 + floatIndex * interval;
+            }
+            return t0;
         }
 
-        // Extrapolate if outside range (basic linear extrapolation assuming constant interval)
+        // Extrapolate if outside range
         if (this._timestamps.length >= 2) {
             const lastIndex = this._timestamps.length - 1;
             const interval = this._timestamps[lastIndex] - this._timestamps[lastIndex - 1];
-            if (index < 0) {
-                return this._timestamps[0] + (index * interval);
+            if (floatIndex < 0) {
+                return this._timestamps[0] + (floatIndex * interval);
             } else {
-                return this._timestamps[lastIndex] + ((index - lastIndex) * interval);
+                return this._timestamps[lastIndex] + ((floatIndex - lastIndex) * interval);
             }
         }
 
         return null;
     }
+
 
     /** Convert pixel Y to price */
     private _pixelToPrice(y: number): number | null {
