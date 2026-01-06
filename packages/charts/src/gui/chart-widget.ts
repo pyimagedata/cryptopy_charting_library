@@ -20,6 +20,7 @@ import { FloatingAttributeBar } from './attribute_bar';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartStateManager } from '../state';
 import { AddTextTooltipHelper } from './tooltips';
+import { TechnicalRatingBadge } from './technical-rating-badge';
 import {
     ChartWidgetContext,
     handleWheel as handleWheelEvent,
@@ -121,6 +122,10 @@ export class ChartWidget implements Disposable {
     // Mobile Zoom State
     private _lastTouchDistance: number = 0;
 
+    // Technical Rating Badge
+    private _technicalRatingBadge: TechnicalRatingBadge | null = null;
+
+
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
         // Resolve container
         if (typeof container === 'string') {
@@ -205,6 +210,9 @@ export class ChartWidget implements Disposable {
 
         // Initial size
         this._updateSize();
+
+        // Fetch initial technical rating
+        this._technicalRatingBadge?.updateRating(this._model.symbol, this._model.timeframe);
     }
 
     // --- Public API ---
@@ -317,6 +325,7 @@ export class ChartWidget implements Disposable {
             display: flex;
             flex: 1;
             overflow: hidden;
+            position: relative;
         `;
 
         // Indicator container (for panel indicators like RSI, MACD)
@@ -503,6 +512,9 @@ export class ChartWidget implements Disposable {
         document.head.appendChild(spinnerStyle);
 
         this._container.appendChild(this._element);
+
+        // Technical Rating Badge (top-right corner inside chart pane area)
+        this._technicalRatingBadge = new TechnicalRatingBadge(this._chartRow);
 
         // Create toolbar first (inserts at top)
         this._toolbarWidget = new ToolbarWidget(this._element, {
@@ -829,6 +841,9 @@ export class ChartWidget implements Disposable {
         console.log('📊 Timeframe changed to:', timeframe);
         this._model.setTimeframe(timeframe);
         this._timeframeChanged.fire(timeframe);
+
+        // Update technical rating badge
+        this._technicalRatingBadge?.updateRating(this._model.symbol, timeframe);
     }
 
     private _onSymbolChange(symbol: SymbolInfo): void {
@@ -840,6 +855,9 @@ export class ChartWidget implements Disposable {
         this._model.setSymbol(symbol.symbol);
         this._toolbarWidget?.setSymbol(symbol.symbol);
         this._symbolChanged.fire(symbol.symbol);
+
+        // Update technical rating badge
+        this._technicalRatingBadge?.updateRating(symbol.symbol, this._model.timeframe);
     }
 
     // --- Private: Event Listeners ---
