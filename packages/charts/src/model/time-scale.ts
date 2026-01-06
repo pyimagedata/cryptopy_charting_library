@@ -223,13 +223,33 @@ export class TimeScale {
     // --- Private ---
 
     private _correctOffset(): void {
-        if (this._pointsCount === 0) {
+        const pointsCount = this._pointsCount;
+        if (pointsCount === 0) {
             this._scrollOffset = 0;
             return;
         }
 
-        const maxOffset = this._pointsCount - 1;
-        const minOffset = this._options.fixLeftEdge ? 0 : -maxOffset;
+        const barsOnScreen = this._width / this._barSpacing;
+
+        // Default scroll limits: allow moving the data mostly off-screen 
+        // to expose future/past space.
+        let minOffset = -pointsCount - barsOnScreen;
+        let maxOffset = pointsCount + barsOnScreen;
+
+        // Apply specific edge constraints from options if enabled
+        if (this._options.fixRightEdge) {
+            minOffset = 0;
+        }
+        if (this._options.fixLeftEdge) {
+            maxOffset = pointsCount - 1;
+        }
+
+        // To support "infinite" scrolling into the future as requested,
+        // we relax the minOffset significantly if no fixed right edge is set.
+        // This allows dragging the last bar far to the left.
+        if (!this._options.fixRightEdge) {
+            minOffset = -1000000; // Large enough buffer to feel infinite
+        }
 
         this._scrollOffset = clamp(this._scrollOffset, minOffset, maxOffset);
     }
