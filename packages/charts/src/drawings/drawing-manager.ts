@@ -768,13 +768,14 @@ export class DrawingManager {
             const barsDelta = deltaX / barSpacing;
             const timeDelta = barsDelta * avgInterval;
 
-            // For price: use price scale's pixel-to-price conversion
-            // Price delta = (pixelDelta / paneHeight) * priceRange
-            // We can approximate by converting two points and taking difference
-            const paneHeight = this._priceScale.height || 1;
-            const priceRange = this._priceScale.priceRange;
-            if (priceRange) {
-                const priceDelta = -(deltaY / paneHeight) * (priceRange.max - priceRange.min);
+            // For price: convert two Y coordinates to get accurate price delta
+            // Use price scale's coordinate conversion for accuracy
+            const refY = 100; // Reference Y coordinate
+            const price1 = this._priceScale.coordinateToPrice(coordinate(refY));
+            const price2 = this._priceScale.coordinateToPrice(coordinate(refY + deltaY));
+
+            if (price1 !== null && price2 !== null) {
+                const priceDelta = price2 - price1;
 
                 // Apply delta to all points
                 for (const point of this._selectedDrawing.points) {
@@ -786,6 +787,7 @@ export class DrawingManager {
             }
         }
     }
+
 
 
     private _timestamps: number[] = [];
