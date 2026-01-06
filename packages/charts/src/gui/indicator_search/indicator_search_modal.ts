@@ -62,6 +62,38 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         category: 'momentum',
         type: 'panel'
     },
+    {
+        id: 'sar',
+        name: 'Parabolic SAR',
+        shortName: 'SAR',
+        description: 'Stop and Reverse indicator that identifies potential trend reversals',
+        category: 'trend',
+        type: 'overlay'
+    },
+    {
+        id: 'volume',
+        name: 'Volume',
+        shortName: 'Vol',
+        description: 'Measures the number of shares or contracts traded in a security or market during a given period',
+        category: 'volume',
+        type: 'panel'
+    },
+    {
+        id: 'hma',
+        name: 'Hull Moving Average',
+        shortName: 'HMA',
+        description: 'Modified moving average with reduced lag and increased smoothness',
+        category: 'trend',
+        type: 'overlay'
+    },
+    {
+        id: 'stochrsi',
+        name: 'Stochastic RSI',
+        shortName: 'StochRSI',
+        description: 'Combines Stochastic oscillator with RSI to identify overbought/oversold levels of the RSI',
+        category: 'momentum',
+        type: 'panel'
+    },
 ];
 
 export class IndicatorSearchModal {
@@ -227,6 +259,7 @@ export class IndicatorSearchModal {
             { id: 'trend', label: 'Trend' },
             { id: 'momentum', label: 'Momentum' },
             { id: 'volatility', label: 'Volatility' },
+            { id: 'volume', label: 'Volume' },
         ];
 
         categories.forEach(cat => {

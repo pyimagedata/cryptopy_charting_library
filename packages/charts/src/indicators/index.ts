@@ -31,4 +31,12 @@ export { SMAIndicator, SMAIndicatorOptions } from './sma-indicator';
 export { BBIndicator, BBIndicatorOptions } from './bb-indicator';
 export { MACDIndicator, MACDIndicatorOptions } from './macd-indicator';
 export { StochIndicator, StochIndicatorOptions } from './stoch-indicator';
+export { ParabolicSARIndicator, ParabolicSAROptions } from './parabolic-sar-indicator';
+export { VolumeIndicator, VolumeIndicatorOptions } from './volume-indicator';
+export { HMAIndicator, HMAIndicatorOptions } from './hma-indicator';
+export { StochRSIIndicator, StochRSIIndicatorOptions } from './stoch-rsi-indicator';
+
+
+
+
 

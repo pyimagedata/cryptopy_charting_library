@@ -203,8 +203,12 @@ export function handleMouseMove(
 
     const result: Partial<ChartWidgetContext> = {
         lastMouseX: e.clientX,
-        lastMouseY: e.clientY
     };
+
+    // Only update lastMouseY if not dragging price scale (need to keep relative to top)
+    if (!ctx.isPriceScaleDragging) {
+        result.lastMouseY = e.clientY;
+    }
 
     const paneRect = ctx.paneCanvas?.getBoundingClientRect();
 
@@ -271,7 +275,7 @@ export function handleMouseMove(
     }
 
     if (ctx.isDragging) {
-        ctx.model.timeScale.scrollBy(-deltaX);
+        ctx.model.timeScale.scrollBy(deltaX);
 
         if (!ctx.model.rightPriceScale.isAutoScale && ctx.paneCanvas) {
             const rect = ctx.paneCanvas.getBoundingClientRect();

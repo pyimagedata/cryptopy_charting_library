@@ -13,6 +13,14 @@ import { SMAIndicator } from './sma-indicator';
 import { BBIndicator } from './bb-indicator';
 import { MACDIndicator } from './macd-indicator';
 import { StochIndicator } from './stoch-indicator';
+import { ParabolicSARIndicator } from './parabolic-sar-indicator';
+import { VolumeIndicator } from './volume-indicator';
+import { HMAIndicator } from './hma-indicator';
+import { StochRSIIndicator } from './stoch-rsi-indicator';
+
+
+
+
 
 /**
  * Indicator manager events
@@ -213,6 +221,14 @@ export class IndicatorManager {
             else if (indicator instanceof BBIndicator) typeId = 'BollingerBands';
             else if (indicator instanceof MACDIndicator) typeId = 'MACD';
             else if (indicator instanceof StochIndicator) typeId = 'Stochastic';
+            else if (indicator instanceof ParabolicSARIndicator) typeId = 'SAR';
+            else if (indicator instanceof VolumeIndicator) typeId = 'Volume';
+            else if (indicator instanceof HMAIndicator) typeId = 'HMA';
+            else if (indicator instanceof StochRSIIndicator) typeId = 'StochasticRSI';
+
+
+
+
 
             serialized.push({
                 id: indicator.id,
@@ -268,6 +284,22 @@ export class IndicatorManager {
             case 'Stochastic':
                 indicator = new StochIndicator(item.options as any);
                 break;
+            case 'SAR':
+                indicator = new ParabolicSARIndicator(item.options as any);
+                break;
+            case 'Volume':
+                indicator = new VolumeIndicator(item.options as any);
+                break;
+            case 'HMA':
+                indicator = new HMAIndicator(item.options as any);
+                break;
+            case 'StochasticRSI':
+                indicator = new StochRSIIndicator(item.options as any);
+                break;
+
+
+
+
             default:
                 console.warn(`Unknown indicator typeId: ${typeId}`);
                 return;

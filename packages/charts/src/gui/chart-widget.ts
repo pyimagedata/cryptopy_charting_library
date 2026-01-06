@@ -11,7 +11,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -117,6 +117,9 @@ export class ChartWidget implements Disposable {
 
     // Indicator panes visibility (toggle with double-click on empty area)
     private _indicatorPanesHidden: boolean = false;
+
+    // Mobile Zoom State
+    private _lastTouchDistance: number = 0;
 
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
         // Resolve container
@@ -849,6 +852,12 @@ export class ChartWidget implements Disposable {
             paneCanvas.addEventListener('mousemove', this._onPaneMouseMove.bind(this));
             paneCanvas.addEventListener('mouseleave', this._onMouseLeave.bind(this));
             paneCanvas.addEventListener('dblclick', this._onPaneDoubleClick.bind(this));
+
+            // Touch events for mobile support
+            paneCanvas.addEventListener('touchstart', this._onTouchStart.bind(this), { passive: false });
+            paneCanvas.addEventListener('touchmove', this._onTouchMove.bind(this), { passive: false });
+            paneCanvas.addEventListener('touchend', this._onTouchEnd.bind(this));
+            paneCanvas.addEventListener('touchcancel', this._onTouchEnd.bind(this));
         }
 
         // Keyboard shortcuts for drawings (Delete/Backspace to delete selected)
@@ -858,6 +867,12 @@ export class ChartWidget implements Disposable {
         if (priceAxisElement) {
             priceAxisElement.addEventListener('mousedown', this._onPriceAxisMouseDown.bind(this));
             priceAxisElement.addEventListener('dblclick', this._onPriceAxisDoubleClick.bind(this));
+
+            // Touch events for price axis scaling
+            priceAxisElement.addEventListener('touchstart', this._onPriceAxisTouchStart.bind(this), { passive: false });
+            priceAxisElement.addEventListener('touchmove', this._onPriceAxisTouchMove.bind(this), { passive: false });
+            priceAxisElement.addEventListener('touchend', this._onTouchEnd.bind(this));
+            priceAxisElement.addEventListener('touchcancel', this._onTouchEnd.bind(this));
         }
 
         // Custom context menu
@@ -1122,6 +1137,144 @@ export class ChartWidget implements Disposable {
     /** Hide Add Text tooltip */
     private _hideAddTextTooltip(): void {
         this._addTextTooltipHelper?.hide();
+    }
+
+    // --- Touch Event Handlers ---
+
+    private _onTouchStart(e: TouchEvent): void {
+        e.preventDefault(); // Prevent scrolling
+
+        if (e.touches.length === 1) {
+            // Single touch - Pan
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+            this._onMouseDown(mouseEvent);
+        } else if (e.touches.length === 2) {
+            // Two touches - Start Zoom
+            const t1 = e.touches[0];
+            const t2 = e.touches[1];
+            const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+            this._lastTouchDistance = dist;
+
+            // Should we end dragging if it was active?
+            if (this._isDragging) {
+                this._isDragging = false;
+                this._onMouseUp(new MouseEvent('mouseup'));
+            }
+        }
+    }
+
+    private _onTouchMove(e: TouchEvent): void {
+        e.preventDefault();
+
+        if (e.touches.length === 1) {
+            // Single touch - Pan
+            const touch = e.touches[0];
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+
+            this._onPaneMouseMove(mouseEvent); // For crosshair and tooltips
+            this._onMouseMove(mouseEvent);     // For dragging logic
+        } else if (e.touches.length === 2) {
+            // Two touches - Zoom
+            const t1 = e.touches[0];
+            const t2 = e.touches[1];
+            const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+
+            if (this._lastTouchDistance > 0) {
+                const delta = dist - this._lastTouchDistance;
+
+                // Sensitivity factor
+                const scale = delta * 0.05;
+
+                // Calculate midpoint for zoom center
+                const rect = this._paneWidget?.canvas?.getBoundingClientRect();
+                if (rect) {
+                    const midX = ((t1.clientX + t2.clientX) / 2) - rect.left;
+                    this._model.timeScale.zoom(midX as any, scale);
+                    this._scheduleDraw();
+                }
+            }
+
+            this._lastTouchDistance = dist;
+        }
+    }
+
+    private _onTouchEnd(e: TouchEvent): void {
+        e.preventDefault();
+
+        if (e.touches.length === 0) {
+            // All fingers lifted
+            this._lastTouchDistance = 0;
+
+            const mouseEvent = new MouseEvent('mouseup', {
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+            this._onMouseUp(mouseEvent);
+        } else if (e.touches.length === 1) {
+            // Switched from 2 to 1 finger? Or 1 to 0 (handled above)?
+            // If we still have 1 finger, maybe resume panning? 
+            // For now, let's just reset zoom distance
+            this._lastTouchDistance = 0;
+
+            // Trigger a mousedown to "restart" panning if needed, 
+            // but complex transition might be jumpy.
+            // Simplest is to treat it as end of interaction until all lifted.
+        }
+    }
+
+    private _onPriceAxisTouchStart(e: TouchEvent): void {
+        if (e.touches.length !== 1) return;
+        e.preventDefault();
+
+        const touch = e.touches[0];
+        const mouseEvent = new MouseEvent('mousedown', {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        } as MouseEventInit);
+
+        // Explicitly set target to price axis element as we're passing it directly
+        // without dispatching, so 'target' would otherwise be null
+        Object.defineProperty(mouseEvent, 'target', {
+            value: this._priceAxisWidget?.element,
+            writable: false,
+            enumerable: true,
+            configurable: true
+        });
+
+        this._onPriceAxisMouseDown(mouseEvent);
+    }
+
+    private _onPriceAxisTouchMove(e: TouchEvent): void {
+        if (e.touches.length !== 1) return;
+        e.preventDefault();
+
+        const touch = e.touches[0];
+        const mouseEvent = new MouseEvent('mousemove', {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+
+        this._onMouseMove(mouseEvent);
     }
 
     private _onPaneDoubleClick(e: MouseEvent): void {
@@ -1472,6 +1625,22 @@ export class ChartWidget implements Disposable {
             case 'stoch':
                 this.addIndicator(new StochIndicator({ kPeriod: 14, sPeriod: 3, dPeriod: 3 }));
                 break;
+            case 'sar':
+                this.addOverlayIndicator(new ParabolicSARIndicator({ start: 0.02, increment: 0.02, maximum: 0.20 }));
+                break;
+            case 'volume':
+                this.addOverlayIndicator(new VolumeIndicator());
+                break;
+            case 'hma':
+                this.addOverlayIndicator(new HMAIndicator({ period: 9 }));
+                break;
+            case 'stochrsi':
+                this.addIndicator(new StochRSIIndicator({ rsiPeriod: 14, stochPeriod: 14, kPeriod: 3, dPeriod: 3 }));
+                break;
+
+
+
+
             default:
                 console.warn(`Unknown indicator: ${indicatorId}`);
         }

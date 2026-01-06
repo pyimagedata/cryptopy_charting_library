@@ -28,6 +28,15 @@ export enum IndicatorType {
 }
 
 /**
+ * Indicator plot style
+ */
+export enum IndicatorStyle {
+    Line = 'line',
+    Dots = 'dots',
+    Histogram = 'histogram',
+}
+
+/**
  * Base indicator options
  */
 export interface IndicatorOptions {
@@ -37,6 +46,7 @@ export interface IndicatorOptions {
     visible: boolean;
     color: string;
     lineWidth: number;
+    style: IndicatorStyle;  // Plot style (line, dots, etc.)
 }
 
 /**
@@ -49,6 +59,7 @@ export const defaultIndicatorOptions: IndicatorOptions = {
     visible: true,
     color: '#2962ff',
     lineWidth: 2,
+    style: IndicatorStyle.Line,
 };
 
 /**

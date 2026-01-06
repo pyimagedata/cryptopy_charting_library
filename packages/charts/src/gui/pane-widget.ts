@@ -246,13 +246,18 @@ export class PaneWidget implements Disposable {
         }
         this._gridRenderer.drawVerticalLines(scope, verticalXCoords as any);
 
-        // Render each series
+        // Render background overlay indicators (Histogram style like Volume)
+        // These stay BEHIND the candles
+        this._overlayRenderer.draw(scope, this._model.timeScale, this._model.rightPriceScale, 'histogram');
+
+        // Render each series (Candles, Lines, etc.)
         for (const series of this._model.serieses) {
             this._renderSeries(scope, series, visibleRange.from, visibleRange.to);
         }
 
-        // Render overlay indicators (EMA, SMA, Bollinger Bands, etc.)
-        this._overlayRenderer.draw(scope, this._model.timeScale, this._model.rightPriceScale);
+        // Render foreground overlay indicators (EMA, SMA, Bollinger Bands, SAR, etc.)
+        // These stay ON TOP of the candles
+        this._overlayRenderer.draw(scope, this._model.timeScale, this._model.rightPriceScale, 'non-histogram');
 
         // Draw crosshair
         const crosshair = this._model.crosshairPosition;

@@ -374,7 +374,13 @@ export class IndicatorPaneWidget implements Disposable {
             const x = this._timeScale.indexToCoordinate(i as any);
             const y = this._priceScale.priceToCoordinate(value);
 
-            ctx.fillStyle = value >= 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)';
+            // Use dynamic color if available, otherwise fallback to MACD-style logic
+            if (typeof (indicator as any).getHistogramColor === 'function') {
+                ctx.fillStyle = (indicator as any).getHistogramColor(i);
+            } else {
+                ctx.fillStyle = value >= 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)';
+            }
+
             ctx.fillRect(x - barWidth / 2, Math.min(y, zeroY), barWidth, Math.abs(y - zeroY));
         }
     }
