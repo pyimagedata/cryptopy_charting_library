@@ -144,7 +144,7 @@ export class TimeScale {
             return timePointIndex(0);
         }
 
-        const deltaFromRight = (this._width - x - 1) / this._barSpacing;
+        const deltaFromRight = (this._width - x - 1) / this._barSpacing - 0.5;
         const index = this._baseIndex + this._rightOffset - this._scrollOffset - deltaFromRight;
         return timePointIndex(Math.round(index));
     }
@@ -211,7 +211,7 @@ export class TimeScale {
             return 0;
         }
 
-        const deltaFromRight = (this._width - x - 1) / this._barSpacing;
+        const deltaFromRight = (this._width - x - 1) / this._barSpacing - 0.5;
         const index = this._baseIndex + this._rightOffset - this._scrollOffset - deltaFromRight;
 
         // Round to avoid floating point errors (similar to reference)
