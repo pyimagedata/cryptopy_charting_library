@@ -131,6 +131,8 @@ export class PaneWidget implements Disposable {
     private _lastOverlayIndicatorCount: number = -1;
     private _lastVisibilityState: string = '';
     private _lastIndicatorNames: string = '';
+    private _lastSymbol: string = '';
+    private _lastTimeframe: string = '';
 
     constructor(container: HTMLElement, model: ChartModel) {
         this._model = model;
@@ -877,18 +879,22 @@ export class PaneWidget implements Disposable {
             overlayIndicatorsHtml += '</div>';
         }
 
-        // Check if we need to rebuild overlay indicators HTML (when count, visibility, or names change)
+        // Check if we need to rebuild overlay indicators HTML (when count, visibility, names, symbol or timeframe change)
         const currentCount = overlayIndicators.length;
         const currentVisibilityState = overlayIndicators.map(i => i.visible ? '1' : '0').join('');
         const currentNames = overlayIndicators.map(i => i.name || i.options.name || '').join('|');
         const needsOverlayRebuild = currentCount !== this._lastOverlayIndicatorCount ||
             currentVisibilityState !== this._lastVisibilityState ||
-            currentNames !== this._lastIndicatorNames;
+            currentNames !== this._lastIndicatorNames ||
+            symbol !== this._lastSymbol ||
+            timeframe !== this._lastTimeframe;
 
         if (needsOverlayRebuild) {
             this._lastOverlayIndicatorCount = currentCount;
             this._lastVisibilityState = currentVisibilityState;
             this._lastIndicatorNames = currentNames;
+            this._lastSymbol = symbol;
+            this._lastTimeframe = timeframe;
 
             this._legendElement.innerHTML = `
                 <div style="display: flex; align-items: center; white-space: nowrap; pointer-events: none;">
