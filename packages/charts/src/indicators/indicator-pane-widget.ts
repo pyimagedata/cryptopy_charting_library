@@ -98,6 +98,11 @@ export class IndicatorPaneWidget implements Disposable {
     }
 
     get height(): number {
+        // Return 0 when hidden so layout calculations work correctly
+        return this._isHidden ? 0 : this._height;
+    }
+
+    get actualHeight(): number {
         return this._height;
     }
 
@@ -109,12 +114,37 @@ export class IndicatorPaneWidget implements Disposable {
         return this._indicators;
     }
 
+    get isHidden(): boolean {
+        return this._isHidden;
+    }
+
+    // --- Visibility ---
+
+    private _isHidden: boolean = false;
+
+    /** Hide the indicator pane */
+    hide(): void {
+        this._isHidden = true;
+        if (this._element) {
+            this._element.style.display = 'none';
+        }
+    }
+
+    /** Show the indicator pane */
+    show(): void {
+        this._isHidden = false;
+        if (this._element) {
+            this._element.style.display = 'flex';
+        }
+    }
+
     // --- Indicator management ---
 
 
     hasIndicator(indicator: PanelIndicator): boolean {
         return this._indicators.includes(indicator);
     }
+
 
     // --- Size management ---
 

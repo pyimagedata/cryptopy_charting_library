@@ -115,6 +115,9 @@ export class ChartWidget implements Disposable {
     private _addTextTooltipHelper: AddTextTooltipHelper | null = null;
     private _hoveredDrawingForText: string | null = null;
 
+    // Indicator panes visibility (toggle with double-click on empty area)
+    private _indicatorPanesHidden: boolean = false;
+
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
         // Resolve container
         if (typeof container === 'string') {
@@ -1149,8 +1152,32 @@ export class ChartWidget implements Disposable {
                 });
                 this._drawingSettingsModal.show(hitDrawing);
             }
+            return;
         }
+
+        // Double-clicked on empty area - toggle indicator panes visibility
+        this._toggleIndicatorPanesVisibility();
     }
+
+    /** Toggle visibility of all indicator panes (like TradingView) */
+    private _toggleIndicatorPanesVisibility(): void {
+        if (this._indicatorPanes.size === 0) return;
+
+        this._indicatorPanesHidden = !this._indicatorPanesHidden;
+
+        for (const pane of this._indicatorPanes.values()) {
+            if (this._indicatorPanesHidden) {
+                pane.hide();
+            } else {
+                pane.show();
+            }
+        }
+
+        // Recalculate layout
+        this._updateSize();
+        this._scheduleDraw();
+    }
+
 
     /** Check if coordinates hit an overlay indicator line */
     private _hitTestOverlayIndicator(x: number, y: number): any | null {
