@@ -21,6 +21,8 @@ import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartStateManager } from '../state';
 import { AddTextTooltipHelper } from './tooltips';
 import { TechnicalRatingBadge } from './technical-rating-badge';
+import { BinanceOrderbookService } from '../services/binance-orderbook-service';
+import { OrderbookHeatmapRenderer } from '../renderers/orderbook-heatmap-renderer';
 import {
     ChartWidgetContext,
     handleWheel as handleWheelEvent,
@@ -125,6 +127,11 @@ export class ChartWidget implements Disposable {
     // Technical Rating Badge
     private _technicalRatingBadge: TechnicalRatingBadge | null = null;
 
+    // Orderbook Heatmap
+    private _orderbookService: BinanceOrderbookService | null = null;
+    private _heatmapRenderer: OrderbookHeatmapRenderer | null = null;
+
+
 
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
         // Resolve container
@@ -213,6 +220,34 @@ export class ChartWidget implements Disposable {
 
         // Fetch initial technical rating
         this._technicalRatingBadge?.updateRating(this._model.symbol, this._model.timeframe);
+
+        // Initialize orderbook heatmap
+        this._orderbookService = new BinanceOrderbookService(5000); // Get maximum levels (5000)
+        this._heatmapRenderer = new OrderbookHeatmapRenderer();
+
+        // Throttle orderbook updates to prevent flickering (max 2 updates per second)
+        let lastOrderbookUpdate = 0;
+        this._orderbookService.onUpdate.subscribe((orderbook) => {
+            const now = Date.now();
+            if (now - lastOrderbookUpdate > 500) { // 500ms throttle
+                lastOrderbookUpdate = now;
+                this._heatmapRenderer?.updateOrderbook(orderbook);
+                this._scheduleDraw();
+
+                // Debug: log price range of orderbook
+                if (orderbook.bids.length > 0 && orderbook.asks.length > 0) {
+                    const lowestBid = orderbook.bids[orderbook.bids.length - 1].price;
+                    const highestAsk = orderbook.asks[orderbook.asks.length - 1].price;
+                    console.log(`📚 Orderbook range: ${lowestBid.toFixed(0)} - ${highestAsk.toFixed(0)} (${orderbook.bids.length} bids, ${orderbook.asks.length} asks)`);
+                }
+            } else {
+                // Still update data, but don't redraw yet
+                this._heatmapRenderer?.updateOrderbook(orderbook);
+            }
+        });
+
+        // Connect to orderbook for initial symbol
+        this._orderbookService.connect(this._model.symbol);
     }
 
     // --- Public API ---
@@ -546,6 +581,14 @@ export class ChartWidget implements Disposable {
             this._indicatorSearchModal?.show();
         });
 
+        // DOM toggle
+        this._toolbarWidget.domToggled.subscribe((enabled) => {
+            if (this._heatmapRenderer) {
+                this._heatmapRenderer.enabled = enabled;
+                this._scheduleDraw();
+            }
+        });
+
         // Create widgets
         this._paneWidget = new PaneWidget(this._chartRow, this._model);
 
@@ -858,6 +901,9 @@ export class ChartWidget implements Disposable {
 
         // Update technical rating badge
         this._technicalRatingBadge?.updateRating(symbol.symbol, this._model.timeframe);
+
+        // Reconnect orderbook for new symbol
+        this._orderbookService?.connect(symbol.symbol);
     }
 
     // --- Private: Event Listeners ---
@@ -1414,6 +1460,9 @@ export class ChartWidget implements Disposable {
 
         // Pass overlay indicators to pane widget for rendering
         this._paneWidget?.setOverlayIndicators(this._indicatorManager.overlayIndicators);
+
+        // Pass heatmap renderer to pane widget
+        this._paneWidget?.setHeatmapRenderer(this._heatmapRenderer);
 
         this._paneWidget?.render();
 

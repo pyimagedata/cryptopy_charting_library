@@ -12,6 +12,7 @@ import { TimePointIndex, coordinate } from '../model/coordinate';
 import { isBarData } from '../model/data';
 import { OverlayIndicatorRenderer } from '../indicators/overlay-indicator-renderer';
 import { OverlayIndicator } from '../indicators/indicator';
+import { OrderbookHeatmapRenderer } from '../renderers/orderbook-heatmap-renderer';
 import {
     drawPatternWave,
     drawRectangle,
@@ -123,6 +124,8 @@ export class PaneWidget implements Disposable {
     private readonly _watermarkRenderer: WatermarkRenderer;
     private readonly _seriesRenderers: Map<Series, CandlestickRenderer | LineRenderer | AreaRenderer> = new Map();
     private readonly _overlayRenderer: OverlayIndicatorRenderer;
+    private _heatmapRenderer: OrderbookHeatmapRenderer | null = null;
+
 
     // Callback for overlay indicator actions (toggle, settings, remove)
     public onOverlayIndicatorAction: ((action: string, index: number) => void) | null = null;
@@ -156,6 +159,14 @@ export class PaneWidget implements Disposable {
     setOverlayIndicators(indicators: readonly OverlayIndicator[]): void {
         this._overlayRenderer.setIndicators([...indicators]);
     }
+
+    /**
+     * Set heatmap renderer for orderbook visualization
+     */
+    setHeatmapRenderer(renderer: OrderbookHeatmapRenderer | null): void {
+        this._heatmapRenderer = renderer;
+    }
+
 
     /**
      * Show or hide loading overlay
@@ -258,6 +269,17 @@ export class PaneWidget implements Disposable {
         // Render foreground overlay indicators (EMA, SMA, Bollinger Bands, SAR, etc.)
         // These stay ON TOP of the candles
         this._overlayRenderer.draw(scope, this._model.timeScale, this._model.rightPriceScale, 'non-histogram');
+
+        // Render orderbook heatmap (liquidity visualization on right side)
+        if (this._heatmapRenderer) {
+            this._heatmapRenderer.drawOnChart(
+                scope.context,
+                this._model.rightPriceScale,
+                width,
+                height,
+                dpr
+            );
+        }
 
         // Draw crosshair
         const crosshair = this._model.crosshairPosition;

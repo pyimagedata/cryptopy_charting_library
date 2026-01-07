@@ -290,40 +290,38 @@ export function handleMouseMove(
         ctx.scheduleDraw();
     }
 
-    // Crosshair logic
-    if (!ctx.isDragging && !ctx.isPriceScaleDragging && ctx.element) {
-        if (paneRect) {
-            let x = e.clientX - paneRect.left;
-            let y = e.clientY - paneRect.top;
-            const chartAreaWidth = paneRect.width;
+    // Crosshair logic - update crosshair position during dragging too so it follows the cursor
+    if (ctx.element && paneRect) {
+        let x = e.clientX - paneRect.left;
+        let y = e.clientY - paneRect.top;
+        const chartAreaWidth = paneRect.width;
 
-            // Apply magnet to crosshair when drawing mode is active
-            if (ctx.drawingManager.mode !== 'none' && ctx.getBarData) {
-                const barData = ctx.getBarData();
-                const magnetResult = ctx.drawingManager.applyMagnet(x, y, barData);
+        // Apply magnet to crosshair when drawing mode is active (not during dragging)
+        if (!ctx.isDragging && !ctx.isPriceScaleDragging && ctx.drawingManager.mode !== 'none' && ctx.getBarData) {
+            const barData = ctx.getBarData();
+            const magnetResult = ctx.drawingManager.applyMagnet(x, y, barData);
 
-                // Always snap X to bar center when in drawing mode to avoid "sliding" mismatch
-                if (magnetResult.snappedX !== undefined) {
-                    x = magnetResult.snappedX;
-                }
-
-                if (ctx.drawingManager.magnetMode !== 'none') {
-                    if (magnetResult.snapped) {
-                        y = magnetResult.y;
-                    }
-                }
+            // Always snap X to bar center when in drawing mode to avoid "sliding" mismatch
+            if (magnetResult.snappedX !== undefined) {
+                x = magnetResult.snappedX;
             }
 
-            if (x >= 0 && x <= chartAreaWidth && y >= 0 && y <= paneRect.height) {
-                ctx.model.setCrosshairPosition(x, y, true);
-            } else if (x >= 0 && x <= chartAreaWidth) {
-                ctx.model.setCrosshairPosition(x, y, true);
-            } else {
-                ctx.model.setCrosshairPosition(0, 0, false);
+            if (ctx.drawingManager.magnetMode !== 'none') {
+                if (magnetResult.snapped) {
+                    y = magnetResult.y;
+                }
             }
+        }
+
+        if (x >= 0 && x <= chartAreaWidth && y >= 0 && y <= paneRect.height) {
+            ctx.model.setCrosshairPosition(x, y, true);
+        } else if (x >= 0 && x <= chartAreaWidth) {
+            ctx.model.setCrosshairPosition(x, y, true);
         } else {
             ctx.model.setCrosshairPosition(0, 0, false);
         }
+    } else if (ctx.element) {
+        ctx.model.setCrosshairPosition(0, 0, false);
     }
 
     return result;

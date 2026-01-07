@@ -24,6 +24,14 @@ const TOOLBAR_ICONS = {
     dropdown: `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
         <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`,
+    dom: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor">
+        <rect x="4" y="4" width="8" height="2" rx="0.5" opacity="0.3"/>
+        <rect x="4" y="8" width="12" height="2" rx="0.5" opacity="0.5"/>
+        <rect x="4" y="12" width="18" height="2" rx="0.5" opacity="0.8"/>
+        <rect x="4" y="16" width="14" height="2" rx="0.5" opacity="0.6"/>
+        <rect x="4" y="20" width="10" height="2" rx="0.5" opacity="0.4"/>
+        <rect x="4" y="24" width="6" height="2" rx="0.5" opacity="0.2"/>
+    </svg>`,
 };
 
 export type ChartType = 'candles' | 'line' | 'area' | 'heiken-ashi';
@@ -56,6 +64,8 @@ export class ToolbarWidget {
     private readonly _timeframeChanged = new Delegate<string>();
     private readonly _chartTypeChanged = new Delegate<ChartType>();
     private readonly _indicatorsClicked = new Delegate<void>();
+    private readonly _domToggled = new Delegate<boolean>();
+    private _domEnabled: boolean = true;
 
     constructor(container: HTMLElement, options: Partial<ToolbarOptions> = {}) {
         this._options = { ...defaultToolbarOptions, ...options };
@@ -88,6 +98,14 @@ export class ToolbarWidget {
 
     get indicatorsClicked(): Delegate<void> {
         return this._indicatorsClicked;
+    }
+
+    get domToggled(): Delegate<boolean> {
+        return this._domToggled;
+    }
+
+    get domEnabled(): boolean {
+        return this._domEnabled;
     }
 
     // --- Public methods ---
@@ -152,6 +170,9 @@ export class ToolbarWidget {
 
         // Indicators button
         this._createIndicatorsButton();
+
+        // DOM (Orderbook) toggle button
+        this._createDomButton();
 
         container.insertBefore(this._element, container.firstChild);
     }
@@ -324,6 +345,54 @@ export class ToolbarWidget {
         this._element!.appendChild(btn);
     }
 
+    private _createDomButton(): void {
+        const btn = document.createElement('button');
+        btn.className = 'toolbar-dom';
+        btn.title = 'Toggle Orderbook Depth (DOM)';
+        btn.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: ${this._domEnabled ? 'rgba(0, 212, 170, 0.15)' : 'transparent'};
+            border: none;
+            border-radius: 4px;
+            color: ${this._domEnabled ? '#00d4aa' : '#787b86'};
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        `;
+
+        const icon = document.createElement('span');
+        icon.innerHTML = TOOLBAR_ICONS.dom;
+        icon.style.display = 'flex';
+        btn.appendChild(icon);
+
+        const label = document.createElement('span');
+        label.textContent = 'DOM';
+        btn.appendChild(label);
+
+        btn.addEventListener('mouseenter', () => {
+            if (!this._domEnabled) {
+                btn.style.background = '#2a2e39';
+                btn.style.color = '#d1d4dc';
+            }
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.background = this._domEnabled ? 'rgba(0, 212, 170, 0.15)' : 'transparent';
+            btn.style.color = this._domEnabled ? '#00d4aa' : '#787b86';
+        });
+        btn.addEventListener('click', () => {
+            this._domEnabled = !this._domEnabled;
+            btn.style.background = this._domEnabled ? 'rgba(0, 212, 170, 0.15)' : 'transparent';
+            btn.style.color = this._domEnabled ? '#00d4aa' : '#787b86';
+            this._domToggled.fire(this._domEnabled);
+        });
+
+        this._element!.appendChild(btn);
+    }
+
+
     private _createButton(text: string, active: boolean = false): HTMLButtonElement {
         const btn = document.createElement('button');
         btn.textContent = text;
@@ -433,6 +502,7 @@ export class ToolbarWidget {
         this._timeframeChanged.destroy();
         this._chartTypeChanged.destroy();
         this._indicatorsClicked.destroy();
+        this._domToggled.destroy();
 
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);
