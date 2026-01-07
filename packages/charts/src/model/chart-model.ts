@@ -165,6 +165,8 @@ export class ChartModel {
 
     private _symbol: string = '';
     private _timeframe: string = '';
+    private _exchange: string = 'BINANCE';
+    private _marketType: 'spot' | 'futures' = 'spot';  // Default to spot for consistency with BINANCE
 
     constructor(options: Partial<ChartModelOptions> = {}) {
         this._options = this._mergeOptions(defaultChartOptions, options);
@@ -201,6 +203,39 @@ export class ChartModel {
 
     get timeframe(): string {
         return this._timeframe;
+    }
+
+    setExchange(exchange: string): void {
+        this._exchange = exchange;
+        // Determine market type from exchange string
+        this._marketType = exchange.includes('FUTURES') ? 'futures' : 'spot';
+        this._invalidated.fire(InvalidateReason.Data);
+    }
+
+    get exchange(): string {
+        return this._exchange;
+    }
+
+    get marketType(): 'spot' | 'futures' {
+        return this._marketType;
+    }
+
+    /** Get human-readable exchange name */
+    get exchangeDisplayName(): string {
+        const names: Record<string, string> = {
+            'BINANCE': 'Binance',
+            'BINANCE-FUTURES': 'Binance',
+            'BYBIT': 'Bybit',
+            'BYBIT-FUTURES': 'Bybit',
+            'OKX': 'OKX',
+            'OKX-FUTURES': 'OKX'
+        };
+        return names[this._exchange] || this._exchange;
+    }
+
+    /** Get market type display name */
+    get marketTypeDisplayName(): string {
+        return this._marketType === 'futures' ? 'Perpetual Contract' : 'Spot';
     }
 
     private _updateWatermarkText(): void {

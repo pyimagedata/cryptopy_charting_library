@@ -927,8 +927,8 @@ export class PaneWidget implements Disposable {
                 <div style="display: flex; align-items: center; white-space: nowrap; pointer-events: none;">
                     <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${symbol[0]}</div>
                     <span style="font-weight: bold; color: #d1d4dc; font-size: 13px;">${symbol}</span>
-                    <span style="margin-left: 6px; color: #787b86; font-size: 13px;">Perpetual Contract</span>
-                    <span style="margin-left: 6px; color: #d1d4dc; font-size: 13px;">• ${timeframe} • Binance</span>
+                    <span style="margin-left: 6px; color: #787b86; font-size: 13px;">${this._model.marketTypeDisplayName}</span>
+                    <span style="margin-left: 6px; color: #d1d4dc; font-size: 13px;">• ${timeframe} • ${this._model.exchangeDisplayName}</span>
                     <div style="width: 8px; height: 8px; border-radius: 50%; background: #26a69a; margin-left: 8px; box-shadow: 0 0 5px #26a69a;"></div>
                     <span class="ohlc-text">${ohlcText}</span>
                 </div>

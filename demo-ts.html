@@ -29,31 +29,34 @@
 
     <script src="packages/charts/dist/charts.js"></script>
     <script>
-        // Default Binance parameters
+        // Default parameters
         let currentSymbol = 'BTCUSDT';
         let currentInterval = '1h';
+        let currentExchange = 'BINANCE'; // BINANCE, BINANCE-FUTURES, BYBIT, BYBIT-FUTURES
         const LIMIT = 1000;
 
         // Initialize chart variables
         let chart;
         let currentSeries;
         
-        async function fetchBinanceData(symbol, interval) {
+        // ========================================================================
+        // Binance Data Fetcher
+        // ========================================================================
+        async function fetchBinanceData(symbol, interval, isFutures = false) {
             try {
-                const MAX_PAGES = 2; // Get up to 5000 bars
+                const MAX_PAGES = 2;
                 let allData = [];
                 let endTime = null;
+                const baseUrl = isFutures 
+                    ? 'https://fapi.binance.com/fapi/v1/klines'
+                    : 'https://api.binance.com/api/v3/klines';
 
-                console.log(`Fetching up to ${MAX_PAGES * LIMIT} bars for ${symbol}...`);
-
-                // Helper for rate limiting
+                console.log(`📊 Fetching ${symbol} from Binance ${isFutures ? 'Futures' : 'Spot'}...`);
                 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
                 for (let i = 0; i < MAX_PAGES; i++) {
-                    let url = `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=1000`;
-                    if (endTime) {
-                        url += `&endTime=${endTime}`;
-                    }
+                    let url = `${baseUrl}?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=1000`;
+                    if (endTime) url += `&endTime=${endTime}`;
 
                     const response = await fetch(url);
                     if (!response.ok) break;
@@ -70,51 +73,152 @@
                         volume: parseFloat(d[5])
                     }));
 
-                    // Add to the beginning of our collection (since we fetch backwards)
                     allData = [...pageData, ...allData];
-
-                    // Set endTime for next page (subtract 1ms from earliest bar)
                     endTime = pageData[0].time - 1;
-
-                    // If we got less than LIMIT, there's no more data
                     if (rawData.length < LIMIT) break;
-
-                    // Add delay to prevent hitting rate limits (429)
                     if (i < MAX_PAGES - 1) await delay(300);
                 }
 
-                // Sort by time just in case (though Binance returns sorted)
                 allData.sort((a, b) => a.time - b.time);
-
-                // Remove duplicates if any (at page boundaries)
                 return allData.filter((v, i, a) => i === 0 || v.time !== a[i-1].time);
             } catch (error) {
-                console.error('Error fetching Binance data:', error);
-                alert(`${symbol} verisi çekilemedi.`);
+                console.error('❌ Error fetching Binance data:', error);
                 return [];
             }
         }
 
-        async function updateChartData(symbol, interval) {
+        // ========================================================================
+        // Bybit Data Fetcher
+        // ========================================================================
+        async function fetchBybitData(symbol, interval, isFutures = false) {
+            try {
+                // Convert interval to Bybit format
+                const intervalMap = {
+                    '1m': '1', '3m': '3', '5m': '5', '15m': '15', '30m': '30',
+                    '1h': '60', '2h': '120', '4h': '240', '6h': '360', '12h': '720',
+                    '1d': 'D', '1w': 'W', '1M': 'M'
+                };
+                const bybitInterval = intervalMap[interval] || '60';
+                const category = isFutures ? 'linear' : 'spot';
+
+                console.log(`📊 Fetching ${symbol} from Bybit ${isFutures ? 'Futures' : 'Spot'}...`);
+
+                const url = `https://api.bybit.com/v5/market/kline?category=${category}&symbol=${symbol}&interval=${bybitInterval}&limit=200`;
+                const response = await fetch(url);
+                
+                if (!response.ok) throw new Error(`Bybit API error: ${response.status}`);
+                
+                const data = await response.json();
+                if (data.retCode !== 0 || !data.result?.list) {
+                    throw new Error(`Bybit API error: ${data.retMsg}`);
+                }
+
+                // Bybit returns [startTime, open, high, low, close, volume, turnover]
+                // Sorted newest first, we need oldest first
+                return data.result.list.reverse().map(c => ({
+                    time: parseInt(c[0]),
+                    open: parseFloat(c[1]),
+                    high: parseFloat(c[2]),
+                    low: parseFloat(c[3]),
+                    close: parseFloat(c[4]),
+                    volume: parseFloat(c[5])
+                }));
+            } catch (error) {
+                console.error('❌ Error fetching Bybit data:', error);
+                return [];
+            }
+        }
+
+        // ========================================================================
+        // OKX Data Fetcher
+        // ========================================================================
+        async function fetchOkxData(symbol, interval, isFutures = false) {
+            try {
+                // Convert interval to OKX format
+                const intervalMap = {
+                    '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+                    '1h': '1H', '2h': '2H', '4h': '4H', '6h': '6H', '12h': '12H',
+                    '1d': '1D', '1w': '1W', '1M': '1M'
+                };
+                const bar = intervalMap[interval] || '1H';
+                
+                // Symbol already comes in correct format from symbol search (BTC-USDT or BTC-USDT-SWAP)
+                let instId = symbol;
+                
+                // Only add -SWAP suffix if futures and not already present
+                if (isFutures && !instId.includes('-SWAP')) {
+                    instId = instId + '-SWAP';
+                }
+
+                console.log(`📊 Fetching ${instId} from OKX ${isFutures ? 'Futures' : 'Spot'}...`);
+
+                const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=${bar}&limit=300`;
+                const response = await fetch(url);
+                
+                if (!response.ok) throw new Error(`OKX API error: ${response.status}`);
+                
+                const data = await response.json();
+                if (data.code !== '0' || !data.data) {
+                    throw new Error(`OKX API error: ${data.msg}`);
+                }
+
+                // OKX returns [ts, open, high, low, close, vol, ...]
+                // Sorted newest first, we need oldest first
+                return data.data.reverse().map(c => ({
+                    time: parseInt(c[0]),
+                    open: parseFloat(c[1]),
+                    high: parseFloat(c[2]),
+                    low: parseFloat(c[3]),
+                    close: parseFloat(c[4]),
+                    volume: parseFloat(c[5])
+                }));
+            } catch (error) {
+                console.error('❌ Error fetching OKX data:', error);
+                return [];
+            }
+        }
+
+        // ========================================================================
+        // Universal Data Fetcher
+        // ========================================================================
+        async function fetchData(symbol, interval, exchange) {
+            switch(exchange) {
+                case 'BINANCE':
+                    return fetchBinanceData(symbol, interval, false);
+                case 'BINANCE-FUTURES':
+                    return fetchBinanceData(symbol, interval, true);
+                case 'BYBIT':
+                    return fetchBybitData(symbol, interval, false);
+                case 'BYBIT-FUTURES':
+                    return fetchBybitData(symbol, interval, true);
+                case 'OKX':
+                    return fetchOkxData(symbol, interval, false);
+                case 'OKX-FUTURES':
+                    return fetchOkxData(symbol, interval, true);
+                default:
+                    console.warn(`Unknown exchange: ${exchange}, falling back to Binance`);
+                    return fetchBinanceData(symbol, interval, false);
+            }
+        }
+
+        async function updateChartData(symbol, interval, exchange) {
             // Show loading indicator
-            chart.setLoading(true, `Loading ${symbol} data...`);
+            chart.setLoading(true, `Loading ${symbol} from ${exchange}...`);
             
             try {
-                const data = await fetchBinanceData(symbol, interval);
+                const data = await fetchData(symbol, interval, exchange);
                 if (data.length > 0) {
-                    // Always get the current active series from the chart
                     const series = chart.model.serieses[0];
                     if (series) {
                         chart.setData(series, data);
-                        // Reset view to show new data
                         chart.model.timeScale.scrollToPosition(0, false);
                         chart.model.fullUpdate();
-
-
+                        console.log(`✅ Loaded ${data.length} candles for ${symbol} from ${exchange}`);
                     }
+                } else {
+                    alert(`${symbol} verisi ${exchange}'dan çekilemedi.`);
                 }
             } finally {
-                // Hide loading indicator
                 chart.setLoading(false);
             }
         }
@@ -140,27 +244,32 @@
                 wickVisible: true
             });
 
-
-
-            // Listen for symbol changes
-            chart.symbolChanged.subscribe(async (newSymbol) => {
-                currentSymbol = newSymbol;
-                await updateChartData(currentSymbol, currentInterval);
+            // Listen for symbol changes (now includes exchange info)
+            chart.symbolChanged.subscribe(async (symbolInfo) => {
+                // symbolInfo can be string (old) or object (new with exchange)
+                if (typeof symbolInfo === 'object' && symbolInfo.exchange) {
+                    currentSymbol = symbolInfo.symbol;
+                    currentExchange = symbolInfo.exchange;
+                    console.log(`🔄 Symbol changed to: ${currentSymbol} @ ${currentExchange}`);
+                } else {
+                    currentSymbol = symbolInfo;
+                    // Keep current exchange if it's just a symbol string
+                }
+                await updateChartData(currentSymbol, currentInterval, currentExchange);
             });
 
             // Listen for timeframe changes
             chart.timeframeChanged.subscribe(async (newInterval) => {
-                // TradingView uses D, W but Binance uses 1d, 1w
                 let interval = newInterval.toLowerCase();
                 if (interval === 'd') interval = '1d';
                 if (interval === 'w') interval = '1w';
                 
                 currentInterval = interval;
-                await updateChartData(currentSymbol, currentInterval);
+                await updateChartData(currentSymbol, currentInterval, currentExchange);
             });
             
-            // Initial load (this will now automatically update RSI because window.rsiIndicator is set)
-            await updateChartData(currentSymbol, currentInterval);
+            // Initial load
+            await updateChartData(currentSymbol, currentInterval, currentExchange);
         }
 
         document.addEventListener('DOMContentLoaded', initChart);

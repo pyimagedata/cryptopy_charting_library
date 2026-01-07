@@ -21,8 +21,21 @@ import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartStateManager } from '../state';
 import { AddTextTooltipHelper } from './tooltips';
 import { TechnicalRatingBadge } from './technical-rating-badge';
-import { BinanceOrderbookService } from '../services/binance-orderbook-service';
+import {
+    BinanceSpotProvider,
+    BinanceFuturesProvider,
+    BybitSpotProvider,
+    BybitFuturesProvider,
+    OkxSpotProvider,
+    OkxFuturesProvider,
+    Orderbook
+} from '../data-providers';
 import { OrderbookHeatmapRenderer } from '../renderers/orderbook-heatmap-renderer';
+
+// Type for all orderbook providers
+type OrderbookProvider = BinanceSpotProvider | BinanceFuturesProvider |
+    BybitSpotProvider | BybitFuturesProvider |
+    OkxSpotProvider | OkxFuturesProvider;
 import {
     ChartWidgetContext,
     handleWheel as handleWheelEvent,
@@ -128,8 +141,10 @@ export class ChartWidget implements Disposable {
     private _technicalRatingBadge: TechnicalRatingBadge | null = null;
 
     // Orderbook Heatmap
-    private _orderbookService: BinanceOrderbookService | null = null;
+    private _dataProvider: OrderbookProvider | null = null;
     private _heatmapRenderer: OrderbookHeatmapRenderer | null = null;
+    private _currentSymbol: string = '';
+    private _currentExchange: string = 'BINANCE';
 
 
 
@@ -221,33 +236,52 @@ export class ChartWidget implements Disposable {
         // Fetch initial technical rating
         this._technicalRatingBadge?.updateRating(this._model.symbol, this._model.timeframe);
 
-        // Initialize orderbook heatmap
-        this._orderbookService = new BinanceOrderbookService(5000); // Get maximum levels (5000)
+        // Initialize data provider and orderbook heatmap
+        this._initializeDataProvider();
+    }
+
+    /**
+     * Initialize the data provider based on symbol type
+     */
+    private async _initializeDataProvider(): Promise<void> {
+        // For now, use Spot provider. Later we can detect if symbol is futures
+        this._dataProvider = new BinanceSpotProvider({ maxOrderbookLevels: 5000 });
         this._heatmapRenderer = new OrderbookHeatmapRenderer();
 
-        // Throttle orderbook updates to prevent flickering (max 2 updates per second)
+        await this._dataProvider.connect();
+
+        // Throttle orderbook updates to prevent flickering
         let lastOrderbookUpdate = 0;
-        this._orderbookService.onUpdate.subscribe((orderbook) => {
+        const throttledUpdate = (orderbook: Orderbook) => {
             const now = Date.now();
-            if (now - lastOrderbookUpdate > 500) { // 500ms throttle
+            if (now - lastOrderbookUpdate > 500) {
                 lastOrderbookUpdate = now;
-                this._heatmapRenderer?.updateOrderbook(orderbook);
+                this._heatmapRenderer?.updateOrderbook({
+                    symbol: orderbook.symbol,
+                    lastUpdateId: orderbook.timestamp,
+                    bids: orderbook.bids,
+                    asks: orderbook.asks
+                });
                 this._scheduleDraw();
 
-                // Debug: log price range of orderbook
                 if (orderbook.bids.length > 0 && orderbook.asks.length > 0) {
                     const lowestBid = orderbook.bids[orderbook.bids.length - 1].price;
                     const highestAsk = orderbook.asks[orderbook.asks.length - 1].price;
                     console.log(`📚 Orderbook range: ${lowestBid.toFixed(0)} - ${highestAsk.toFixed(0)} (${orderbook.bids.length} bids, ${orderbook.asks.length} asks)`);
                 }
             } else {
-                // Still update data, but don't redraw yet
-                this._heatmapRenderer?.updateOrderbook(orderbook);
+                this._heatmapRenderer?.updateOrderbook({
+                    symbol: orderbook.symbol,
+                    lastUpdateId: orderbook.timestamp,
+                    bids: orderbook.bids,
+                    asks: orderbook.asks
+                });
             }
-        });
+        };
 
-        // Connect to orderbook for initial symbol
-        this._orderbookService.connect(this._model.symbol);
+        // Subscribe to orderbook for initial symbol
+        this._currentSymbol = this._model.symbol;
+        this._dataProvider.subscribeOrderbook(this._currentSymbol, throttledUpdate);
     }
 
     // --- Public API ---
@@ -890,20 +924,99 @@ export class ChartWidget implements Disposable {
     }
 
     private _onSymbolChange(symbol: SymbolInfo): void {
-        console.log('🔍 Symbol changed to:', symbol.symbol);
+        console.log('🔍 Symbol changed to:', symbol.symbol, '@ Exchange:', symbol.exchange);
 
         // Update state manager - this saves current symbol's drawings and loads new symbol's drawings
         this._chartStateManager?.setSymbol(symbol.symbol);
 
         this._model.setSymbol(symbol.symbol);
+        if (symbol.exchange) {
+            this._model.setExchange(symbol.exchange);
+        }
         this._toolbarWidget?.setSymbol(symbol.symbol);
-        this._symbolChanged.fire(symbol.symbol);
+
+        // Fire full symbol info including exchange for data fetching
+        this._symbolChanged.fire({
+            symbol: symbol.symbol,
+            exchange: symbol.exchange,
+            provider: symbol.provider,
+            type: symbol.type
+        } as any);
 
         // Update technical rating badge
         this._technicalRatingBadge?.updateRating(symbol.symbol, this._model.timeframe);
 
-        // Reconnect orderbook for new symbol
-        this._orderbookService?.connect(symbol.symbol);
+        // Switch orderbook provider if exchange changed
+        const needsProviderSwitch = symbol.exchange !== this._currentExchange;
+
+        // Unsubscribe from current symbol
+        if (this._dataProvider && this._currentSymbol) {
+            this._dataProvider.unsubscribeOrderbook(this._currentSymbol);
+        }
+
+        // Switch provider if exchange changed
+        if (needsProviderSwitch && symbol.exchange) {
+            // Disconnect old provider
+            this._dataProvider?.disconnect();
+
+            // Create new provider based on exchange
+            this._dataProvider = this._createProviderForExchange(symbol.exchange);
+            this._currentExchange = symbol.exchange;
+
+            // Connect new provider
+            this._dataProvider?.connect().catch(console.error);
+            console.log(`📡 Switched orderbook provider to: ${symbol.exchange}`);
+        }
+
+        this._currentSymbol = symbol.symbol;
+
+        // Subscribe to orderbook for new symbol
+        if (this._dataProvider) {
+            let lastOrderbookUpdate = 0;
+            this._dataProvider.subscribeOrderbook(symbol.symbol, (orderbook: Orderbook) => {
+                const now = Date.now();
+                if (now - lastOrderbookUpdate > 500) {
+                    lastOrderbookUpdate = now;
+                    this._heatmapRenderer?.updateOrderbook({
+                        symbol: orderbook.symbol,
+                        lastUpdateId: orderbook.timestamp,
+                        bids: orderbook.bids,
+                        asks: orderbook.asks
+                    });
+                    this._scheduleDraw();
+                } else {
+                    this._heatmapRenderer?.updateOrderbook({
+                        symbol: orderbook.symbol,
+                        lastUpdateId: orderbook.timestamp,
+                        bids: orderbook.bids,
+                        asks: orderbook.asks
+                    });
+                }
+            });
+        }
+    }
+
+    /**
+     * Create the appropriate orderbook provider for the given exchange
+     */
+    private _createProviderForExchange(exchange: string): OrderbookProvider {
+        switch (exchange) {
+            case 'BINANCE':
+                return new BinanceSpotProvider({ maxOrderbookLevels: 5000 });
+            case 'BINANCE-FUTURES':
+                return new BinanceFuturesProvider({ maxOrderbookLevels: 5000 });
+            case 'BYBIT':
+                return new BybitSpotProvider({ maxOrderbookLevels: 500 });
+            case 'BYBIT-FUTURES':
+                return new BybitFuturesProvider({ maxOrderbookLevels: 500 });
+            case 'OKX':
+                return new OkxSpotProvider({ maxOrderbookLevels: 400 });
+            case 'OKX-FUTURES':
+                return new OkxFuturesProvider({ maxOrderbookLevels: 400 });
+            default:
+                console.warn(`Unknown exchange: ${exchange}, using Binance Spot`);
+                return new BinanceSpotProvider({ maxOrderbookLevels: 5000 });
+        }
     }
 
     // --- Private: Event Listeners ---
