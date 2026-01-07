@@ -1629,6 +1629,72 @@ export class ChartWidget implements Disposable {
         }
 
         this._priceAxisWidget.setLastValue(price, price.toFixed(2), color);
+
+        // Calculate and set countdown
+        const countdown = this._calculateCountdown();
+        this._priceAxisWidget.setCountdown(countdown);
+    }
+
+    /**
+     * Calculate countdown until current candle closes
+     */
+    private _calculateCountdown(): string | null {
+        const timeframe = this._model.timeframe;
+        if (!timeframe) return null;
+
+        // Parse timeframe to milliseconds
+        const intervalMs = this._parseTimeframeToMs(timeframe);
+        if (intervalMs === 0) return null;
+
+        const now = Date.now();
+
+        // Calculate next candle close time
+        const currentCandleStart = Math.floor(now / intervalMs) * intervalMs;
+        const nextCandleStart = currentCandleStart + intervalMs;
+        const remainingMs = nextCandleStart - now;
+
+        if (remainingMs <= 0) return null;
+
+        // Format countdown
+        const totalSeconds = Math.floor(remainingMs / 1000);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        if (hours > 0) {
+            return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    /**
+     * Parse timeframe string to milliseconds
+     */
+    private _parseTimeframeToMs(tf: string): number {
+        const lower = tf.toLowerCase();
+
+        // Handle formats like "1m", "5m", "15m", "1h", "4h", "1d", "1w"
+        const match = lower.match(/^(\d+)([smhdw])$/);
+        if (match) {
+            const value = parseInt(match[1], 10);
+            const unit = match[2];
+
+            switch (unit) {
+                case 's': return value * 1000;
+                case 'm': return value * 60 * 1000;
+                case 'h': return value * 60 * 60 * 1000;
+                case 'd': return value * 24 * 60 * 60 * 1000;
+                case 'w': return value * 7 * 24 * 60 * 60 * 1000;
+            }
+        }
+
+        // Handle single letter formats
+        if (lower === 'd') return 24 * 60 * 60 * 1000;
+        if (lower === 'w') return 7 * 24 * 60 * 60 * 1000;
+        if (lower === 'm') return 60 * 1000;
+        if (lower === 'h') return 60 * 60 * 1000;
+
+        return 0;
     }
 
     // --- Context Menu Actions ---

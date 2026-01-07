@@ -140,8 +140,11 @@ export class PriceAxisWidget implements Disposable {
         const padding = 8;
         this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
         const textWidth = this._ctx.measureText(text).width;
-        const boxHeight = 20;
-        const boxWidth = textWidth + (padding * 2);
+
+        // Calculate box dimensions - taller if countdown is shown
+        const hasCountdown = isLastValue && this._countdown;
+        const boxHeight = hasCountdown ? 34 : 20;
+        const boxWidth = Math.max(textWidth + (padding * 2), hasCountdown ? 70 : 0);
         const boxY = y - (boxHeight / 2);
         const boxX = width - boxWidth;
 
@@ -149,10 +152,18 @@ export class PriceAxisWidget implements Disposable {
         this._ctx.fillStyle = color;
         this._ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
 
-        // Text
+        // Price text
         this._ctx.fillStyle = '#ffffff';
         this._ctx.textAlign = 'center';
-        this._ctx.fillText(text, boxX + (boxWidth / 2), y);
+        const priceY = hasCountdown ? boxY + 11 : y;
+        this._ctx.fillText(text, boxX + (boxWidth / 2), priceY);
+
+        // Countdown text (below price)
+        if (hasCountdown && this._countdown) {
+            this._ctx.font = `${this._options.fontSize - 1}px ${this._options.fontFamily}`;
+            this._ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            this._ctx.fillText(this._countdown, boxX + (boxWidth / 2), boxY + 25);
+        }
 
         // Connector line (only for last value)
         if (isLastValue) {
@@ -169,9 +180,18 @@ export class PriceAxisWidget implements Disposable {
 
     private _lastValue: { price: number; text: string; color: string } | null = null;
     private _crosshairY: number | null = null;
+    private _countdown: string | null = null;
 
     setLastValue(price: number, text: string, color: string): void {
         this._lastValue = { price, text, color };
+    }
+
+    /**
+     * Set countdown text to show below price label
+     * @param countdown Format: "mm:ss" or "hh:mm:ss" or null to hide
+     */
+    setCountdown(countdown: string | null): void {
+        this._countdown = countdown;
     }
 
     setCrosshair(y: number, visible: boolean): void {

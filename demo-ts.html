@@ -201,6 +201,210 @@
             }
         }
 
+        // ========================================================================
+        // WebSocket for Real-time Updates
+        // ========================================================================
+        let currentWebSocket = null;
+
+        function subscribeToWebSocket(symbol, interval, exchange) {
+            // Close existing WebSocket
+            if (currentWebSocket) {
+                currentWebSocket.close();
+                currentWebSocket = null;
+            }
+
+            // Route to appropriate WebSocket based on exchange
+            if (exchange.startsWith('BINANCE')) {
+                subscribeToBinanceWS(symbol, interval, exchange === 'BINANCE-FUTURES');
+            } else if (exchange.startsWith('BYBIT')) {
+                subscribeToBybitWS(symbol, interval, exchange === 'BYBIT-FUTURES');
+            } else if (exchange.startsWith('OKX')) {
+                subscribeToOkxWS(symbol, interval, exchange === 'OKX-FUTURES');
+            } else {
+                console.log('⏸️ WebSocket not available for:', exchange);
+            }
+        }
+
+        // ========================================================================
+        // Binance WebSocket
+        // ========================================================================
+        function subscribeToBinanceWS(symbol, interval, isFutures) {
+            const wsUrl = isFutures 
+                ? 'wss://fstream.binance.com/ws'
+                : 'wss://stream.binance.com:9443/ws';
+            
+            const streamName = `${symbol.toLowerCase()}@kline_${interval}`;
+            
+            currentWebSocket = new WebSocket(`${wsUrl}/${streamName}`);
+            
+            currentWebSocket.onopen = () => {
+                console.log(`🟡 Binance WebSocket connected: ${streamName}`);
+            };
+            
+            currentWebSocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.e === 'kline') {
+                        const k = data.k;
+                        const candle = {
+                            time: k.t,
+                            open: parseFloat(k.o),
+                            high: parseFloat(k.h),
+                            low: parseFloat(k.l),
+                            close: parseFloat(k.c),
+                            volume: parseFloat(k.v)
+                        };
+                        updateChartWithCandle(candle, k.x);
+                    }
+                } catch (e) {
+                    console.error('Binance WebSocket parse error:', e);
+                }
+            };
+            
+            currentWebSocket.onerror = (error) => console.error('❌ Binance WebSocket error:', error);
+            currentWebSocket.onclose = () => console.log('🟡 Binance WebSocket disconnected');
+        }
+
+        // ========================================================================
+        // Bybit WebSocket
+        // ========================================================================
+        function subscribeToBybitWS(symbol, interval, isFutures) {
+            const wsUrl = isFutures 
+                ? 'wss://stream.bybit.com/v5/public/linear'
+                : 'wss://stream.bybit.com/v5/public/spot';
+            
+            // Convert interval to Bybit format
+            const intervalMap = {
+                '1m': '1', '3m': '3', '5m': '5', '15m': '15', '30m': '30',
+                '1h': '60', '2h': '120', '4h': '240', '6h': '360', '12h': '720',
+                '1d': 'D', '1w': 'W'
+            };
+            const bybitInterval = intervalMap[interval] || '60';
+            
+            currentWebSocket = new WebSocket(wsUrl);
+            
+            currentWebSocket.onopen = () => {
+                console.log(`🟣 Bybit WebSocket connected`);
+                // Subscribe to kline
+                const subscribeMsg = {
+                    op: 'subscribe',
+                    args: [`kline.${bybitInterval}.${symbol}`]
+                };
+                currentWebSocket.send(JSON.stringify(subscribeMsg));
+            };
+            
+            currentWebSocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    // Bybit kline format: { topic: "kline.1.BTCUSDT", data: [...] }
+                    if (data.topic && data.topic.startsWith('kline.') && data.data) {
+                        for (const k of data.data) {
+                            const candle = {
+                                time: parseInt(k.start),
+                                open: parseFloat(k.open),
+                                high: parseFloat(k.high),
+                                low: parseFloat(k.low),
+                                close: parseFloat(k.close),
+                                volume: parseFloat(k.volume)
+                            };
+                            updateChartWithCandle(candle, k.confirm);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Bybit WebSocket parse error:', e);
+                }
+            };
+            
+            currentWebSocket.onerror = (error) => console.error('❌ Bybit WebSocket error:', error);
+            currentWebSocket.onclose = () => console.log('🟣 Bybit WebSocket disconnected');
+        }
+
+        // ========================================================================
+        // OKX WebSocket
+        // ========================================================================
+        function subscribeToOkxWS(symbol, interval, isFutures) {
+            // OKX Candlesticks require the /business endpoint, NOT /public
+            const wsUrl = 'wss://ws.okx.com:8443/ws/v5/business';
+            
+            // Convert interval to OKX format
+            const intervalMap = {
+                '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+                '1h': '1H', '2h': '2H', '4h': '4H', '6h': '6H', '12h': '12H',
+                '1d': '1D', '1w': '1W'
+            };
+            const okxInterval = intervalMap[interval] || '1H';
+            
+            // Symbol already in OKX format (BTC-USDT or BTC-USDT-SWAP)
+            const instId = symbol;
+            
+            currentWebSocket = new WebSocket(wsUrl);
+            
+            currentWebSocket.onopen = () => {
+                console.log(`⚫ OKX WebSocket connected`);
+                // Subscribe to candle
+                const subscribeMsg = {
+                    op: 'subscribe',
+                    args: [{ channel: `candle${okxInterval}`, instId: instId }]
+                };
+                console.log('⚫ OKX Subscribing:', JSON.stringify(subscribeMsg));
+                currentWebSocket.send(JSON.stringify(subscribeMsg));
+            };
+            
+            currentWebSocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Log subscription response
+                    if (data.event) {
+                        console.log('⚫ OKX Event:', data.event, data.code, data.msg);
+                        return;
+                    }
+                    
+                    // OKX candle format: { arg: { channel, instId }, data: [[ts, o, h, l, c, vol, ...]] }
+                    if (data.data && data.arg?.channel?.startsWith('candle')) {
+                        for (const k of data.data) {
+                            const candle = {
+                                time: parseInt(k[0]),
+                                open: parseFloat(k[1]),
+                                high: parseFloat(k[2]),
+                                low: parseFloat(k[3]),
+                                close: parseFloat(k[4]),
+                                volume: parseFloat(k[5])
+                            };
+                            updateChartWithCandle(candle, false);
+                        }
+                    }
+                } catch (e) {
+                    console.error('OKX WebSocket parse error:', e);
+                }
+            };
+            
+            currentWebSocket.onerror = (error) => console.error('❌ OKX WebSocket error:', error);
+            currentWebSocket.onclose = (event) => console.log('⚫ OKX WebSocket disconnected, code:', event.code, event.reason);
+        }
+
+        function updateChartWithCandle(candle, isClosed) {
+            const series = chart.model.serieses[0];
+            if (!series || !series.data || series.data.length === 0) return;
+
+            const lastCandle = series.data[series.data.length - 1];
+            
+            // If same timestamp, update existing candle
+            if (lastCandle.time === candle.time) {
+                lastCandle.high = Math.max(lastCandle.high, candle.high);
+                lastCandle.low = Math.min(lastCandle.low, candle.low);
+                lastCandle.close = candle.close;
+                lastCandle.volume = candle.volume;
+            } else if (candle.time > lastCandle.time) {
+                // New candle, add to series
+                series.data.push(candle);
+                chart.model.timeScale.setPointsCount(series.data.length);
+            }
+            
+            // Trigger update
+            chart.model.fullUpdate();
+        }
+
         async function updateChartData(symbol, interval, exchange) {
             // Show loading indicator
             chart.setLoading(true, `Loading ${symbol} from ${exchange}...`);
@@ -214,6 +418,9 @@
                         chart.model.timeScale.scrollToPosition(0, false);
                         chart.model.fullUpdate();
                         console.log(`✅ Loaded ${data.length} candles for ${symbol} from ${exchange}`);
+                        
+                        // Subscribe to WebSocket for real-time updates
+                        subscribeToWebSocket(symbol, interval, exchange);
                     }
                 } else {
                     alert(`${symbol} verisi ${exchange}'dan çekilemedi.`);
