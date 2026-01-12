@@ -974,6 +974,9 @@ export class ChartWidget implements Disposable {
         }
         this._toolbarWidget?.setSymbol(symbol.symbol);
 
+        // Reset price scale auto-scaling to ensure new symbol's price range is visible
+        this._model.rightPriceScale.setAutoScale(true);
+
         // Fire full symbol info including exchange for data fetching
         this._symbolChanged.fire({
             symbol: symbol.symbol,
