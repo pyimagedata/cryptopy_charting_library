@@ -146,6 +146,9 @@ export class ChartWidget implements Disposable {
     private _currentSymbol: string = '';
     private _currentExchange: string = 'BINANCE';
 
+    // Auto-resize
+    private _resizeObserver: ResizeObserver | null = null;
+
 
 
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
@@ -238,6 +241,17 @@ export class ChartWidget implements Disposable {
 
         // Initialize data provider and orderbook heatmap
         this._initializeDataProvider();
+
+        // Auto-resize observer
+        this._resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                // Use contentRect for precise content box size
+                if (entry.contentRect) {
+                    this.resize(entry.contentRect.width, entry.contentRect.height);
+                }
+            }
+        });
+        this._resizeObserver.observe(this._container);
     }
 
     /**
@@ -1945,6 +1959,8 @@ export class ChartWidget implements Disposable {
     // --- Cleanup ---
 
     dispose(): void {
+        this._resizeObserver?.disconnect();
+        this._resizeObserver = null;
         this._model.destroy();
         this._symbolChanged.destroy();
         this._timeframeChanged.destroy();
