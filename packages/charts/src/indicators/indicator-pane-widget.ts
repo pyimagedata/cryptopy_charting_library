@@ -97,6 +97,10 @@ export class IndicatorPaneWidget implements Disposable {
         return this._element;
     }
 
+    get canvas(): HTMLCanvasElement | null {
+        return this._canvas;
+    }
+
     get height(): number {
         // Return 0 when hidden so layout calculations work correctly
         return this._isHidden ? 0 : this._height;

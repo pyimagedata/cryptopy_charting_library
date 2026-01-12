@@ -1759,6 +1759,21 @@ export class ChartWidget implements Disposable {
             { height: indicator.paneHeight }
         );
 
+        // Add interaction event listeners
+        const canvas = pane.canvas;
+        if (canvas) {
+            canvas.addEventListener('wheel', this._onWheel.bind(this), { passive: false });
+            canvas.addEventListener('mousedown', this._onMouseDown.bind(this));
+            canvas.addEventListener('mousemove', this._onPaneMouseMove.bind(this));
+            canvas.addEventListener('mouseleave', this._onMouseLeave.bind(this));
+
+            // Touch events for mobile
+            canvas.addEventListener('touchstart', this._onTouchStart.bind(this), { passive: false });
+            canvas.addEventListener('touchmove', this._onTouchMove.bind(this), { passive: false });
+            canvas.addEventListener('touchend', this._onTouchEnd.bind(this));
+            canvas.addEventListener('touchcancel', this._onTouchEnd.bind(this));
+        }
+
         // Ensure redraw when indicator price scale changes (e.g. during Y-axis drag)
         pane.priceScale.rangeChanged.subscribe(() => {
             this._scheduleDraw();
