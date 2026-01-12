@@ -52,32 +52,32 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
         margin-bottom: 16px;
     `;
 
-    const currentValue = row.key ? context.getValue(row.key) : undefined;
+    const currentValue = (row as any).key ? context.getValue((row as any).key) : undefined;
 
     switch (row.type) {
         case 'number': {
             const label = document.createElement('label');
-            label.textContent = row.label;
+            label.textContent = row.label ?? '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
 
             rowEl.appendChild(createNumberInput(
                 currentValue as number,
                 { min: (row as any).min, max: (row as any).max, step: (row as any).step },
-                (value) => row.key && context.setValue(row.key, value)
+                (value) => (row as any).key && context.setValue((row as any).key, value)
             ));
             break;
         }
 
         case 'color': {
             const label = document.createElement('label');
-            label.textContent = row.label;
+            label.textContent = row.label ?? '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
 
             rowEl.appendChild(createColorInput(
                 currentValue as string || (row as any).defaultValue || '#2962ff',
-                (value) => row.key && context.setValue(row.key, value)
+                (value) => (row as any).key && context.setValue((row as any).key, value)
             ));
             break;
         }
@@ -87,21 +87,21 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
             rowEl.appendChild(createCheckbox(
                 row.label,
                 currentValue as boolean ?? (row as any).defaultValue ?? false,
-                (value) => row.key && context.setValue(row.key, value)
+                (value) => (row as any).key && context.setValue((row as any).key, value)
             ));
             break;
         }
 
         case 'lineWidth': {
             const label = document.createElement('label');
-            label.textContent = row.label;
+            label.textContent = row.label ?? '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
 
             rowEl.appendChild(createLineWidthSelect(
                 currentValue as number,
                 { min: (row as any).min || 1, max: (row as any).max || 4 },
-                (value) => row.key && context.setValue(row.key, value),
+                (value) => (row as any).key && context.setValue((row as any).key, value),
                 context.rerender
             ));
             break;
@@ -109,21 +109,21 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
 
         case 'slider': {
             const label = document.createElement('label');
-            label.textContent = row.label;
+            label.textContent = row.label ?? '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
 
             rowEl.appendChild(createSliderInput(
                 currentValue as number,
                 { min: (row as any).min, max: (row as any).max, step: (row as any).step },
-                (value) => row.key && context.setValue(row.key, value)
+                (value) => (row as any).key && context.setValue((row as any).key, value)
             ));
             break;
         }
 
         default: {
             const label = document.createElement('label');
-            label.textContent = row.label;
+            label.textContent = row.label ?? '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
         }
