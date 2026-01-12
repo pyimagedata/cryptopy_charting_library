@@ -1564,7 +1564,21 @@ export class ChartWidget implements Disposable {
 
     // --- Private: Rendering ---
 
-    private _onInvalidated(_reason: InvalidateReason): void {
+    private _onInvalidated(reason: InvalidateReason): void {
+        // If data changed or full update triggered, update indicators
+        if (reason === InvalidateReason.Data || reason === InvalidateReason.Layout) {
+            const mainSeries = this._model.serieses[0];
+            if (mainSeries) {
+                const data = mainSeries.data;
+
+                // Only update indicators if data is BarData (has open/high/low/close)
+                // Indicators typically need OHLC data. Check first element.
+                if (data.length > 0 && 'open' in (data[0] as any)) {
+                    this._indicatorManager.setData(data as any);
+                }
+            }
+        }
+
         this._scheduleDraw();
     }
 
