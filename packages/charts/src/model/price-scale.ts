@@ -264,7 +264,7 @@ export class PriceScale {
             .map(price => ({
                 price,
                 coord: this.priceToCoordinate(price),
-                label: this._formatPrice(price),
+                label: this.formatPrice(price),
             }))
             .filter(mark => mark.coord >= 0 && mark.coord <= this._height);
     }
@@ -337,15 +337,20 @@ export class PriceScale {
 
     // --- Private ---
 
-    private _formatPrice(price: number): string {
+    // --- Public: Formatting ---
+
+    formatPrice(price: number): string {
         const absPrice = Math.abs(price);
         let decimals: number;
 
+        if (price === 0) return '0.00';
+
         if (absPrice >= 1000) decimals = 2;
-        else if (absPrice >= 100) decimals = 2;
         else if (absPrice >= 1) decimals = 2;
-        else if (absPrice >= 0.01) decimals = 4;
-        else decimals = 6;
+        else if (absPrice >= 0.1) decimals = 4;
+        else if (absPrice >= 0.01) decimals = 5;
+        else if (absPrice >= 0.0001) decimals = 6;
+        else decimals = 8;
 
         return price.toFixed(decimals);
     }

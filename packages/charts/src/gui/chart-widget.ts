@@ -1656,7 +1656,7 @@ export class ChartWidget implements Disposable {
             }
         }
 
-        this._priceAxisWidget.setLastValue(price, price.toFixed(2), color);
+        this._priceAxisWidget.setLastValue(price, this._model.rightPriceScale.formatPrice(price), color);
 
         // Calculate and set countdown
         const countdown = this._calculateCountdown();

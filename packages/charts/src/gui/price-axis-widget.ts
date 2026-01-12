@@ -123,8 +123,8 @@ export class PriceAxisWidget implements Disposable {
 
         if (this._crosshairY !== null) {
             const price = this._priceScale.coordinateToPrice(coordinate(this._crosshairY));
-            // Simple formatter, ideally passed from options or scale
-            const text = price.toFixed(2);
+            // Use price scale formatter
+            const text = this._priceScale.formatPrice(price);
             this._drawLabel(this._crosshairY, text, '#2962ff', false);
         }
     }
