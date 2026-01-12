@@ -65,7 +65,7 @@ export class ToolbarWidget {
     private readonly _chartTypeChanged = new Delegate<ChartType>();
     private readonly _indicatorsClicked = new Delegate<void>();
     private readonly _domToggled = new Delegate<boolean>();
-    private _domEnabled: boolean = true;
+    private _domEnabled: boolean = false;
 
     constructor(container: HTMLElement, options: Partial<ToolbarOptions> = {}) {
         this._options = { ...defaultToolbarOptions, ...options };

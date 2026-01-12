@@ -146,6 +146,9 @@ export class ChartWidget implements Disposable {
     private _currentSymbol: string = '';
     private _currentExchange: string = 'BINANCE';
 
+    // Throttling for orderbook updates
+    private _lastOrderbookUpdate: number = 0;
+
     // Auto-resize
     private _resizeObserver: ResizeObserver | null = null;
 
@@ -261,42 +264,50 @@ export class ChartWidget implements Disposable {
         // For now, use Spot provider. Later we can detect if symbol is futures
         this._dataProvider = new BinanceSpotProvider({ maxOrderbookLevels: 5000 });
         this._heatmapRenderer = new OrderbookHeatmapRenderer();
+        if (this._heatmapRenderer && this._toolbarWidget) {
+            this._heatmapRenderer.enabled = this._toolbarWidget.domEnabled;
+        }
 
         await this._dataProvider.connect();
 
-        // Throttle orderbook updates to prevent flickering
-        let lastOrderbookUpdate = 0;
-        const throttledUpdate = (orderbook: Orderbook) => {
-            const now = Date.now();
-            if (now - lastOrderbookUpdate > 500) {
-                lastOrderbookUpdate = now;
-                this._heatmapRenderer?.updateOrderbook({
-                    symbol: orderbook.symbol,
-                    lastUpdateId: orderbook.timestamp,
-                    bids: orderbook.bids,
-                    asks: orderbook.asks
-                });
-                this._scheduleDraw();
-
-                if (orderbook.bids.length > 0 && orderbook.asks.length > 0) {
-                    const lowestBid = orderbook.bids[orderbook.bids.length - 1].price;
-                    const highestAsk = orderbook.asks[orderbook.asks.length - 1].price;
-                    console.log(`📚 Orderbook range: ${lowestBid.toFixed(0)} - ${highestAsk.toFixed(0)} (${orderbook.bids.length} bids, ${orderbook.asks.length} asks)`);
-                }
-            } else {
-                this._heatmapRenderer?.updateOrderbook({
-                    symbol: orderbook.symbol,
-                    lastUpdateId: orderbook.timestamp,
-                    bids: orderbook.bids,
-                    asks: orderbook.asks
-                });
-            }
-        };
-
-        // Subscribe to orderbook for initial symbol
+        // Subscribe to orderbook if enabled
         this._currentSymbol = this._model.symbol;
-        this._dataProvider.subscribeOrderbook(this._currentSymbol, throttledUpdate);
+        if (this._toolbarWidget?.domEnabled && this._dataProvider) {
+            this._dataProvider.subscribeOrderbook(this._currentSymbol, this._onOrderbookUpdate);
+        }
     }
+
+    /**
+     * Handle orderbook updates
+     */
+    private _onOrderbookUpdate = (orderbook: Orderbook): void => {
+        const now = Date.now();
+        if (now - this._lastOrderbookUpdate > 500) {
+            this._lastOrderbookUpdate = now;
+            this._heatmapRenderer?.updateOrderbook({
+                symbol: orderbook.symbol,
+                lastUpdateId: orderbook.timestamp,
+                bids: orderbook.bids,
+                asks: orderbook.asks
+            });
+            this._scheduleDraw();
+
+            if (orderbook.bids.length > 0 && orderbook.asks.length > 0) {
+                // Optional debug log
+                // const lowestBid = orderbook.bids[orderbook.bids.length - 1].price;
+                // const highestAsk = orderbook.asks[orderbook.asks.length - 1].price;
+                // console.log(`📚 Orderbook: ${lowestBid.toFixed(2)} - ${highestAsk.toFixed(2)}`);
+            }
+        } else {
+            // Still update internal state even if not redrawing immediately
+            this._heatmapRenderer?.updateOrderbook({
+                symbol: orderbook.symbol,
+                lastUpdateId: orderbook.timestamp,
+                bids: orderbook.bids,
+                asks: orderbook.asks
+            });
+        }
+    };
 
     // --- Public API ---
 
@@ -633,6 +644,20 @@ export class ChartWidget implements Disposable {
         this._toolbarWidget.domToggled.subscribe((enabled) => {
             if (this._heatmapRenderer) {
                 this._heatmapRenderer.enabled = enabled;
+
+                if (enabled) {
+                    // Subscribe
+                    this._dataProvider?.subscribeOrderbook(this._currentSymbol, this._onOrderbookUpdate);
+                } else {
+                    // Unsubscribe
+                    if (this._dataProvider instanceof BinanceSpotProvider) { // Type guard if needed
+                        this._dataProvider.unsubscribeOrderbook(this._currentSymbol);
+                    } else {
+                        // Generic fallback if provider supports unsubscribe
+                        (this._dataProvider as any)?.unsubscribeOrderbook?.(this._currentSymbol);
+                    }
+                }
+
                 this._scheduleDraw();
             }
         });
@@ -985,28 +1010,9 @@ export class ChartWidget implements Disposable {
         this._currentSymbol = symbol.symbol;
 
         // Subscribe to orderbook for new symbol
-        if (this._dataProvider) {
-            let lastOrderbookUpdate = 0;
-            this._dataProvider.subscribeOrderbook(symbol.symbol, (orderbook: Orderbook) => {
-                const now = Date.now();
-                if (now - lastOrderbookUpdate > 500) {
-                    lastOrderbookUpdate = now;
-                    this._heatmapRenderer?.updateOrderbook({
-                        symbol: orderbook.symbol,
-                        lastUpdateId: orderbook.timestamp,
-                        bids: orderbook.bids,
-                        asks: orderbook.asks
-                    });
-                    this._scheduleDraw();
-                } else {
-                    this._heatmapRenderer?.updateOrderbook({
-                        symbol: orderbook.symbol,
-                        lastUpdateId: orderbook.timestamp,
-                        bids: orderbook.bids,
-                        asks: orderbook.asks
-                    });
-                }
-            });
+        // Subscribe to orderbook for new symbol - only if enabled
+        if (this._dataProvider && this._toolbarWidget?.domEnabled) {
+            this._dataProvider.subscribeOrderbook(symbol.symbol, this._onOrderbookUpdate);
         }
     }
 
