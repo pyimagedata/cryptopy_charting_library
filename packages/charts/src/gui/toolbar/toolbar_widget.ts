@@ -3,6 +3,7 @@
  */
 
 import { Delegate } from '../../helpers/delegate';
+import { t } from '../../helpers/translations';
 
 // SVG Icons for toolbar
 const TOOLBAR_ICONS = {
@@ -41,6 +42,7 @@ export interface ToolbarOptions {
     timeframe?: string;
     chartType?: ChartType;
     timeframes?: string[];
+    locale?: string;
 }
 
 const defaultToolbarOptions: ToolbarOptions = {
@@ -48,6 +50,7 @@ const defaultToolbarOptions: ToolbarOptions = {
     timeframe: '1h',
     chartType: 'candles',
     timeframes: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', 'D', 'W'],
+    locale: 'en',
 };
 
 /**
@@ -65,6 +68,7 @@ export class ToolbarWidget {
     private readonly _chartTypeChanged = new Delegate<ChartType>();
     private readonly _indicatorsClicked = new Delegate<void>();
     private readonly _domToggled = new Delegate<boolean>();
+    private readonly _languageChanged = new Delegate<string>();
     private _domEnabled: boolean = false;
 
     constructor(container: HTMLElement, options: Partial<ToolbarOptions> = {}) {
@@ -102,6 +106,10 @@ export class ToolbarWidget {
 
     get domToggled(): Delegate<boolean> {
         return this._domToggled;
+    }
+
+    get languageChanged(): Delegate<string> {
+        return this._languageChanged;
     }
 
     get domEnabled(): boolean {
@@ -173,6 +181,9 @@ export class ToolbarWidget {
 
         // DOM (Orderbook) toggle button
         this._createDomButton();
+
+        // Language Selector
+        this._createLanguageSelector();
 
         container.insertBefore(this._element, container.firstChild);
     }
@@ -258,7 +269,7 @@ export class ToolbarWidget {
 
         this._options.timeframes!.forEach(tf => {
             const isActive = tf === this._activeTimeframe;
-            const btn = this._createButton(tf, isActive);
+            const btn = this._createButton(t(tf), isActive);
             btn.dataset.timeframe = tf;
             btn.dataset.active = isActive.toString();
             btn.addEventListener('click', () => {
@@ -280,13 +291,13 @@ export class ToolbarWidget {
         `;
 
         const types: { type: ChartType; icon: string; title: string }[] = [
-            { type: 'candles', icon: TOOLBAR_ICONS.candles, title: 'Candlestick' },
-            { type: 'line', icon: TOOLBAR_ICONS.line, title: 'Line' },
-            { type: 'area', icon: TOOLBAR_ICONS.area, title: 'Area' },
+            { type: 'candles', icon: TOOLBAR_ICONS.candles, title: t('Candlestick') },
+            { type: 'line', icon: TOOLBAR_ICONS.line, title: t('Line') },
+            { type: 'area', icon: TOOLBAR_ICONS.area, title: t('Area') },
             {
                 type: 'heiken-ashi',
                 icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor"><path d="M9 8v12h3V8H9zm-1-.502C8 7.223 8.215 7 8.498 7h4.004c.275 0 .498.22.498.498v13.004a.493.493 0 0 1-.498.498H8.498A.496.496 0 0 1 8 20.502V7.498z"></path><path d="M10 4h1v3.5h-1z"></path><path d="M17 6v6h3V6h-3zm-1-.5c0-.276.215-.5.498-.5h4.004c.275 0 .498.23.498.5v7c0 .276-.215.5-.498.5h-4.004a.503.503 0 0 1-.498-.5v-7z"></path><path d="M18 2h1v3.5h-1z"></path></svg>`,
-                title: 'Heiken Ashi'
+                title: t('Heiken Ashi')
             },
         ];
 
@@ -327,7 +338,7 @@ export class ToolbarWidget {
         btn.appendChild(icon);
 
         const label = document.createElement('span');
-        label.textContent = 'Indicators';
+        label.textContent = t('Indicators');
         btn.appendChild(label);
 
         btn.addEventListener('mouseenter', () => {
@@ -348,7 +359,7 @@ export class ToolbarWidget {
     private _createDomButton(): void {
         const btn = document.createElement('button');
         btn.className = 'toolbar-dom';
-        btn.title = 'Toggle Orderbook Depth (DOM)';
+        btn.title = t('Toggle Orderbook Depth (DOM)');
         btn.style.cssText = `
             display: flex;
             align-items: center;
@@ -392,6 +403,48 @@ export class ToolbarWidget {
         this._element!.appendChild(btn);
     }
 
+    private _createLanguageSelector(): void {
+        const container = document.createElement('div');
+        container.style.cssText = `
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+        `;
+
+        const select = document.createElement('select');
+        select.className = 'toolbar-lang-select';
+        select.style.cssText = `
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #d1d4dc;
+            border-radius: 4px;
+            padding: 4px;
+            font-size: 11px;
+            outline: none;
+            cursor: pointer;
+        `;
+
+        const opts = [
+            { val: 'en', label: '🇺🇸 EN' },
+            { val: 'tr', label: '🇹🇷 TR' }
+        ];
+
+        opts.forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.val;
+            opt.textContent = o.label;
+            select.appendChild(opt);
+        });
+
+        select.value = this._options.locale || 'en';
+
+        select.addEventListener('change', () => {
+            this._languageChanged.fire(select.value);
+        });
+
+        container.appendChild(select);
+        this._element!.appendChild(container);
+    }
 
     private _createButton(text: string, active: boolean = false): HTMLButtonElement {
         const btn = document.createElement('button');
@@ -503,6 +556,7 @@ export class ToolbarWidget {
         this._chartTypeChanged.destroy();
         this._indicatorsClicked.destroy();
         this._domToggled.destroy();
+        this._languageChanged.destroy();
 
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);

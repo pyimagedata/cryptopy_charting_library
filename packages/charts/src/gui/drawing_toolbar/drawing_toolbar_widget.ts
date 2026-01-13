@@ -3,6 +3,7 @@
  */
 
 import { Delegate } from '../../helpers/delegate';
+import { t } from '../../helpers/translations';
 
 // SVG Icons for drawing tools
 const DRAWING_ICONS = {
@@ -364,10 +365,21 @@ export class DrawingToolbarWidget {
 
     constructor(container: HTMLElement) {
         // Initialize default tools for each group
-        TOOL_GROUPS.forEach(group => {
+        this._getLocalizedGroups().forEach(group => {
             this._activeGroupTools.set(group.id, group.tools[0].id);
         });
         this._createElement(container);
+    }
+
+    private _getLocalizedGroups(): ToolGroup[] {
+        return TOOL_GROUPS.map(group => ({
+            ...group,
+            name: t(group.name),
+            tools: group.tools.map(tool => ({
+                ...tool,
+                name: t(tool.name)
+            }))
+        }));
     }
 
     // --- Public getters ---
@@ -626,7 +638,7 @@ export class DrawingToolbarWidget {
         container.appendChild(this._flyoutContainer);
 
         // Create group buttons
-        TOOL_GROUPS.forEach(group => {
+        this._getLocalizedGroups().forEach(group => {
             this._createGroupButton(group);
         });
 
@@ -956,12 +968,11 @@ export class DrawingToolbarWidget {
         this._visibilityToggled.destroy();
         this._deleteAllClicked.destroy();
 
-        if (this._flyoutContainer && this._flyoutContainer.parentNode) {
-            this._flyoutContainer.parentNode.removeChild(this._flyoutContainer);
-        }
-
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);
+        }
+        if (this._flyoutContainer && this._flyoutContainer.parentNode) {
+            this._flyoutContainer.parentNode.removeChild(this._flyoutContainer);
         }
         this._element = null;
         this._flyoutContainer = null;

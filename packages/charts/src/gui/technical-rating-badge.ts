@@ -6,6 +6,7 @@
  */
 
 import { TechnicalRating, getRatingLabel, fetchTechnicalRating } from '../services/technical-rating-service';
+import { t } from '../helpers/translations';
 
 /**
  * Technical Rating Badge Widget
@@ -177,11 +178,11 @@ export class TechnicalRatingBadge {
 
         this._element.innerHTML = `
             <div class="rating-card">
-                <span class="rating-label">Technical</span>
+                <span class="rating-label">${t('Technical')}</span>
                 <span class="rating-value ${techClass}">${techLabel.text}</span>
             </div>
             <div class="rating-card">
-                <span class="rating-label">MA Rating</span>
+                <span class="rating-label">${t('MA Rating')}</span>
                 <span class="rating-value ${maClass}">${maLabel.text}</span>
             </div>
         `;

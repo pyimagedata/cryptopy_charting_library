@@ -1,5 +1,6 @@
 import { ChartModel, ChartModelOptions, InvalidateReason } from '../model/chart-model';
 import { Delegate } from '../helpers/delegate';
+import { t, setLanguage, getCurrentLanguage } from '../helpers/translations';
 import { CandlestickSeries, CandlestickSeriesOptions } from '../model/candlestick-series';
 import { LineSeries, LineSeriesOptions } from '../model/line-series';
 import { AreaSeries, AreaSeriesOptions } from '../model/area-series';
@@ -97,6 +98,7 @@ export class ChartWidget implements Disposable {
     private _width: number = 0;
     private _height: number = 0;
     private _timestamps: number[] = [];
+    private _activeChartType: ChartType = 'candles';
     private _drawScheduled: boolean = false;
 
     // Interaction state
@@ -155,7 +157,12 @@ export class ChartWidget implements Disposable {
 
 
 
-    constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> & { symbol?: string, timeframe?: string, exchange?: string } = {}) {
+    constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> & { symbol?: string, timeframe?: string, exchange?: string, locale?: string } = {}) {
+        // Set language first
+        if (options.locale) {
+            setLanguage(options.locale as any);
+        }
+
         // Resolve container
         if (typeof container === 'string') {
             const el = document.querySelector(container);
@@ -630,55 +637,12 @@ export class ChartWidget implements Disposable {
         this._technicalRatingBadge = new TechnicalRatingBadge(this._chartRow);
 
         // Create toolbar first (inserts at top)
-        this._toolbarWidget = new ToolbarWidget(this._element, {
-            symbol: this._model.symbol,
-            timeframe: this._model.timeframe,
-            chartType: 'candles',
-        });
-
-        // Connect toolbar events
-        this._toolbarWidget.timeframeChanged.subscribe((tf) => {
-            this._onTimeframeChange(tf);
-        });
-
-        this._toolbarWidget.chartTypeChanged.subscribe((type) => {
-            this._onChartTypeChange(type);
-        });
-
-        this._toolbarWidget.symbolClicked.subscribe(() => {
-            this._symbolSearch?.show();
-        });
+        this._createTopToolbar();
 
         // Initialize Symbol Search Modal
         this._symbolSearch = new SymbolSearch();
         this._symbolSearch.symbolSelected.subscribe((symbol: SymbolInfo) => {
             this._onSymbolChange(symbol);
-        });
-
-        this._toolbarWidget.indicatorsClicked.subscribe(() => {
-            this._indicatorSearchModal?.show();
-        });
-
-        // DOM toggle
-        this._toolbarWidget.domToggled.subscribe((enabled) => {
-            if (this._heatmapRenderer) {
-                this._heatmapRenderer.enabled = enabled;
-
-                if (enabled) {
-                    // Subscribe
-                    this._dataProvider?.subscribeOrderbook(this._currentSymbol, this._onOrderbookUpdate);
-                } else {
-                    // Unsubscribe
-                    if (this._dataProvider instanceof BinanceSpotProvider) { // Type guard if needed
-                        this._dataProvider.unsubscribeOrderbook(this._currentSymbol);
-                    } else {
-                        // Generic fallback if provider supports unsubscribe
-                        (this._dataProvider as any)?.unsubscribeOrderbook?.(this._currentSymbol);
-                    }
-                }
-
-                this._scheduleDraw();
-            }
         });
 
         // Create widgets
@@ -714,122 +678,8 @@ export class ChartWidget implements Disposable {
         });
 
         // Create drawing toolbar (left side)
-        this._drawingToolbarWidget = new DrawingToolbarWidget(this._element);
-        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
-            // Map toolbar tool names to drawing modes
-            const toolToMode: Record<string, DrawingMode> = {
-                'cursor': 'none',
-                'crosshair': 'none',
-                'trendLine': 'trendLine',
-                'horizontalLine': 'horizontalLine',
-                'verticalLine': 'verticalLine',
-                'ray': 'ray',
-                'extendedLine': 'extendedLine',
-                'parallelChannel': 'parallelChannel',
-                'regressionTrend': 'regressionTrend',
-                'arrow': 'arrow',
-                'arrowMarker': 'arrowMarker',
-                'arrowMarkedUp': 'arrowMarkedUp',
-                'arrowMarkedDown': 'arrowMarkedDown',
-                'rectangle': 'rectangle',
-                'rotatedRectangle': 'rotatedRectangle',
-                'ellipse': 'ellipse',
-                'triangle': 'triangle',
-                'arc': 'arc',
-                'path': 'path',
-                'circle': 'circle',
-                'polyline': 'polyline',
-                'curve': 'curve',
-                'xabcdPattern': 'xabcdPattern',
-                'fibRetracement': 'fibRetracement',
-                'fibExtension': 'fibExtension',
-                'fibChannel': 'fibChannel',
-                'brush': 'brush',
-                'highlighter': 'highlighter',
-                'infoLine': 'infoLine',
-                'trendAngle': 'trendAngle',
-                'horizontalRay': 'horizontalRay',
-                'crossLine': 'crossLine',
-                'xabcd': 'xabcdPattern',
-                'elliotImpulse': 'elliotImpulse',
-                'elliotCorrection': 'elliotCorrection',
-                'threeDrives': 'threeDrives',
-                'headShoulders': 'headShoulders',
-                'abcd': 'abcd',
-                'trianglePattern': 'trianglePattern',
-                'longPosition': 'longPosition',
-                'shortPosition': 'shortPosition',
-                'priceRange': 'priceRange',
-                'dateRange': 'dateRange',
-                'datePriceRange': 'datePriceRange',
-                'text': 'text',
-                'callout': 'callout',
-                'priceLabel': 'priceLabel',
-                'flagMarked': 'flagMarked',
-                'sticker': 'sticker',
-            };
-
-            // Handle sticker tools (they all share 'sticker' mode but have different content)
-            let mode = toolToMode[tool];
-            if (!mode && tool.startsWith('sticker-')) {
-                mode = 'sticker';
-                const emoji = this._drawingToolbarWidget?.getToolIcon(tool);
-                if (emoji) {
-                    this._drawingManager.stickerContent = emoji;
-                }
-            }
-
-            this._drawingManager.setMode(mode || 'none');
-            console.log('Drawing mode:', mode, mode === 'sticker' ? `Content: ${this._drawingManager.stickerContent}` : '');
-        });
-        this._drawingToolbarWidget.deleteAllClicked.subscribe(() => {
-            this._drawingManager.deleteAll();
-        });
-        this._drawingToolbarWidget.lockToggled.subscribe((isLocked) => {
-            this._drawingManager.isLocked = isLocked;
-            this._scheduleDraw();
-        });
-        this._drawingToolbarWidget.visibilityToggled.subscribe((isHidden) => {
-            this._drawingManager.drawings.forEach(d => d.visible = !isHidden);
-            this._scheduleDraw();
-        });
-        this._drawingToolbarWidget.magnetToggled.subscribe((_isOn) => {
-            // Magnet is handled via toolChanged, this is just for compatibility
-        });
-
-        // Listen to tool changes for magnet handling
-        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
-            if (tool === 'weakMagnet') {
-                // Toggle weak magnet
-                if (this._drawingManager.magnetMode === 'weak') {
-                    this._drawingManager.magnetMode = 'none';
-                    this._drawingToolbarWidget!.magnetMode = 'none';
-                    console.log('Magnet: off');
-                } else {
-                    this._drawingManager.magnetMode = 'weak';
-                    this._drawingToolbarWidget!.magnetMode = 'weak';
-                    console.log('Magnet: weak');
-                }
-            } else if (tool === 'strongMagnet') {
-                // Toggle strong magnet
-                if (this._drawingManager.magnetMode === 'strong') {
-                    this._drawingManager.magnetMode = 'none';
-                    this._drawingToolbarWidget!.magnetMode = 'none';
-                    console.log('Magnet: off');
-                } else {
-                    this._drawingManager.magnetMode = 'strong';
-                    this._drawingToolbarWidget!.magnetMode = 'strong';
-                    console.log('Magnet: strong');
-                }
-            }
-        });
-
-        // Sync toolbar buttons when drawing mode changes (e.g., after drawing completion)
-        this._drawingManager.modeChanged.subscribe((mode) => {
-            if (mode === 'none') {
-                this._drawingToolbarWidget?.setActiveTool('crosshair');
-            }
-        });
+        // Initialize Drawing Toolbar
+        this._createDrawingToolbar();
 
         // Create floating attribute bar (shown when drawing is selected)
         this._floatingAttributeBar = new FloatingAttributeBar(this._element);
@@ -920,6 +770,7 @@ export class ChartWidget implements Disposable {
     }
 
     private _onChartTypeChange(type: ChartType): void {
+        this._activeChartType = type;
         console.log('📊 Chart type changed:', type);
 
         // Get current data from existing series
@@ -1098,45 +949,7 @@ export class ChartWidget implements Disposable {
 
         // Custom context menu
         if (this._element) {
-            this._contextMenu = new ContextMenu({
-                items: [
-                    {
-                        id: 'reset',
-                        label: 'Reset chart view',
-                        icon: ICONS.reset,
-                        shortcut: '⌥ R',
-                        action: () => this._onContextResetChart()
-                    },
-                    { id: 'sep1', label: '', separator: true },
-                    {
-                        id: 'copy-price',
-                        label: 'Copy price',
-                        icon: ICONS.copy,
-                        action: () => this._onContextCopyPrice()
-                    },
-                    { id: 'sep2', label: '', separator: true },
-                    {
-                        id: 'screenshot',
-                        label: 'Take a snapshot',
-                        icon: ICONS.screenshot,
-                        shortcut: '⌥ S',
-                        action: () => this._onContextScreenshot()
-                    },
-                    {
-                        id: 'fullscreen',
-                        label: 'Fullscreen',
-                        icon: ICONS.fullscreen,
-                        action: () => this._onContextFullscreen()
-                    },
-                    { id: 'sep3', label: '', separator: true },
-                    {
-                        id: 'settings',
-                        label: 'Settings...',
-                        icon: ICONS.settings,
-                        action: () => this._onContextSettings()
-                    }
-                ]
-            });
+            this._createContextMenu();
 
             this._element.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
@@ -2033,6 +1846,240 @@ export class ChartWidget implements Disposable {
         this._chartRow = null;
         this._timeAxisRow = null;
         this._indicatorContainer = null;
+    }
+
+    private _createContextMenu(): void {
+        this._contextMenu = new ContextMenu({
+            items: [
+                {
+                    id: 'reset',
+                    label: t('Reset chart view'),
+                    icon: ICONS.reset,
+                    shortcut: '⌥ R',
+                    action: () => this._onContextResetChart()
+                },
+                { id: 'sep1', label: '', separator: true },
+                {
+                    id: 'copy-price',
+                    label: t('Copy price'),
+                    icon: ICONS.copy,
+                    action: () => this._onContextCopyPrice()
+                },
+                { id: 'sep2', label: '', separator: true },
+                {
+                    id: 'screenshot',
+                    label: t('Take a snapshot'),
+                    icon: ICONS.screenshot,
+                    shortcut: '⌥ S',
+                    action: () => this._onContextScreenshot()
+                },
+                {
+                    id: 'fullscreen',
+                    label: t('Fullscreen'),
+                    icon: ICONS.fullscreen,
+                    action: () => this._onContextFullscreen()
+                },
+                { id: 'sep3', label: '', separator: true },
+                {
+                    id: 'settings',
+                    label: t('Settings...'),
+                    icon: ICONS.settings,
+                    action: () => this._onContextSettings()
+                }
+            ]
+        });
+    }
+
+    private _onLanguageChange(lang: string): void {
+        console.log('🌐 Language changed to:', lang);
+        setLanguage(lang as any);
+
+        // Refresh rating
+        if (this._technicalRatingBadge && this._model) {
+            this._technicalRatingBadge.updateRating(this._model.symbol, this._model.timeframe, this._currentExchange);
+        }
+
+        // Re-create context menu
+        this._contextMenu = null;
+        this._createContextMenu();
+
+        // Re-create drawing toolbar to update tooltips
+        this._createDrawingToolbar();
+
+        // Re-create top toolbar
+        this._createTopToolbar();
+    }
+
+    private _createTopToolbar(): void {
+        if (this._toolbarWidget) {
+            this._toolbarWidget.dispose();
+        }
+
+        // Create toolbar (inserts at top)
+        this._toolbarWidget = new ToolbarWidget(this._element!, {
+            symbol: this._model.symbol,
+            timeframe: this._model.timeframe,
+            chartType: this._activeChartType,
+            locale: getCurrentLanguage(),
+        });
+
+        // Listen for language changes
+        this._toolbarWidget.languageChanged.subscribe((lang: string) => {
+            this._onLanguageChange(lang);
+        });
+
+        // Connect toolbar events
+        this._toolbarWidget.timeframeChanged.subscribe((tf) => {
+            this._onTimeframeChange(tf);
+        });
+
+        this._toolbarWidget.chartTypeChanged.subscribe((type) => {
+            this._onChartTypeChange(type);
+        });
+
+        this._toolbarWidget.symbolClicked.subscribe(() => {
+            this._symbolSearch?.show();
+        });
+
+        this._toolbarWidget.indicatorsClicked.subscribe(() => {
+            this._indicatorSearchModal?.show();
+        });
+
+        // DOM toggle
+        this._toolbarWidget.domToggled.subscribe((enabled) => {
+            if (this._heatmapRenderer) {
+                this._heatmapRenderer.enabled = enabled;
+
+                if (enabled) {
+                    // Subscribe
+                    this._dataProvider?.subscribeOrderbook(this._currentSymbol, this._onOrderbookUpdate);
+                } else {
+                    // Unsubscribe
+                    if (this._dataProvider instanceof BinanceSpotProvider) {
+                        this._dataProvider.unsubscribeOrderbook(this._currentSymbol);
+                    } else {
+                        (this._dataProvider as any)?.unsubscribeOrderbook?.(this._currentSymbol);
+                    }
+                }
+
+                this._scheduleDraw();
+            }
+        });
+    }
+
+    private _createDrawingToolbar(): void {
+        if (this._drawingToolbarWidget) {
+            this._drawingToolbarWidget.dispose();
+        }
+
+        this._drawingToolbarWidget = new DrawingToolbarWidget(this._element!);
+        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
+            // Map toolbar tool names to drawing modes
+            const toolToMode: Record<string, DrawingMode> = {
+                'cursor': 'none',
+                'crosshair': 'none',
+                'trendLine': 'trendLine',
+                'horizontalLine': 'horizontalLine',
+                'verticalLine': 'verticalLine',
+                'ray': 'ray',
+                'extendedLine': 'extendedLine',
+                'parallelChannel': 'parallelChannel',
+                'regressionTrend': 'regressionTrend',
+                'arrow': 'arrow',
+                'arrowMarker': 'arrowMarker',
+                'arrowMarkedUp': 'arrowMarkedUp',
+                'arrowMarkedDown': 'arrowMarkedDown',
+                'rectangle': 'rectangle',
+                'rotatedRectangle': 'rotatedRectangle',
+                'ellipse': 'ellipse',
+                'triangle': 'triangle',
+                'arc': 'arc',
+                'path': 'path',
+                'circle': 'circle',
+                'polyline': 'polyline',
+                'curve': 'curve',
+                'xabcdPattern': 'xabcdPattern',
+                'fibRetracement': 'fibRetracement',
+                'fibExtension': 'fibExtension',
+                'fibChannel': 'fibChannel',
+                'brush': 'brush',
+                'highlighter': 'highlighter',
+                'infoLine': 'infoLine',
+                'trendAngle': 'trendAngle',
+                'horizontalRay': 'horizontalRay',
+                'crossLine': 'crossLine',
+                'xabcd': 'xabcdPattern',
+                'elliotImpulse': 'elliotImpulse',
+                'elliotCorrection': 'elliotCorrection',
+                'threeDrives': 'threeDrives',
+                'headShoulders': 'headShoulders',
+                'abcd': 'abcd',
+                'trianglePattern': 'trianglePattern',
+                'longPosition': 'longPosition',
+                'shortPosition': 'shortPosition',
+                'priceRange': 'priceRange',
+                'dateRange': 'dateRange',
+                'datePriceRange': 'datePriceRange',
+                'text': 'text',
+                'callout': 'callout',
+                'priceLabel': 'priceLabel',
+                'flagMarked': 'flagMarked',
+                'sticker': 'sticker',
+            };
+
+            // Handle sticker tools
+            let mode = toolToMode[tool];
+            if (!mode && tool.startsWith('sticker-')) {
+                mode = 'sticker';
+                const emoji = this._drawingToolbarWidget?.getToolIcon(tool);
+                if (emoji) {
+                    this._drawingManager.stickerContent = emoji;
+                }
+            }
+
+            this._drawingManager.setMode(mode || 'none');
+        });
+
+        this._drawingToolbarWidget.deleteAllClicked.subscribe(() => {
+            this._drawingManager.deleteAll();
+        });
+        this._drawingToolbarWidget.lockToggled.subscribe((isLocked) => {
+            this._drawingManager.isLocked = isLocked;
+            this._scheduleDraw();
+        });
+        this._drawingToolbarWidget.visibilityToggled.subscribe((isHidden) => {
+            this._drawingManager.drawings.forEach(d => d.visible = !isHidden);
+            this._scheduleDraw();
+        });
+        this._drawingToolbarWidget.magnetToggled.subscribe((_isOn) => {
+            // Magnet is handled via toolChanged
+        });
+
+        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
+            if (tool === 'weakMagnet') {
+                if (this._drawingManager.magnetMode === 'weak') {
+                    this._drawingManager.magnetMode = 'none';
+                    this._drawingToolbarWidget!.magnetMode = 'none';
+                } else {
+                    this._drawingManager.magnetMode = 'weak';
+                    this._drawingToolbarWidget!.magnetMode = 'weak';
+                }
+            } else if (tool === 'strongMagnet') {
+                if (this._drawingManager.magnetMode === 'strong') {
+                    this._drawingManager.magnetMode = 'none';
+                    this._drawingToolbarWidget!.magnetMode = 'none';
+                } else {
+                    this._drawingManager.magnetMode = 'strong';
+                    this._drawingToolbarWidget!.magnetMode = 'strong';
+                }
+            }
+        });
+
+        this._drawingManager.modeChanged.subscribe((mode) => {
+            if (mode === 'none') {
+                this._drawingToolbarWidget?.setActiveTool('crosshair');
+            }
+        });
     }
 }
 

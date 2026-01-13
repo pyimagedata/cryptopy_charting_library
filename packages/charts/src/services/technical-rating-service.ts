@@ -5,6 +5,8 @@
  * Returns only: Recommend.All and Recommend.MA
  */
 
+import { t } from '../helpers/translations';
+
 export interface TechnicalRating {
     technicalRating: number;      // Recommend.All: -1 to +1
     maRating: number;             // Recommend.MA: -1 to +1
@@ -21,15 +23,15 @@ export interface RatingLabel {
  */
 export function getRatingLabel(rating: number): RatingLabel {
     if (rating <= -0.5) {
-        return { text: 'Strong Sell', color: '#ffffff', bgColor: '#ef5350' };
+        return { text: t('Strong Sell'), color: '#ffffff', bgColor: '#ef5350' };
     } else if (rating <= -0.1) {
-        return { text: 'Sell', color: '#ffffff', bgColor: '#ff7043' };
+        return { text: t('Sell'), color: '#ffffff', bgColor: '#ff7043' };
     } else if (rating <= 0.1) {
-        return { text: 'Neutral', color: '#131722', bgColor: '#9e9e9e' };
+        return { text: t('Neutral'), color: '#131722', bgColor: '#9e9e9e' };
     } else if (rating <= 0.5) {
-        return { text: 'Buy', color: '#ffffff', bgColor: '#66bb6a' };
+        return { text: t('Buy'), color: '#ffffff', bgColor: '#66bb6a' };
     } else {
-        return { text: 'Strong Buy', color: '#ffffff', bgColor: '#26a69a' };
+        return { text: t('Strong Buy'), color: '#ffffff', bgColor: '#26a69a' };
     }
 }
 
