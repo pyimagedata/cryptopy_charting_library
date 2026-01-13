@@ -59,14 +59,22 @@ export async function fetchTechnicalRating(
 
     // Normalize symbol
     let normalizedSymbol = symbol.toUpperCase();
-    if (normalizedSymbol.includes(':')) {
-        normalizedSymbol = normalizedSymbol.split(':')[1];
-    }
-    if (!normalizedSymbol.endsWith('USDT') && !normalizedSymbol.endsWith('PERP')) {
-        normalizedSymbol += 'USDT';
+    if (normalizedSymbol.includes(":")) {
+        normalizedSymbol = normalizedSymbol.split(":")[1];
     }
 
-    const ticker = `${exchange}:${normalizedSymbol}`;
+    let url = "https://scanner.tradingview.com/crypto/scan";
+    let ticker = "";
+
+    if (exchange === "BIST") {
+        url = "https://scanner.tradingview.com/turkey/scan";
+        ticker = `BIST:${normalizedSymbol}`;
+    } else {
+        if (!normalizedSymbol.endsWith("USDT") && !normalizedSymbol.endsWith("PERP") && !normalizedSymbol.endsWith("USD") && !normalizedSymbol.endsWith("BTC")) {
+            normalizedSymbol += "USDT";
+        }
+        ticker = `${exchange}:${normalizedSymbol}`;
+    }
 
     const requestBody = {
         symbols: {
@@ -78,33 +86,27 @@ export async function fetchTechnicalRating(
             `Recommend.MA${tvTimeframe}`
         ]
     };
-
     try {
-        // Make the request WITHOUT Content-Type header to avoid preflight
-        const response = await fetch('https://scanner.tradingview.com/crypto/scan', {
-            method: 'POST',
+        const response = await fetch(url, {
+            method: "POST",
             body: JSON.stringify(requestBody)
         });
-
         if (!response.ok) {
-            console.warn('TradingView rating fetch failed:', response.status);
+            console.warn("TradingView rating fetch failed:", response.status);
             return null;
         }
-
         const data = await response.json();
-
         if (data.data && data.data.length > 0 && data.data[0].d) {
             const d = data.data[0].d;
-            console.log('🏷️ Rating data received:', d);
+            console.log("\u{1F3F7}\uFE0F Rating data received:", d);
             return {
                 technicalRating: d[0] ?? 0,
                 maRating: d[1] ?? 0
             };
         }
-
         return null;
     } catch (error) {
-        console.warn('TradingView rating fetch error:', error);
+        console.warn("TradingView rating fetch error:", error);
         return null;
     }
 }

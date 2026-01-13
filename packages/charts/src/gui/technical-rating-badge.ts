@@ -132,14 +132,14 @@ export class TechnicalRatingBadge {
     /**
      * Update rating display
      */
-    async updateRating(symbol: string, timeframe: string): Promise<void> {
+    async updateRating(symbol: string, timeframe: string, exchange: string = 'BINANCE'): Promise<void> {
         if (this._isLoading) return;
 
         this._isLoading = true;
-        console.log(`🏷️ Fetching rating for ${symbol} @ ${timeframe}`);
+        console.log(`🏷️ Fetching rating for ${symbol} @ ${timeframe} (${exchange})`);
 
         try {
-            const rating = await fetchTechnicalRating(symbol, 'BINANCE', timeframe);
+            const rating = await fetchTechnicalRating(symbol, exchange, timeframe);
             console.log('🏷️ Rating received:', rating);
             this._currentRating = rating;
             this._render();

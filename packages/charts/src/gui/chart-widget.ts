@@ -30,12 +30,13 @@ import {
     OkxFuturesProvider,
     Orderbook
 } from '../data-providers';
+import { BistDataProvider } from '../data-providers/stocks/bist';
 import { OrderbookHeatmapRenderer } from '../renderers/orderbook-heatmap-renderer';
 
 // Type for all orderbook providers
 type OrderbookProvider = BinanceSpotProvider | BinanceFuturesProvider |
     BybitSpotProvider | BybitFuturesProvider |
-    OkxSpotProvider | OkxFuturesProvider;
+    OkxSpotProvider | OkxFuturesProvider | BistDataProvider;
 import {
     ChartWidgetContext,
     handleWheel as handleWheelEvent,
@@ -154,7 +155,7 @@ export class ChartWidget implements Disposable {
 
 
 
-    constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> = {}) {
+    constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> & { symbol?: string, timeframe?: string, exchange?: string } = {}) {
         // Resolve container
         if (typeof container === 'string') {
             const el = document.querySelector(container);
@@ -167,9 +168,14 @@ export class ChartWidget implements Disposable {
         // Create model
         this._model = new ChartModel(options);
 
+        const initialSymbol = options.symbol || 'BTCUSDT';
+        const initialTimeframe = options.timeframe || '1h';
+        const initialExchange = options.exchange || 'BINANCE';
+        this._currentExchange = initialExchange;
+
         // Set initial symbol/timeframe in model
-        this._model.setSymbol('BTCUSDT');
-        this._model.setTimeframe('1h');
+        this._model.setSymbol(initialSymbol);
+        this._model.setTimeframe(initialTimeframe);
 
         // Initialize indicator manager
         this._indicatorManager = new IndicatorManager();
@@ -204,7 +210,7 @@ export class ChartWidget implements Disposable {
         this._setupEventListeners();
 
         // Now that UI is created, load saved state for symbol
-        this._chartStateManager.setSymbol('BTCUSDT');
+        this._chartStateManager.setSymbol(initialSymbol);
 
         // Initialize indicator search modal
         this._indicatorSearchModal = new IndicatorSearchModal(this._container);
@@ -240,7 +246,7 @@ export class ChartWidget implements Disposable {
         this._updateSize();
 
         // Fetch initial technical rating
-        this._technicalRatingBadge?.updateRating(this._model.symbol, this._model.timeframe);
+        this._technicalRatingBadge?.updateRating(this._model.symbol, this._model.timeframe, this._currentExchange);
 
         // Initialize data provider and orderbook heatmap
         this._initializeDataProvider();
@@ -261,8 +267,21 @@ export class ChartWidget implements Disposable {
      * Initialize the data provider based on symbol type
      */
     private async _initializeDataProvider(): Promise<void> {
-        // For now, use Spot provider. Later we can detect if symbol is futures
-        this._dataProvider = new BinanceSpotProvider({ maxOrderbookLevels: 5000 });
+        // Disconnect existing
+        if (this._dataProvider) {
+            // Check if disconnect exists (TS safety)
+            if ('disconnect' in this._dataProvider) {
+                (this._dataProvider as any).disconnect();
+            }
+        }
+
+        if (this._currentExchange === 'BIST') {
+            this._dataProvider = new BistDataProvider();
+        } else {
+            // For now, use Spot provider. Later we can detect if symbol is futures
+            this._dataProvider = new BinanceSpotProvider({ maxOrderbookLevels: 5000 });
+        }
+
         this._heatmapRenderer = new OrderbookHeatmapRenderer();
         if (this._heatmapRenderer && this._toolbarWidget) {
             this._heatmapRenderer.enabled = this._toolbarWidget.domEnabled;
@@ -612,8 +631,8 @@ export class ChartWidget implements Disposable {
 
         // Create toolbar first (inserts at top)
         this._toolbarWidget = new ToolbarWidget(this._element, {
-            symbol: 'BTCUSDT',
-            timeframe: '1h',
+            symbol: this._model.symbol,
+            timeframe: this._model.timeframe,
             chartType: 'candles',
         });
 
@@ -959,7 +978,7 @@ export class ChartWidget implements Disposable {
         this._timeframeChanged.fire(timeframe);
 
         // Update technical rating badge
-        this._technicalRatingBadge?.updateRating(this._model.symbol, timeframe);
+        this._technicalRatingBadge?.updateRating(this._model.symbol, timeframe, this._currentExchange);
     }
 
     private _onSymbolChange(symbol: SymbolInfo): void {
@@ -986,7 +1005,7 @@ export class ChartWidget implements Disposable {
         } as any);
 
         // Update technical rating badge
-        this._technicalRatingBadge?.updateRating(symbol.symbol, this._model.timeframe);
+        this._technicalRatingBadge?.updateRating(symbol.symbol, this._model.timeframe, symbol.exchange || this._currentExchange);
 
         // Switch orderbook provider if exchange changed
         const needsProviderSwitch = symbol.exchange !== this._currentExchange;
@@ -1028,6 +1047,8 @@ export class ChartWidget implements Disposable {
                 return new BinanceSpotProvider({ maxOrderbookLevels: 5000 });
             case 'BINANCE-FUTURES':
                 return new BinanceFuturesProvider({ maxOrderbookLevels: 5000 });
+            case 'BIST':
+                return new BistDataProvider();
             case 'BYBIT':
                 return new BybitSpotProvider({ maxOrderbookLevels: 500 });
             case 'BYBIT-FUTURES':

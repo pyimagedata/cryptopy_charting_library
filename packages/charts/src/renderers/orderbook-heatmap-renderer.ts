@@ -1,8 +1,11 @@
 /**
- * Orderbook Heatmap Renderer - Enhanced CoinGlass Style
+ * Orderbook Heatmap Renderer - KDE with Liquidity Age Analysis
  * 
- * Renders orderbook depth with gradient bars, glow effects, and distinct bid/ask colors.
- * Bars extend from RIGHT edge towards LEFT (next to price axis).
+ * Features:
+ * 1. KDE Splatting: Smooth density visualization.
+ * 2. Order Aging: Tracks how long orders stay in the book.
+ *    - New orders (Flash/Spoof?) -> Bright/Neon colors.
+ *    - Old orders (Stable/Iceberg?) -> Deep/Solid colors.
  */
 
 import { OrderbookData } from '../services/binance-orderbook-service';
@@ -10,85 +13,139 @@ import { PriceScale } from '../model/price-scale';
 
 export interface HeatmapOptions {
     enabled: boolean;
-    bidColor: string;       // Green for bids (buy orders)
-    askColor: string;       // Red for asks (sell orders)
-    highlightColor: string; // Yellow for very large orders
-    maxWidth: number;       // Maximum bar width as percentage of chart (0-1)
-    opacity: number;        // Base opacity
-    highlightThreshold: number; // Volume threshold for highlighting
-    numBuckets: number;     // Number of price buckets
-    glowEnabled: boolean;   // Enable glow effect on large orders
+    bidColor: string;       // Color for bid density (Buy walls)
+    askColor: string;       // Color for ask density (Sell walls)
+    highlightColor: string; // Color for peak density (Liquidity magnets)
+    stableWallColor: string;// Color for STABLE peak density (Real Walls)
+    maxWidth: number;       // Max width of the heatmap as % of chart width (0-1)
+    opacity: number;        // Base opacity of the heatmap
+    bandwidth: number;      // KDE Bandwidth (Smoothing factor) in pixels.
+    threshold: number;      // Noise floor (0-1).
+    maxDensity: 'local' | 'global';
+
+    // Stability Analysis Options
+    useStabilityColoring: boolean; // Enable age-based coloring
+    stableAgeSeconds: number;      // Time in seconds to reach "Full Stability" color
 }
 
 const defaultOptions: HeatmapOptions = {
     enabled: true,
-    bidColor: '#00d4aa',     // Cyan/teal for bids
-    askColor: '#ff6b6b',     // Coral red for asks
-    highlightColor: '#ffd93d', // Gold for huge orders
-    maxWidth: 0.5,           // Max 50% of chart width
-    opacity: 0.6,
-    highlightThreshold: 10,  // 10x average = highlight
-    numBuckets: 80,          // More buckets for finer detail
-    glowEnabled: true,
+    bidColor: '#00d4aa',      // Cyan
+    askColor: '#ff6b6b',      // Red
+    highlightColor: '#ffd93d',// Gold/Yellow
+    stableWallColor: '#d500f9', // Neon Purple
+    maxWidth: 0.2,            // 20% width
+    opacity: 0.8,
+    bandwidth: 4,
+    threshold: 0.05,
+    maxDensity: 'global',
+
+    useStabilityColoring: true,
+    stableAgeSeconds: 30,     // 30 seconds to be considered "Stable"
 };
 
-interface PriceBucket {
-    priceFrom: number;
-    priceTo: number;
-    bidVolume: number;
-    askVolume: number;
-}
-
-/**
- * Orderbook Heatmap Renderer
- */
 export class OrderbookHeatmapRenderer {
     private _options: HeatmapOptions;
     private _orderbook: OrderbookData | null = null;
-    private _enabled: boolean = true;
-    private _cachedBuckets: PriceBucket[] = [];
-    private _cacheMinPrice: number = 0;
-    private _cacheMaxPrice: number = 0;
-    private _midPrice: number = 0;
+
+    // Caching for Global Max Density
+    private _globalMaxDensity: number = 0;
+
+    // Stability Tracking: Map<PriceKey, Timestamp>
+    private _orderAgeMap: Map<string, number> = new Map();
+    private _lastUpdateTime: number = Date.now();
+    private _lastMidPrice: number = 0; // For symbol change detection
+
+    private _maxTrackedLevels = 10000;
+
+    // Buffer Cache (Memory Optimization)
+    private _bidBuffer: Float32Array | null = null;
+    private _askBuffer: Float32Array | null = null;
+    private _bidAgeBuffer: Float32Array | null = null;
+    private _askAgeBuffer: Float32Array | null = null;
+    private _bufferSize: number = 0;
 
     constructor(options: Partial<HeatmapOptions> = {}) {
         this._options = { ...defaultOptions, ...options };
     }
 
-    get enabled(): boolean {
-        return this._enabled;
-    }
+    get enabled(): boolean { return this._options.enabled; }
+    set enabled(value: boolean) { this._options.enabled = value; }
 
-    set enabled(value: boolean) {
-        this._enabled = value;
-    }
-
-    get options(): HeatmapOptions {
-        return this._options;
+    toggle(): boolean {
+        this._options.enabled = !this._options.enabled;
+        return this._options.enabled;
     }
 
     setOptions(options: Partial<HeatmapOptions>): void {
         this._options = { ...this._options, ...options };
     }
 
-    toggle(): boolean {
-        this._enabled = !this._enabled;
-        return this._enabled;
-    }
-
     updateOrderbook(orderbook: OrderbookData): void {
+        const now = Date.now();
         this._orderbook = orderbook;
-        this._cachedBuckets = []; // Invalidate cache
 
-        // Calculate mid price
+        // 0. Detect Symbol Change (Heuristic)
         if (orderbook.bids.length > 0 && orderbook.asks.length > 0) {
-            this._midPrice = (orderbook.bids[0].price + orderbook.asks[0].price) / 2;
+            const bestBid = orderbook.bids[0].price;
+            const bestAsk = orderbook.asks[0].price;
+            const midPrice = (bestBid + bestAsk) / 2;
+
+            if (this._lastMidPrice > 0) {
+                const change = Math.abs(midPrice - this._lastMidPrice) / this._lastMidPrice;
+                if (change > 0.20) {
+                    this._globalMaxDensity = 0;
+                    this._orderAgeMap.clear();
+                    this._lastMidPrice = midPrice;
+                }
+            } else {
+                this._lastMidPrice = midPrice;
+            }
+            this._lastMidPrice = midPrice;
+        }
+
+        // 1. Update Age Map
+        const currentKeys = new Set<string>();
+
+        // Helper to process levels
+        const processLevel = (price: number) => {
+            const key = price.toFixed(8);
+            currentKeys.add(key);
+
+            if (!this._orderAgeMap.has(key)) {
+                this._orderAgeMap.set(key, now);
+            }
+        };
+
+        orderbook.bids.forEach(b => processLevel(b.price));
+        orderbook.asks.forEach(a => processLevel(a.price));
+
+        // 2. Cleanup Old/Removed Levels
+        if (this._orderAgeMap.size > this._maxTrackedLevels) {
+            this._orderAgeMap.clear();
+        } else {
+            for (const key of this._orderAgeMap.keys()) {
+                if (!currentKeys.has(key)) {
+                    this._orderAgeMap.delete(key);
+                }
+            }
+        }
+
+        this._lastUpdateTime = now;
+
+        // 3. Recalculate Global Max Density (Approx)
+        let maxVol = 0;
+        for (const b of this._orderbook.bids) maxVol = Math.max(maxVol, b.price * b.quantity);
+        for (const a of this._orderbook.asks) maxVol = Math.max(maxVol, a.price * a.quantity);
+
+        if (maxVol > this._globalMaxDensity) {
+            this._globalMaxDensity = maxVol;
+        } else {
+            // Decay global max
+            this._globalMaxDensity = this._globalMaxDensity * 0.999 + maxVol * 0.001;
         }
     }
 
-    /**
-     * Draw heatmap on chart canvas
-     */
     drawOnChart(
         ctx: CanvasRenderingContext2D,
         priceScale: PriceScale,
@@ -96,174 +153,180 @@ export class OrderbookHeatmapRenderer {
         chartHeight: number,
         vpr: number
     ): void {
-        if (!this._enabled || !this._orderbook) {
-            return;
-        }
+        if (!this._options.enabled || !this._orderbook) return;
 
         const visibleRange = priceScale.getVisiblePriceRange();
         if (!visibleRange) return;
 
-        const { min: minPrice, max: maxPrice } = visibleRange;
-        const priceRange = maxPrice - minPrice;
-        if (priceRange <= 0) return;
-
-        const chartWidthPx = chartWidth * vpr;
         const chartHeightPx = chartHeight * vpr;
-        const maxBarWidth = chartWidthPx * this._options.maxWidth;
-        const numBuckets = this._options.numBuckets;
-        const priceStep = priceRange / numBuckets;
+        const chartWidthPx = chartWidth * vpr;
+        const width = chartWidthPx * this._options.maxWidth;
 
-        // Check if we need to rebuild cache
-        const cacheStale = Math.abs(this._cacheMinPrice - minPrice) > priceStep * 0.5 ||
-            Math.abs(this._cacheMaxPrice - maxPrice) > priceStep * 0.5 ||
-            this._cachedBuckets.length === 0;
+        const bufferSize = Math.ceil(chartHeightPx);
 
-        if (cacheStale) {
-            this._rebuildBuckets(minPrice, maxPrice, numBuckets, priceStep);
+        // --- Memory Optimization: Reuse Buffers ---
+        if (bufferSize !== this._bufferSize || !this._bidBuffer) {
+            this._bufferSize = bufferSize;
+            this._bidBuffer = new Float32Array(bufferSize);
+            this._askBuffer = new Float32Array(bufferSize);
+            this._bidAgeBuffer = new Float32Array(bufferSize);
+            this._askAgeBuffer = new Float32Array(bufferSize);
+        } else {
+            // Zero out existing buffers
+            this._bidBuffer!.fill(0);
+            this._askBuffer!.fill(0);
+            this._bidAgeBuffer!.fill(0);
+            this._askAgeBuffer!.fill(0);
         }
 
-        if (this._cachedBuckets.length === 0) return;
+        if (!this._bidBuffer || !this._askBuffer || !this._bidAgeBuffer || !this._askAgeBuffer) return;
 
-        // Find max volume for normalization
-        let maxBidVol = 0, maxAskVol = 0;
-        let totalBidVol = 0, totalAskVol = 0;
-        let bidCount = 0, askCount = 0;
+        // References for speed
+        const bidBuffer = this._bidBuffer;
+        const askBuffer = this._askBuffer;
+        const bidAgeBuffer = this._bidAgeBuffer;
+        const askAgeBuffer = this._askAgeBuffer;
 
-        for (const bucket of this._cachedBuckets) {
-            if (bucket.bidVolume > 0) {
-                maxBidVol = Math.max(maxBidVol, bucket.bidVolume);
-                totalBidVol += bucket.bidVolume;
-                bidCount++;
+        const bandwidth = this._options.bandwidth * vpr;
+        const kernelRadius = Math.ceil(bandwidth * 3);
+        const now = this._lastUpdateTime;
+
+        // Helper: Add Gaussian splat with Age
+        const splat = (yCenter: number, volume: number, price: number, densityBuf: Float32Array, ageBuf: Float32Array) => {
+            const startY = Math.max(0, Math.floor(yCenter - kernelRadius));
+            const endY = Math.min(bufferSize - 1, Math.ceil(yCenter + kernelRadius));
+
+            const sigma2 = bandwidth * bandwidth;
+
+            const key = price.toFixed(8);
+            const birthTime = this._orderAgeMap.get(key) || now;
+            const ageSeconds = (now - birthTime) / 1000;
+
+            for (let y = startY; y <= endY; y++) {
+                const dist = y - yCenter;
+                const weight = Math.exp(-0.5 * (dist * dist) / sigma2);
+
+                const contribution = volume * weight;
+                densityBuf[y] += contribution;
+                ageBuf[y] += ageSeconds * contribution;
             }
-            if (bucket.askVolume > 0) {
-                maxAskVol = Math.max(maxAskVol, bucket.askVolume);
-                totalAskVol += bucket.askVolume;
-                askCount++;
-            }
+        };
+
+        for (const bid of this._orderbook.bids) {
+            const y = priceScale.priceToCoordinate(bid.price);
+            if (y === null) continue;
+            const yPx = y * vpr;
+            if (yPx < -kernelRadius || yPx > chartHeightPx + kernelRadius) continue;
+            splat(yPx, bid.price * bid.quantity, bid.price, bidBuffer, bidAgeBuffer);
         }
 
-        const maxVol = Math.max(maxBidVol, maxAskVol);
-        if (maxVol === 0) return;
-
-        // Calculate percentiles for better normalization
-        const allVolumes: number[] = [];
-        for (const bucket of this._cachedBuckets) {
-            if (bucket.bidVolume > 0) allVolumes.push(bucket.bidVolume);
-            if (bucket.askVolume > 0) allVolumes.push(bucket.askVolume);
+        for (const ask of this._orderbook.asks) {
+            const y = priceScale.priceToCoordinate(ask.price);
+            if (y === null) continue;
+            const yPx = y * vpr;
+            if (yPx < -kernelRadius || yPx > chartHeightPx + kernelRadius) continue;
+            splat(yPx, ask.price * ask.quantity, ask.price, askBuffer, askAgeBuffer);
         }
-        allVolumes.sort((a, b) => a - b);
 
-        // Use 95th percentile as reference for normalization (ignore outliers)
-        const p95Index = Math.floor(allVolumes.length * 0.95);
-        const p95Vol = allVolumes[p95Index] || maxVol;
+        // --- RENDER ---
+        let maxDensity = this._options.maxDensity === 'local' ? 0 : this._globalMaxDensity;
+        if (this._options.maxDensity === 'local') {
+            for (let i = 0; i < bufferSize; i++) maxDensity = Math.max(maxDensity, bidBuffer[i], askBuffer[i]);
+        }
 
-        const barHeight = Math.max(3 * vpr, (chartHeightPx / numBuckets) - 1);
-        const rightMargin = 12 * vpr;
+        if (maxDensity <= 0) maxDensity = 1;
 
         ctx.save();
 
-        // Draw each bucket
-        for (const bucket of this._cachedBuckets) {
-            const centerPrice = (bucket.priceFrom + bucket.priceTo) / 2;
-            const y = priceScale.priceToCoordinate(centerPrice) as number * vpr;
+        for (let y = 0; y < bufferSize; y++) {
+            const bidD = bidBuffer[y];
+            const askD = askBuffer[y];
 
-            if (y < -barHeight || y > chartHeightPx + barHeight) continue;
+            // Noise Filter
+            if (bidD < maxDensity * this._options.threshold && askD < maxDensity * this._options.threshold) continue;
 
-            // Determine if this is bid or ask territory
-            const isBid = centerPrice < this._midPrice;
-            const volume = isBid ? bucket.bidVolume : bucket.askVolume;
+            const isBid = bidD > askD;
+            const density = isBid ? bidD : askD;
+            const ageSum = isBid ? bidAgeBuffer[y] : askAgeBuffer[y];
 
-            if (volume === 0) continue;
+            // Average Age at this pixel
+            const avgAge = density > 0 ? ageSum / density : 0;
 
-            // LOG-SCALE NORMALIZATION: works consistently across all coins
-            // Formula: log(1 + volume) / log(1 + maxVolume)
-            const logNorm = Math.log(1 + volume) / Math.log(1 + p95Vol);
-            const normalizedVol = Math.min(1, logNorm); // cap at 1
-            const barWidth = Math.max(3 * vpr, normalizedVol * maxBarWidth);
+            // Normalize Density
+            const normalized = Math.min(1, density / maxDensity);
+            const visualIntensity = Math.sqrt(normalized);
 
-            // Check if huge order (above 90th percentile)
-            const isHuge = volume > p95Vol;
+            // 1. Base Color Selection
+            let color: string;
 
-            // Choose color
-            let baseColor: string;
-            let opacity: number;
-
-            if (isHuge) {
-                baseColor = this._options.highlightColor;
-                opacity = 0.9;
+            if (visualIntensity > 0.95) {
+                // Peak Density -> Yellow/Gold
+                color = this._options.highlightColor;
             } else {
-                baseColor = isBid ? this._options.bidColor : this._options.askColor;
-                // Opacity also based on log scale for smoother gradient
-                opacity = this._options.opacity * (0.3 + normalizedVol * 0.7);
+                // Normal Density -> Bid/Ask Color
+                color = isBid ? this._options.bidColor : this._options.askColor;
             }
 
-            const x = chartWidthPx - rightMargin - barWidth;
+            // 2. Stability Overlay (Apply to ANY color)
+            if (this._options.useStabilityColoring) {
+                const stability = Math.min(1, avgAge / this._options.stableAgeSeconds);
 
-            // Draw glow for large orders
-            if (this._options.glowEnabled && (isHuge || normalizedVol > 0.6)) {
-                const glowSize = 4 * vpr;
-                ctx.shadowColor = baseColor;
-                ctx.shadowBlur = glowSize;
-                ctx.fillStyle = this._colorWithOpacity(baseColor, opacity * 0.5);
-                ctx.fillRect(x - glowSize, y - barHeight / 2 - glowSize / 2, barWidth + glowSize * 2, barHeight + glowSize);
-                ctx.shadowBlur = 0;
+                // Logic:
+                // Moderate+ Density (>80% visual, ~64% raw) + Stable (>70%) -> PURPLE (Real Wall)
+                // 0.5 was too low (too much purple). 0.8 is a better balance.
+
+                if (visualIntensity > 0.8 && stability > 0.7) {
+                    color = this._options.stableWallColor;
+                }
+                // If Fresh (< 30% stable time), mix with white to create "Neon/Bright" effect
+                else if (stability < 0.3) {
+                    color = this._getStabilityColor(color, stability);
+                }
             }
 
-            // Draw main bar with gradient
-            const gradient = ctx.createLinearGradient(x, 0, x + barWidth, 0);
-            gradient.addColorStop(0, this._colorWithOpacity(baseColor, opacity * 0.3));
-            gradient.addColorStop(0.5, this._colorWithOpacity(baseColor, opacity * 0.8));
-            gradient.addColorStop(1, this._colorWithOpacity(baseColor, opacity));
+            const barWidth = width * visualIntensity;
+            const alpha = this._options.opacity * (0.2 + 0.8 * visualIntensity);
 
-            ctx.fillStyle = gradient;
-            ctx.fillRect(x, y - barHeight / 2, barWidth, barHeight);
-
-            // Add bright edge for depth effect
-            ctx.fillStyle = this._colorWithOpacity(baseColor, opacity * 1.2);
-            ctx.fillRect(x + barWidth - 2 * vpr, y - barHeight / 2, 2 * vpr, barHeight);
+            ctx.fillStyle = this._colorWithOpacity(color, alpha);
+            ctx.fillRect(chartWidthPx - 12 * vpr - barWidth, y, barWidth, 1);
         }
 
         ctx.restore();
     }
 
-    private _rebuildBuckets(minPrice: number, maxPrice: number, numBuckets: number, priceStep: number): void {
-        this._cacheMinPrice = minPrice;
-        this._cacheMaxPrice = maxPrice;
-        this._cachedBuckets = [];
+    private _getStabilityColor(baseColor: string, stability: number): string {
+        if (!baseColor.startsWith('#')) return baseColor;
 
-        if (!this._orderbook) return;
-
-        // Create empty buckets
-        for (let i = 0; i < numBuckets; i++) {
-            this._cachedBuckets.push({
-                priceFrom: minPrice + i * priceStep,
-                priceTo: minPrice + (i + 1) * priceStep,
-                bidVolume: 0,
-                askVolume: 0
-            });
+        if (stability < 0.3) {
+            const mix = (0.3 - stability) * 2;
+            return this._mixColors(baseColor, '#ffffff', mix);
         }
+        return baseColor;
+    }
 
-        // Aggregate bids
-        for (const bid of this._orderbook.bids) {
-            if (bid.price < minPrice || bid.price > maxPrice) continue;
-            const bucketIndex = Math.floor((bid.price - minPrice) / priceStep);
-            if (bucketIndex >= 0 && bucketIndex < numBuckets) {
-                this._cachedBuckets[bucketIndex].bidVolume += bid.quantity * bid.price;
-            }
-        }
+    private _mixColors(c1: string, c2: string, ratio: number): string {
+        const r1 = parseInt(c1.slice(1, 3), 16);
+        const g1 = parseInt(c1.slice(3, 5), 16);
+        const b1 = parseInt(c1.slice(5, 7), 16);
 
-        // Aggregate asks
-        for (const ask of this._orderbook.asks) {
-            if (ask.price < minPrice || ask.price > maxPrice) continue;
-            const bucketIndex = Math.floor((ask.price - minPrice) / priceStep);
-            if (bucketIndex >= 0 && bucketIndex < numBuckets) {
-                this._cachedBuckets[bucketIndex].askVolume += ask.quantity * ask.price;
-            }
-        }
+        const r2 = parseInt(c2.slice(1, 3), 16);
+        const g2 = parseInt(c2.slice(3, 5), 16);
+        const b2 = parseInt(c2.slice(5, 7), 16);
+
+        const r = Math.round(r1 * (1 - ratio) + r2 * ratio);
+        const g = Math.round(g1 * (1 - ratio) + g2 * ratio);
+        const b = Math.round(b1 * (1 - ratio) + b2 * ratio);
+
+        return `rgba(${r}, ${g}, ${b}, 1)`;
     }
 
     private _colorWithOpacity(color: string, opacity: number): string {
         opacity = Math.min(1, Math.max(0, opacity));
+
+        if (color.startsWith('rgba')) {
+            return color.replace(', 1)', `, ${opacity})`).replace(',1)', `, ${opacity})`);
+        }
+
         if (color.startsWith('#')) {
             const r = parseInt(color.slice(1, 3), 16);
             const g = parseInt(color.slice(3, 5), 16);
@@ -273,17 +336,9 @@ export class OrderbookHeatmapRenderer {
         return color;
     }
 
-    getSummary(): { bidVolume: number; askVolume: number; ratio: number; levels: number } | null {
+    getSummary() {
         if (!this._orderbook) return null;
-
-        const bidVolume = this._orderbook.bids.reduce((sum, l) => sum + l.quantity * l.price, 0);
-        const askVolume = this._orderbook.asks.reduce((sum, l) => sum + l.quantity * l.price, 0);
-        const total = bidVolume + askVolume;
-
         return {
-            bidVolume,
-            askVolume,
-            ratio: total > 0 ? bidVolume / total : 0.5,
             levels: this._orderbook.bids.length + this._orderbook.asks.length
         };
     }
