@@ -1908,6 +1908,17 @@ export class ChartWidget implements Disposable {
 
         // Re-create top toolbar
         this._createTopToolbar();
+
+        // Re-create symbol search modal
+        if (this._symbolSearch) {
+            const oldSearch = this._symbolSearch;
+            this._symbolSearch = new SymbolSearch();
+            this._symbolSearch.symbolSelected.subscribe((symbol: SymbolInfo) => {
+                this._onSymbolChange(symbol);
+            });
+            // Remove old modal from DOM if it exists
+            oldSearch.hide();
+        }
     }
 
     private _createTopToolbar(): void {

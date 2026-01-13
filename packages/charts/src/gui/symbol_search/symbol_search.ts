@@ -9,6 +9,7 @@
  */
 
 import { Delegate } from '../../helpers/delegate';
+import { t } from '../../helpers/translations';
 
 // ============================================================================
 // Types
@@ -94,18 +95,21 @@ const MOCK_SYMBOLS: SymbolInfo[] = [
 // Tab Labels
 // ============================================================================
 
-const TAB_LABELS: Record<SymbolType, string> = {
-    'all': 'All',
-    'stocks': 'Stocks',
-    'funds': 'Funds',
-    'futures': 'Futures',
-    'forex': 'Forex',
-    'crypto': 'Crypto',
-    'indices': 'Indices',
-    'bonds': 'Bonds',
-    'economy': 'Economy',
-    'options': 'Options'
-};
+// Tab Labels - Dynamic function for localization
+function getTabLabels(): Record<SymbolType, string> {
+    return {
+        'all': t('All'),
+        'stocks': t('Stocks'),
+        'funds': t('Funds'),
+        'futures': t('Futures'),
+        'forex': t('Forex'),
+        'crypto': t('Crypto'),
+        'indices': t('Indices'),
+        'bonds': t('Bonds'),
+        'economy': t('Economy'),
+        'options': t('Options')
+    };
+}
 
 // ============================================================================
 // Symbol Search Modal
@@ -385,8 +389,8 @@ export class SymbolSearch {
         if (!this._listContainer) return;
         this._listContainer.innerHTML = `
             <div style="padding: 48px; text-align: center; color: #787b86;">
-                <div style="margin-bottom: 12px; font-size: 24px;">⏳ Loading...</div>
-                <div style="font-size: 13px;">Fetching symbols from all exchanges</div>
+                <div style="margin-bottom: 12px; font-size: 24px;">⏳ ${t('Loading...')}</div>
+                <div style="font-size: 13px;">${t('Fetching symbols from all exchanges')}</div>
                 <div style="font-size: 11px; margin-top: 8px; color: #555;">Binance · OKX · Bybit</div>
             </div>
         `;
@@ -466,7 +470,7 @@ export class SymbolSearch {
         `;
 
         const title = document.createElement('h2');
-        title.textContent = 'Symbol Search';
+        title.textContent = t('Symbol Search');
         title.style.cssText = `
             margin: 0;
             font-size: 18px;
@@ -516,7 +520,7 @@ export class SymbolSearch {
 
         this._searchInput = document.createElement('input');
         this._searchInput.type = 'text';
-        this._searchInput.placeholder = 'Symbol, ISIN, or CUSIP';
+        this._searchInput.placeholder = t('Symbol, ISIN, or CUSIP');
         this._searchInput.style.cssText = `
             flex: 1;
             background: transparent;
@@ -544,7 +548,7 @@ export class SymbolSearch {
 
         this._config.categories.forEach(cat => {
             const tab = document.createElement('button');
-            tab.textContent = TAB_LABELS[cat];
+            tab.textContent = getTabLabels()[cat];
             tab.dataset.category = cat;
             tab.style.cssText = `
                 padding: 6px 12px;
@@ -594,7 +598,7 @@ export class SymbolSearch {
         `;
 
         const label = document.createElement('span');
-        label.textContent = 'Exchange:';
+        label.textContent = t('Exchange:');
         label.style.cssText = `
             font-size: 13px;
             color: #787b86;
@@ -653,7 +657,7 @@ export class SymbolSearch {
             selectedBtn.appendChild(arrow);
         };
 
-        updateSelectedBtn('all', null, 'All Exchanges');
+        updateSelectedBtn('all', null, t('All Exchanges'));
 
         // Dropdown menu
         const dropdownMenu = document.createElement('div');
@@ -674,7 +678,7 @@ export class SymbolSearch {
         `;
 
         const exchangeOptions = [
-            { value: 'all', label: 'All Exchanges', logo: null },
+            { value: 'all', label: t('All Exchanges'), logo: null },
             { value: 'BINANCE', label: 'Binance (Spot)', logo: SymbolSearch.EXCHANGE_LOGOS['BINANCE'] },
             { value: 'BINANCE-FUTURES', label: 'Binance Futures', logo: SymbolSearch.EXCHANGE_LOGOS['BINANCE-FUTURES'] },
             { value: 'BYBIT', label: 'Bybit (Spot)', logo: SymbolSearch.EXCHANGE_LOGOS['BYBIT'] },
@@ -824,7 +828,7 @@ export class SymbolSearch {
 
         if (symbols.length === 0) {
             const empty = document.createElement('div');
-            empty.textContent = 'No symbols found';
+            empty.textContent = t('No symbols found');
             empty.style.cssText = `
                 padding: 48px;
                 text-align: center;

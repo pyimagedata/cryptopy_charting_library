@@ -20,6 +20,7 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'Search': 'Ara',
         'Search for symbol...': 'Sembol ara...',
         'No symbols found': 'Sembol bulunamadı',
+        'No symbols match your search': 'Aramanızla eşleşen sembol bulunamadı',
 
         // Chart Types
         'Candlestick': 'Mum',
@@ -114,6 +115,23 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'D': 'G',
         'W': 'H',
         'M': 'A',
+
+        // Symbol Search
+        'Symbol Search': 'Sembol Ara',
+        'Symbol, ISIN, or CUSIP': 'Sembol, ISIN veya CUSIP',
+        'All': 'Tümü',
+        'Stocks': 'Hisseler',
+        'Funds': 'Fonlar',
+        'Futures': 'Vadeli İşlemler',
+        'Forex': 'Döviz',
+        'Crypto': 'Kripto',
+        'Indices': 'Endeksler',
+        'Bonds': 'Tahviller',
+        'Economy': 'Ekonomi',
+        'Options': 'Opsiyonlar',
+        'Exchange:': 'Borsa:',
+        'All Exchanges': 'Tüm Borsalar',
+        'Fetching symbols from all exchanges': 'Tüm borsalardan semboller getiriliyor',
     }
 };
 
