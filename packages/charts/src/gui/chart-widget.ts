@@ -2099,7 +2099,7 @@ export class ChartWidget implements Disposable {
  */
 export function createChart(
     container: HTMLElement | string,
-    options?: Partial<ChartModelOptions>
+    options?: Partial<ChartModelOptions> & { symbol?: string; timeframe?: string; exchange?: string; locale?: string }
 ): ChartWidget {
     return new ChartWidget(container, options);
 }

@@ -82,6 +82,7 @@ export interface ChartModelOptions {
     timeScale: Partial<TimeScaleOptions>;
     rightPriceScale: Partial<PriceScaleOptions>;
     leftPriceScale: Partial<PriceScaleOptions>;
+    locale: 'en' | 'tr';
 }
 
 /**
@@ -139,6 +140,7 @@ export const defaultChartOptions: ChartModelOptions = {
     timeScale: {},
     rightPriceScale: {},
     leftPriceScale: {},
+    locale: 'en',
 };
 
 /**
