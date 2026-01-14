@@ -8,6 +8,7 @@ import { CalloutDrawing } from '../../../drawings/callout-drawing';
 import { PriceLabelDrawing } from '../../../drawings/price-label-drawing';
 import { FlagMarkedDrawing } from '../../../drawings/flag-marked-drawing';
 import { StickerDrawing } from '../../../drawings/sticker-drawing';
+import { fillWithOpacity } from './utils';
 
 /**
  * Draw a Text label
@@ -68,8 +69,7 @@ export function drawText(
         }
 
         if (backgroundVisible && backgroundColor !== 'transparent') {
-            ctx.fillStyle = backgroundColor;
-            ctx.fill();
+            fillWithOpacity(ctx, backgroundColor);
         }
 
         if (borderVisible && borderColor !== 'transparent' && borderWidth > 0) {
@@ -234,8 +234,7 @@ export function drawCallout(
 
     // Fill
     if (backgroundColor !== 'transparent') {
-        ctx.fillStyle = backgroundColor;
-        ctx.fill();
+        fillWithOpacity(ctx, backgroundColor);
     }
 
     // Stroke
@@ -317,8 +316,7 @@ export function drawPriceLabel(
     ctx.lineTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
     ctx.closePath();
-    ctx.fillStyle = backgroundColor;
-    ctx.fill();
+    fillWithOpacity(ctx, backgroundColor);
 
     // Draw rounded rectangle box
     ctx.beginPath();
@@ -332,8 +330,7 @@ export function drawPriceLabel(
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
-    ctx.fillStyle = backgroundColor;
-    ctx.fill();
+    fillWithOpacity(ctx, backgroundColor);
 
     // Text
     ctx.fillStyle = style.color;
