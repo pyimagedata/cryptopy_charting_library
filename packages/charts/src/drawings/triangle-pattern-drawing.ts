@@ -29,6 +29,7 @@ import {
     colorRow,
     lineWidthRow,
     lineStyleRow,
+    sliderRow,
 } from './drawing-settings-config';
 
 export interface TrianglePatternOptions {
@@ -36,6 +37,7 @@ export interface TrianglePatternOptions {
     lineWidth?: number;
     lineDash?: number[];
     fillColor?: string;
+    fillOpacity?: number;
 }
 
 // Point labels for Triangle pattern
@@ -67,7 +69,8 @@ export class TrianglePatternDrawing implements Drawing, DrawingSettingsProvider 
             color: options.color || '#5b5fc7', // Blue-purple like TradingView
             lineWidth: options.lineWidth || 2,
             lineDash: options.lineDash || [],
-            fillColor: options.fillColor || 'rgba(91, 95, 199, 0.3)',
+            fillColor: options.fillColor || '#5b5fc7',
+            fillOpacity: options.fillOpacity ?? 0.5,
         };
     }
 
@@ -91,6 +94,7 @@ export class TrianglePatternDrawing implements Drawing, DrawingSettingsProvider 
                         title: 'Background',
                         rows: [
                             colorRow('fillColor', 'Fill Color'),
+                            sliderRow('fillOpacity', 'Opacity', 0, 100, '%'),
                         ]
                     }
                 ]),
@@ -117,6 +121,7 @@ export class TrianglePatternDrawing implements Drawing, DrawingSettingsProvider 
                 if (this.style.lineDash[0] === 6) return 'dashed';
                 return 'dotted';
             case 'fillColor': return this.style.fillColor;
+            case 'fillOpacity': return Math.round((this.style.fillOpacity ?? 0.3) * 100);
             case 'visible': return this.visible;
             default: return undefined;
         }
@@ -137,6 +142,9 @@ export class TrianglePatternDrawing implements Drawing, DrawingSettingsProvider 
                 break;
             case 'fillColor':
                 this.style.fillColor = value;
+                break;
+            case 'fillOpacity':
+                this.style.fillOpacity = value / 100;
                 break;
             case 'visible':
                 this.visible = value;
@@ -324,7 +332,8 @@ export class TrianglePatternDrawing implements Drawing, DrawingSettingsProvider 
             color: data.style.color,
             lineWidth: data.style.lineWidth,
             lineDash: data.style.lineDash,
-            fillColor: data.style.fillColor
+            fillColor: data.style.fillColor,
+            fillOpacity: data.style.fillOpacity
         });
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });

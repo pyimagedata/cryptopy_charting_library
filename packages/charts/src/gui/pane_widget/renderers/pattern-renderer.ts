@@ -35,9 +35,13 @@ export function drawPatternWave(
 ): void {
     if (pixelPoints.length < 2) return;
 
-    // Draw fills: XAB triangle and BCD triangle (NOT for headShoulders - it has custom fills)
-    if (drawing.style.fillColor && drawing.type !== 'headShoulders') {
+    // Draw fills: XAB triangle and BCD triangle (NOT for headShoulders or trianglePattern - they have custom fills)
+    if (drawing.style.fillColor && drawing.type !== 'headShoulders' && drawing.type !== 'trianglePattern') {
+        ctx.save();
         ctx.fillStyle = drawing.style.fillColor;
+        if (drawing.style.fillOpacity !== undefined) {
+            ctx.globalAlpha = drawing.style.fillOpacity;
+        }
 
         // Fill XAB triangle (X, A, B)
         if (pixelPoints.length >= 3) {
@@ -58,6 +62,7 @@ export function drawPatternWave(
             ctx.closePath();
             ctx.fill();
         }
+        ctx.restore();
     }
 
     // Draw lines: X-A, A-B, B-C, C-D
@@ -278,8 +283,13 @@ function drawTrianglePattern(
 
     // Draw filled triangle area
     if (drawing.style.fillColor) {
+        ctx.save();
         ctx.beginPath();
         ctx.fillStyle = drawing.style.fillColor;
+
+        if (drawing.style.fillOpacity !== undefined) {
+            ctx.globalAlpha = drawing.style.fillOpacity;
+        }
 
         if (pixelPoints.length >= 4 && apexX !== null && apexY !== null) {
             const A = pixelPoints[0];
@@ -302,6 +312,7 @@ function drawTrianglePattern(
             ctx.closePath();
             ctx.fill();
         }
+        ctx.restore();
     }
 
     // Draw dashed trendlines
