@@ -810,8 +810,26 @@ export class PaneWidget implements Disposable {
         this._legendElement = null;
     }
 
+    /**
+     * Set theme colors for the pane
+     */
+    setTheme(theme: 'dark' | 'light'): void {
+        this._currentTheme = theme;
+        // Force legend rebuild
+        this._lastOverlayIndicatorCount = -1;
+        this._updateLegend();
+    }
+
+    private _currentTheme: 'dark' | 'light' = 'dark';
+
     private _updateLegend(): void {
         if (!this._legendElement) return;
+
+        // Theme-based colors
+        const isDark = this._currentTheme === 'dark';
+        const labelColor = isDark ? '#787b86' : '#131722';
+        const textColor = isDark ? '#d1d4dc' : '#131722';
+        const secondaryColor = isDark ? '#787b86' : '#5d606b';
 
         const symbol = this._model.symbol || '---';
         const timeframe = this._model.timeframe || '---';
@@ -856,12 +874,12 @@ export class PaneWidget implements Disposable {
                 }
 
                 ohlcText = `
-                    <span style="margin-left: 12px; color: #787b86; font-size: 12px;">O<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.open)}</span></span>
-                    <span style="margin-left: 8px; color: #787b86; font-size: 12px;">H<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.high)}</span></span>
-                    <span style="margin-left: 8px; color: #787b86; font-size: 12px;">L<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.low)}</span></span>
-                    <span style="margin-left: 8px; color: #787b86; font-size: 12px;">C<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.close)}</span></span>
+                    <span style="margin-left: 12px; color: ${labelColor}; font-size: 12px;">O<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.open)}</span></span>
+                    <span style="margin-left: 8px; color: ${labelColor}; font-size: 12px;">H<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.high)}</span></span>
+                    <span style="margin-left: 8px; color: ${labelColor}; font-size: 12px;">L<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.low)}</span></span>
+                    <span style="margin-left: 8px; color: ${labelColor}; font-size: 12px;">C<span style="color: ${priceColor}; margin-left: 2px;">${format(bar.close)}</span></span>
                     ${changeText}
-                    <span style="margin-left: 12px; color: #787b86; font-size: 12px;">Vol<span style="color: ${priceColor}; margin-left: 4px;">${formatVol(bar.volume || 0)}</span></span>
+                    <span style="margin-left: 12px; color: ${labelColor}; font-size: 12px;">Vol<span style="color: ${priceColor}; margin-left: 4px;">${formatVol(bar.volume || 0)}</span></span>
                 `;
             }
         }
@@ -893,12 +911,12 @@ export class PaneWidget implements Disposable {
 
                 overlayIndicatorsHtml += `
                     <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: flex; align-items: center; font-size: 12px; height: 20px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
-                        <span style="color: #d1d4dc; font-weight: 500;">${name}</span>
-                        <span style="color: #d1d4dc; margin-left: 6px;">${valueText}</span>
+                        <span style="color: ${textColor}; font-weight: 500;">${name}</span>
+                        <span style="color: ${textColor}; margin-left: 6px;">${valueText}</span>
                         <div class="overlay-btn-group" style="visibility: hidden; display: flex; align-items: center; gap: 4px; margin-left: 8px;">
-                            <button class="overlay-btn overlay-toggle-btn" data-action="toggle" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Toggle visibility">${eyeIcon}</button>
-                            <button class="overlay-btn overlay-settings-btn" data-action="settings" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Settings">${settingsIcon}</button>
-                            <button class="overlay-btn overlay-remove-btn" data-action="remove" data-index="${i}" style="background: none; border: none; cursor: pointer; color: #787b86; padding: 2px; display: flex; align-items: center;" title="Remove">${removeIcon}</button>
+                            <button class="overlay-btn overlay-toggle-btn" data-action="toggle" data-index="${i}" style="background: none; border: none; cursor: pointer; color: ${secondaryColor}; padding: 2px; display: flex; align-items: center;" title="Toggle visibility">${eyeIcon}</button>
+                            <button class="overlay-btn overlay-settings-btn" data-action="settings" data-index="${i}" style="background: none; border: none; cursor: pointer; color: ${secondaryColor}; padding: 2px; display: flex; align-items: center;" title="Settings">${settingsIcon}</button>
+                            <button class="overlay-btn overlay-remove-btn" data-action="remove" data-index="${i}" style="background: none; border: none; cursor: pointer; color: ${secondaryColor}; padding: 2px; display: flex; align-items: center;" title="Remove">${removeIcon}</button>
                         </div>
                     </div>
                 `;
@@ -926,9 +944,9 @@ export class PaneWidget implements Disposable {
             this._legendElement.innerHTML = `
                 <div style="display: flex; align-items: center; white-space: nowrap; pointer-events: none;">
                     <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${symbol[0]}</div>
-                    <span style="font-weight: bold; color: #d1d4dc; font-size: 13px;">${symbol}</span>
-                    <span style="margin-left: 6px; color: #787b86; font-size: 13px;">${this._model.marketTypeDisplayName}</span>
-                    <span style="margin-left: 6px; color: #d1d4dc; font-size: 13px;">• ${timeframe} • ${this._model.exchangeDisplayName}</span>
+                    <span style="font-weight: bold; color: ${textColor}; font-size: 13px;">${symbol}</span>
+                    <span style="margin-left: 6px; color: ${secondaryColor}; font-size: 13px;">${this._model.marketTypeDisplayName}</span>
+                    <span style="margin-left: 6px; color: ${textColor}; font-size: 13px;">• ${timeframe} • ${this._model.exchangeDisplayName}</span>
                     <div style="width: 8px; height: 8px; border-radius: 50%; background: #26a69a; margin-left: 8px; box-shadow: 0 0 5px #26a69a;"></div>
                     <span class="ohlc-text">${ohlcText}</span>
                 </div>

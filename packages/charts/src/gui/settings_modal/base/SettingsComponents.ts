@@ -30,7 +30,7 @@ const styles = {
     sectionTitle: `
         font-size: 12px;
         font-weight: 600;
-        color: #787b86;
+        color: var(--text-secondary);
         text-transform: uppercase;
         margin-bottom: 12px;
         letter-spacing: 0.5px;
@@ -40,11 +40,11 @@ const styles = {
         align-items: center;
         justify-content: space-between;
         padding: 10px 0;
-        border-bottom: 1px solid #2B2B43;
+        border-bottom: 1px solid var(--border-color);
     `,
     label: `
         font-size: 13px;
-        color: #d1d4dc;
+        color: var(--text-primary);
     `,
 };
 
@@ -65,6 +65,12 @@ export function createSection(
 
     const content = document.createElement('div');
     contentFn(content);
+
+    // Remove border from the last row for a cleaner look
+    if (content.lastElementChild) {
+        (content.lastElementChild as HTMLElement).style.borderBottom = 'none';
+    }
+
     section.appendChild(content);
 
     return section;

@@ -198,6 +198,16 @@ export class PriceAxisWidget implements Disposable {
         this._crosshairY = visible ? y : null;
     }
 
+    /**
+     * Set theme colors
+     */
+    setTheme(theme: 'dark' | 'light'): void {
+        const isDark = theme === 'dark';
+        this._options.backgroundColor = isDark ? '#16213e' : '#f8f9fa';
+        this._options.textColor = isDark ? 'rgba(255, 255, 255, 0.5)' : '#787b86';
+        this.render();
+    }
+
     dispose(): void {
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);

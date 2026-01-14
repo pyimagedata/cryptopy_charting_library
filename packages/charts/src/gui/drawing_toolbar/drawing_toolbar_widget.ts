@@ -355,6 +355,7 @@ export class DrawingToolbarWidget {
     private _magnetMode: 'none' | 'weak' | 'strong' = 'none';
     private _isLocked: boolean = false;
     private _isVisibilityHidden: boolean = false;
+    private _currentTheme: 'dark' | 'light' = 'dark';
 
     // Events
     private readonly _toolChanged = new Delegate<DrawingTool>();
@@ -535,6 +536,7 @@ export class DrawingToolbarWidget {
 
         // Add styles
         const style = document.createElement('style');
+        style.id = 'drawing-toolbar-style';
         style.textContent = `
             .drawing-toolbar::-webkit-scrollbar { width: 4px; }
             .drawing-toolbar::-webkit-scrollbar-track { background: transparent; }
@@ -721,8 +723,9 @@ export class DrawingToolbarWidget {
 
         btn.addEventListener('mouseenter', () => {
             if (btn.dataset.active !== 'true') {
-                btn.style.background = '#2a2e39';
-                btn.style.color = '#d1d4dc';
+                const isDark = this._currentTheme === 'dark';
+                btn.style.background = isDark ? '#2a2e39' : '#e0e3eb';
+                btn.style.color = isDark ? '#d1d4dc' : '#131722';
             }
             // Show chevron indicator on hover
             const indicator = btn.querySelector('.dropdown-indicator') as HTMLElement;
@@ -737,8 +740,9 @@ export class DrawingToolbarWidget {
 
         btn.addEventListener('mouseleave', () => {
             if (btn.dataset.active !== 'true') {
+                const isDark = this._currentTheme === 'dark';
                 btn.style.background = 'transparent';
-                btn.style.color = '#787b86';
+                btn.style.color = isDark ? '#787b86' : '#131722';
             }
             // Hide chevron indicator when not hovering
             const indicator = btn.querySelector('.dropdown-indicator') as HTMLElement;
@@ -913,13 +917,21 @@ export class DrawingToolbarWidget {
         `;
 
         btn.addEventListener('mouseenter', () => {
-            btn.style.background = isDanger ? 'rgba(239, 83, 80, 0.1)' : '#2a2e39';
-            btn.style.color = isDanger ? '#ef5350' : '#d1d4dc';
+            const isDark = this._currentTheme === 'dark';
+            btn.style.background = isDanger
+                ? 'rgba(239, 83, 80, 0.1)'
+                : (isDark ? '#2a2e39' : '#e0e3eb');
+            btn.style.color = isDanger
+                ? '#ef5350'
+                : (isDark ? '#d1d4dc' : '#131722');
         });
 
         btn.addEventListener('mouseleave', () => {
+            const isDark = this._currentTheme === 'dark';
             btn.style.background = 'transparent';
-            btn.style.color = isDanger ? '#ef5350' : '#787b86';
+            btn.style.color = isDanger
+                ? '#ef5350'
+                : (isDark ? '#787b86' : '#131722');
         });
 
         btn.addEventListener('click', onClick);
@@ -960,6 +972,124 @@ export class DrawingToolbarWidget {
     }
 
     // --- Cleanup ---
+
+    /**
+     * Set toolbar theme
+     */
+    setTheme(theme: 'dark' | 'light'): void {
+        this._currentTheme = theme;
+        if (!this._element) return;
+
+        const isDark = theme === 'dark';
+        this._element.style.background = isDark ? '#1a1a2e' : '#f8f9fa';
+        this._element.style.borderRightColor = isDark ? '#2a2e39' : '#e0e3eb';
+
+        // Update all buttons
+        const buttons = this._element.querySelectorAll('button:not([data-active="true"])');
+        buttons.forEach(btn => {
+            (btn as HTMLElement).style.color = isDark ? '#787b86' : '#131722';
+        });
+
+        // Update dynamic styles
+        const style = document.getElementById('drawing-toolbar-style');
+        if (style) {
+            style.textContent = `
+            .drawing-toolbar::-webkit-scrollbar { width: 4px; }
+            .drawing-toolbar::-webkit-scrollbar-track { background: transparent; }
+            .drawing-toolbar::-webkit-scrollbar-thumb { background: ${isDark ? '#2a2e39' : '#e0e3eb'}; border-radius: 2px; }
+            .drawing-flyout {
+                position: absolute;
+                left: 48px;
+                background: ${isDark ? '#1e222d' : '#ffffff'};
+                border: 1px solid ${isDark ? '#2B2B43' : '#e0e3eb'};
+                border-radius: 4px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                min-width: 200px;
+                max-height: calc(100vh - 100px);
+                overflow-y: auto;
+                padding: 4px 0;
+                z-index: 1000;
+            }
+            .drawing-flyout::-webkit-scrollbar { width: 6px; }
+            .drawing-flyout::-webkit-scrollbar-track { background: transparent; }
+            .drawing-flyout::-webkit-scrollbar-thumb { background: ${isDark ? '#2a2e39' : '#e0e3eb'}; border-radius: 3px; }
+            .drawing-flyout-header {
+                padding: 8px 12px;
+                color: ${isDark ? '#787b86' : '#5d606b'};
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            .drawing-flyout-item {
+                display: flex;
+                align-items: center;
+                padding: 8px 12px;
+                color: ${isDark ? '#d1d4dc' : '#131722'};
+                font-size: 13px;
+                cursor: pointer;
+                transition: background 0.1s;
+            }
+            .drawing-flyout-item:hover {
+                background: ${isDark ? '#2a2e39' : '#f0f3fa'};
+            }
+            .drawing-flyout-item.active {
+                background: #2962ff;
+                color: #fff;
+            }
+            .drawing-flyout-item-icon {
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-right: 10px;
+                color: ${isDark ? '#d1d4dc' : '#131722'};
+            }
+            .drawing-flyout-item-name {
+                flex: 1;
+            }
+            .drawing-flyout-item-shortcut {
+                color: ${isDark ? '#787b86' : '#9db2bd'};
+                font-size: 11px;
+                margin-left: 12px;
+            }
+            .drawing-flyout-item-favorite {
+                color: #f0b90b;
+                margin-left: 8px;
+                opacity: 0;
+                transition: opacity 0.2s;
+            }
+            .drawing-flyout-item:hover .drawing-flyout-item-favorite,
+            .drawing-flyout-item-favorite.active {
+                opacity: 1;
+            }
+            .drawing-flyout-grid {
+                display: grid;
+                gap: 2px;
+                padding: 4px;
+            }
+            .drawing-flyout-grid-item {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 32px;
+                height: 32px;
+                border-radius: 4px;
+                cursor: pointer;
+                color: ${isDark ? '#d1d4dc' : '#131722'};
+                transition: background 0.1s;
+            }
+            .drawing-flyout-grid-item:hover {
+                background: ${isDark ? '#2a2e39' : '#f0f3fa'};
+            }
+            .drawing-flyout-grid-item.active {
+                background: #2962ff;
+                color: #fff;
+            }
+        `;
+        }
+    }
 
     dispose(): void {
         this._toolChanged.destroy();

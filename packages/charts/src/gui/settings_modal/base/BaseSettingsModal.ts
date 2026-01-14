@@ -27,6 +27,7 @@ export abstract class BaseSettingsModal {
     protected _container: HTMLElement;
     protected _contentContainer: HTMLElement | null = null;
     protected _activeTabId: string = 'style';
+    protected _theme: 'dark' | 'light' = 'dark';
 
     // Events
     readonly closed = new Delegate<void>();
@@ -43,6 +44,29 @@ export abstract class BaseSettingsModal {
 
     constructor(container: HTMLElement) {
         this._container = container;
+    }
+
+    /** Set theme and update variables */
+    setTheme(theme: 'dark' | 'light'): void {
+        if (this._theme === theme) return;
+        this._theme = theme;
+        if (this._element) {
+            this._applyThemeVariables();
+        }
+    }
+
+    private _applyThemeVariables(): void {
+        if (!this._element) return;
+        const isDark = this._theme === 'dark';
+        const s = this._element.style;
+
+        s.setProperty('--modal-bg', isDark ? '#1e222d' : '#ffffff');
+        s.setProperty('--text-primary', isDark ? '#d1d4dc' : '#131722');
+        s.setProperty('--text-secondary', isDark ? '#787b86' : '#787b86');
+        s.setProperty('--border-color', isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(19, 23, 34, 0.06)');
+        s.setProperty('--input-bg', isDark ? '#2a2e39' : '#f0f3fa');
+        s.setProperty('--hover-bg', isDark ? '#2a2e39' : '#e0e3eb'); // For rows/buttons
+        s.setProperty('--shadow', isDark ? '0 8px 32px rgba(0, 0, 0, 0.5)' : '0 8px 32px rgba(0, 0, 0, 0.15)');
     }
 
     /** Get modal title based on drawing type */
@@ -104,14 +128,17 @@ export abstract class BaseSettingsModal {
             transform: translate(-50%, -50%);
             width: 380px;
             max-height: 80vh;
-            background: #1e222d;
+            background: var(--modal-bg);
             border-radius: 8px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            box-shadow: var(--shadow);
             z-index: 9999;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         `;
+
+        this._applyThemeVariables();
 
         // Prevent closing when clicking inside modal
         this._element.onclick = (e) => e.stopPropagation();
@@ -133,7 +160,7 @@ export abstract class BaseSettingsModal {
             align-items: center;
             justify-content: space-between;
             padding: 16px 20px;
-            border-bottom: 1px solid #2B2B43;
+            border-bottom: 1px solid var(--border-color);
             cursor: move;
             user-select: none;
         `;
@@ -178,7 +205,7 @@ export abstract class BaseSettingsModal {
             margin: 0;
             font-size: 16px;
             font-weight: 500;
-            color: #d1d4dc;
+            color: var(--text-primary);
         `;
 
         // Close button
@@ -187,15 +214,15 @@ export abstract class BaseSettingsModal {
         closeBtn.style.cssText = `
             background: transparent;
             border: none;
-            color: #787b86;
+            color: var(--text-secondary);
             font-size: 18px;
             cursor: pointer;
             padding: 4px;
             line-height: 1;
         `;
         closeBtn.onclick = () => this.hide();
-        closeBtn.onmouseenter = () => closeBtn.style.color = '#d1d4dc';
-        closeBtn.onmouseleave = () => closeBtn.style.color = '#787b86';
+        closeBtn.onmouseenter = () => closeBtn.style.color = 'var(--text-primary)';
+        closeBtn.onmouseleave = () => closeBtn.style.color = 'var(--text-secondary)';
 
         header.appendChild(title);
         header.appendChild(closeBtn);
@@ -207,7 +234,7 @@ export abstract class BaseSettingsModal {
         const tabBar = document.createElement('div');
         tabBar.style.cssText = `
             display: flex;
-            border-bottom: 1px solid #2B2B43;
+            border-bottom: 1px solid var(--border-color);
             padding: 0 12px;
         `;
 
@@ -220,7 +247,7 @@ export abstract class BaseSettingsModal {
                 background: transparent;
                 border: none;
                 border-bottom: 2px solid ${tab.id === this._activeTabId ? '#2962ff' : 'transparent'};
-                color: ${tab.id === this._activeTabId ? '#d1d4dc' : '#787b86'};
+                color: ${tab.id === this._activeTabId ? 'var(--text-primary)' : 'var(--text-secondary)'};
                 font-size: 13px;
                 cursor: pointer;
                 transition: all 0.2s;
@@ -232,7 +259,7 @@ export abstract class BaseSettingsModal {
                 tabBar.querySelectorAll('button').forEach(btn => {
                     const isActive = btn.dataset.tabId === tab.id;
                     (btn as HTMLButtonElement).style.borderBottomColor = isActive ? '#2962ff' : 'transparent';
-                    (btn as HTMLButtonElement).style.color = isActive ? '#d1d4dc' : '#787b86';
+                    (btn as HTMLButtonElement).style.color = isActive ? 'var(--text-primary)' : 'var(--text-secondary)';
                 });
                 this._renderActiveTab();
             };
@@ -263,7 +290,7 @@ export abstract class BaseSettingsModal {
             justify-content: flex-end;
             gap: 8px;
             padding: 12px 20px;
-            border-top: 1px solid #2B2B43;
+            border-top: 1px solid var(--border-color);
         `;
 
         // Template button
@@ -271,15 +298,15 @@ export abstract class BaseSettingsModal {
         templateBtn.textContent = t('Template...');
         templateBtn.style.cssText = `
             padding: 8px 16px;
-            background: #2a2e39;
+            background: var(--input-bg);
             border: none;
             border-radius: 4px;
-            color: #787b86;
+            color: var(--text-secondary);
             font-size: 13px;
             cursor: pointer;
         `;
-        templateBtn.onmouseenter = () => templateBtn.style.background = '#363a45';
-        templateBtn.onmouseleave = () => templateBtn.style.background = '#2a2e39';
+        templateBtn.onmouseenter = () => templateBtn.style.filter = 'brightness(1.1)';
+        templateBtn.onmouseleave = () => templateBtn.style.filter = 'none';
 
         // OK button
         const okBtn = document.createElement('button');

@@ -15,10 +15,10 @@ const styles = {
         align-items: center;
         justify-content: center;
         padding: 6px 10px;
-        background: #2a2e39;
+        background: var(--input-bg);
         border: none;
         border-radius: 4px;
-        color: #787b86;
+        color: var(--text-secondary);
         font-size: 12px;
         cursor: pointer;
         transition: all 0.15s ease;
@@ -99,13 +99,13 @@ export function createToggleButton(
 
     button.onmouseenter = () => {
         if (!isActive) {
-            button.style.background = '#363a45';
+            button.style.background = 'var(--hover-bg)';
         }
     };
 
     button.onmouseleave = () => {
         if (!isActive) {
-            button.style.background = '#2a2e39';
+            button.style.background = 'var(--input-bg)';
         }
     };
 

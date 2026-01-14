@@ -7,10 +7,10 @@ const styles = {
     input: `
         width: 60px;
         padding: 6px 8px;
-        background: #1e222d;
-        border: 1px solid #363a45;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
         border-radius: 4px;
-        color: #d1d4dc;
+        color: var(--text-primary);
         font-size: 13px;
     `,
 };

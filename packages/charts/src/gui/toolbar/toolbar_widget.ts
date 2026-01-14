@@ -69,7 +69,9 @@ export class ToolbarWidget {
     private readonly _indicatorsClicked = new Delegate<void>();
     private readonly _domToggled = new Delegate<boolean>();
     private readonly _languageChanged = new Delegate<string>();
+    private readonly _themeToggled = new Delegate<'dark' | 'light'>();
     private _domEnabled: boolean = false;
+    private _currentTheme: 'dark' | 'light' = 'dark';
 
     constructor(container: HTMLElement, options: Partial<ToolbarOptions> = {}) {
         this._options = { ...defaultToolbarOptions, ...options };
@@ -110,6 +112,10 @@ export class ToolbarWidget {
 
     get languageChanged(): Delegate<string> {
         return this._languageChanged;
+    }
+
+    get themeToggled(): Delegate<'dark' | 'light'> {
+        return this._themeToggled;
     }
 
     get domEnabled(): boolean {
@@ -185,6 +191,9 @@ export class ToolbarWidget {
         // Language Selector
         this._createLanguageSelector();
 
+        // Theme Toggle Button
+        this._createThemeToggle();
+
         container.insertBefore(this._element, container.firstChild);
     }
 
@@ -235,7 +244,8 @@ export class ToolbarWidget {
 
         // Hover effect
         symbolSection.addEventListener('mouseenter', () => {
-            symbolSection.style.background = '#2a2e39';
+            const isDark = this._currentTheme === 'dark';
+            symbolSection.style.background = isDark ? '#2a2e39' : '#e0e3eb';
         });
         symbolSection.addEventListener('mouseleave', () => {
             symbolSection.style.background = 'transparent';
@@ -411,12 +421,14 @@ export class ToolbarWidget {
             align-items: center;
         `;
 
+        const isDark = this._currentTheme === 'dark';
+
         const select = document.createElement('select');
         select.className = 'toolbar-lang-select';
         select.style.cssText = `
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #d1d4dc;
+            background: ${isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'};
+            border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
+            color: ${isDark ? '#d1d4dc' : '#131722'};
             border-radius: 4px;
             padding: 4px;
             font-size: 11px;
@@ -444,6 +456,59 @@ export class ToolbarWidget {
 
         container.appendChild(select);
         this._element!.appendChild(container);
+    }
+
+    private _createThemeToggle(): void {
+        const btn = document.createElement('button');
+        btn.className = 'toolbar-theme-toggle';
+        btn.title = 'Switch Theme';
+        btn.style.cssText = `
+            background: transparent;
+            border: none;
+            color: #d1d4dc;
+            cursor: pointer;
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 8px;
+            transition: background 0.15s, color 0.15s;
+        `;
+
+        const moonIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+
+        const sunIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
+
+        // Initial icon (dark mode default)
+        btn.innerHTML = this._currentTheme === 'dark' ? moonIcon : sunIcon;
+
+        btn.addEventListener('mouseenter', () => {
+            const isDark = this._currentTheme === 'dark';
+            btn.style.background = isDark ? '#2a2e39' : '#e0e3eb';
+            btn.style.color = isDark ? '#d1d4dc' : '#131722';
+        });
+
+        btn.addEventListener('mouseleave', () => {
+            const isDark = this._currentTheme === 'dark';
+            btn.style.background = 'transparent';
+            btn.style.color = isDark ? '#d1d4dc' : '#131722';
+        });
+
+        btn.addEventListener('click', () => {
+            this._currentTheme = this._currentTheme === 'dark' ? 'light' : 'dark';
+            btn.innerHTML = this._currentTheme === 'dark' ? moonIcon : sunIcon;
+
+            // Update colors immediately for hover state correctness
+            const isDark = this._currentTheme === 'dark';
+            btn.style.background = isDark ? '#2a2e39' : '#e0e3eb'; // Keep hover bg since mouse is still over
+            btn.style.color = isDark ? '#d1d4dc' : '#131722';
+
+            this._themeToggled.fire(this._currentTheme);
+        });
+
+        this._element!.appendChild(btn);
     }
 
     private _createButton(text: string, active: boolean = false): HTMLButtonElement {
@@ -549,6 +614,60 @@ export class ToolbarWidget {
     }
 
     // --- Cleanup ---
+
+    /**
+     * Set toolbar theme
+     */
+    setTheme(theme: 'dark' | 'light'): void {
+        this._currentTheme = theme;
+        if (!this._element) return;
+
+        const isDark = theme === 'dark';
+        this._element.style.background = isDark ? '#131722' : '#f8f9fa';
+        this._element.style.borderBottomColor = isDark ? '#2a2e39' : '#e0e3eb';
+
+        // Update all buttons
+        const buttons = this._element.querySelectorAll('button:not([data-active="true"])');
+        buttons.forEach(btn => {
+            (btn as HTMLElement).style.color = isDark ? '#d1d4dc' : '#131722';
+        });
+
+        // Update symbol section
+        const symbolSection = this._element.querySelector('.toolbar-symbol') as HTMLElement;
+        if (symbolSection) {
+            // Update symbol name color
+            const symbolName = symbolSection.querySelector('.toolbar-symbol-name') as HTMLElement;
+            if (symbolName) {
+                symbolName.style.color = isDark ? '#d1d4dc' : '#131722';
+            }
+
+            // Update icons (search and dropdown)
+            const spans = symbolSection.querySelectorAll('span');
+            spans.forEach(span => {
+                if (!span.classList.contains('toolbar-symbol-name')) {
+                    span.style.color = isDark ? '#787b86' : '#5d606b';
+                }
+            });
+        }
+
+        // Update theme toggle button
+        const themeBtn = this._element.querySelector('.toolbar-theme-toggle') as HTMLButtonElement;
+        if (themeBtn) {
+            const moonIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+            const sunIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
+
+            themeBtn.innerHTML = isDark ? moonIcon : sunIcon;
+            themeBtn.style.color = isDark ? '#d1d4dc' : '#131722';
+        }
+
+        // Update language selector
+        const langSelect = this._element.querySelector('.toolbar-lang-select') as HTMLSelectElement;
+        if (langSelect) {
+            langSelect.style.background = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
+            langSelect.style.border = `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`;
+            langSelect.style.color = isDark ? '#d1d4dc' : '#131722';
+        }
+    }
 
     dispose(): void {
         this._symbolClicked.destroy();

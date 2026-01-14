@@ -18,7 +18,7 @@ export function createPointsSection(
             const pointRow = document.createElement('div');
             pointRow.style.cssText = `
                 padding: 12px 0;
-                border-bottom: 1px solid #2B2B43;
+                border-bottom: 1px solid var(--border-color);
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
@@ -26,12 +26,12 @@ export function createPointsSection(
 
             const label = document.createElement('span');
             label.textContent = `${t('Point')} ${index + 1}`;
-            label.style.cssText = 'font-size: 13px; color: #787b86;';
+            label.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
 
             const values = document.createElement('span');
             const date = new Date(point.time);
             values.textContent = `${date.toLocaleDateString()} | ${point.price.toFixed(2)}`;
-            values.style.cssText = 'font-size: 13px; color: #d1d4dc;';
+            values.style.cssText = 'font-size: 13px; color: var(--text-primary);';
 
             pointRow.appendChild(label);
             pointRow.appendChild(values);

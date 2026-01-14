@@ -18,9 +18,17 @@ export interface TooltipClickHandler {
 export class AddTextTooltipHelper {
     private _element: HTMLDivElement | null = null;
     private _onClick: TooltipClickHandler;
+    private _theme: 'dark' | 'light' = 'dark';
 
     constructor(onClick: TooltipClickHandler) {
         this._onClick = onClick;
+    }
+
+    setTheme(theme: 'dark' | 'light'): void {
+        this._theme = theme;
+        if (this._element) {
+            this._updateStyle();
+        }
     }
 
     /**
@@ -61,21 +69,7 @@ export class AddTextTooltipHelper {
     private _createElement(): void {
         this._element = document.createElement('div');
         this._element.className = 'add-text-tooltip';
-        this._element.style.cssText = `
-            position: fixed;
-            padding: 2px 4px;
-            background: transparent;
-            color: #787B86;
-            font-size: 12px;
-            font-weight: 400;
-            cursor: pointer;
-            pointer-events: auto;
-            white-space: nowrap;
-            z-index: 10000;
-            text-shadow: 0 0 4px rgba(0,0,0,0.8);
-            transform: translate(-50%, -50%);
-            user-select: none;
-        `;
+        this._updateStyle();
         this._element.textContent = t('+ Add Text');
 
         this._element.addEventListener('click', (e) => {
@@ -85,5 +79,32 @@ export class AddTextTooltipHelper {
         });
 
         document.body.appendChild(this._element);
+    }
+
+    private _updateStyle(): void {
+        if (!this._element) return;
+
+        const isDark = this._theme === 'dark';
+        const shadow = isDark ? '0 0 4px rgba(0,0,0,0.8)' : '0 0 4px rgba(255,255,255,1)';
+        const color = isDark ? '#787B86' : '#2962ff';
+
+        this._element.style.cssText = `
+            position: fixed;
+            padding: 2px 4px;
+            background: transparent;
+            color: ${color};
+            font-size: 12px;
+            font-weight: 400;
+            cursor: pointer;
+            pointer-events: auto;
+            white-space: nowrap;
+            z-index: 10000;
+            text-shadow: ${shadow};
+            transform: translate(-50%, -50%);
+            user-select: none;
+            display: ${this._element.style.display || 'none'};
+            left: ${this._element.style.left};
+            top: ${this._element.style.top};
+        `;
     }
 }

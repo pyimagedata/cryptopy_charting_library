@@ -14,10 +14,10 @@ export function createTextArea(
         width: 100%;
         min-height: 100px;
         padding: 10px;
-        background: #1e222d;
-        border: 1px solid #363a45;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
         border-radius: 6px;
-        color: #d1d4dc;
+        color: var(--text-primary);
         font-size: 13px;
         font-family: inherit;
         resize: vertical;
@@ -30,7 +30,7 @@ export function createTextArea(
     });
 
     textArea.addEventListener('blur', () => {
-        textArea.style.borderColor = '#363a45';
+        textArea.style.borderColor = 'var(--border-color)';
     });
 
     textArea.addEventListener('input', () => {

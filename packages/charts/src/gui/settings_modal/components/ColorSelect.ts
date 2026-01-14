@@ -19,17 +19,17 @@ const styles = {
         height: 24px;
         border-radius: 4px;
         cursor: pointer;
-        border: 1px solid #363a45;
+        border: 1px solid var(--border-color);
     `,
     popup: `
         position: absolute;
         top: 100%;
         right: 0;
         margin-top: 8px;
-        background: #1e222d;
+        background: var(--modal-bg);
         border-radius: 8px;
         padding: 12px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        box-shadow: var(--shadow);
         z-index: 10000;
         min-width: 280px;
     `,
@@ -117,10 +117,10 @@ export function createColorSelect(
         addBtn.innerHTML = '+';
         addBtn.style.cssText = `
             width: 32px; height: 32px;
-            border: 1px dashed #4a4e59;
+            border: 1px dashed var(--text-secondary);
             border-radius: 4px;
             background: transparent;
-            color: #787b86;
+            color: var(--text-secondary);
             font-size: 18px;
             cursor: pointer;
         `;
@@ -160,12 +160,13 @@ function createColorBox(
     onClick: (color: string) => void
 ): HTMLElement {
     const box = document.createElement('div');
+    const isSelected = color === currentColor;
     box.style.cssText = `
         width: 26px; height: 26px;
         background: ${color};
         border-radius: 4px;
         cursor: pointer;
-        border: ${color === currentColor ? '2px solid #2962ff' : '1px solid #363a45'};
+        border: ${isSelected ? '2px solid #2962ff' : '1px solid var(--border-color)'};
         transition: transform 0.1s;
     `;
     box.onmouseenter = () => box.style.transform = 'scale(1.1)';

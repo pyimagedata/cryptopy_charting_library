@@ -7,7 +7,7 @@ const styles = {
     slider: `
         width: 100%;
         height: 4px;
-        background: #2B2B43;
+        background: var(--border-color);
         border-radius: 2px;
         outline: none;
         -webkit-appearance: none;
@@ -38,7 +38,7 @@ export function createSliderInput(
 
     const valueLabel = document.createElement('span');
     valueLabel.textContent = `${value}${suffix}`;
-    valueLabel.style.cssText = 'font-size: 12px; color: #787b86; min-width: 40px; text-align: right;';
+    valueLabel.style.cssText = 'font-size: 12px; color: var(--text-secondary); min-width: 40px; text-align: right;';
 
     slider.oninput = () => {
         const val = parseFloat(slider.value);

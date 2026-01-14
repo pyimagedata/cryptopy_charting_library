@@ -163,12 +163,12 @@ export class GenericSettingsModal extends BaseSettingsModal {
                 section.rows.forEach(row => {
                     if (isGroupRow(row)) {
                         const groupEl = document.createElement('div');
-                        groupEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2B2B43;';
+                        groupEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color);';
 
                         if (row.label) {
                             const labelEl = document.createElement('span');
                             labelEl.textContent = t(row.label);
-                            labelEl.style.cssText = 'font-size: 13px; color: #d1d4dc;';
+                            labelEl.style.cssText = 'font-size: 13px; color: var(--text-primary);';
                             groupEl.appendChild(labelEl);
                         }
 
@@ -187,7 +187,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
 
                     if (isToggleColorRow(row)) {
                         const rowEl = document.createElement('div');
-                        rowEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2B2B43;';
+                        rowEl.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color);';
 
                         const checked = provider.getSettingValue(row.toggleKey);
                         const checkbox = createCheckbox(checked ?? false, row.label, (val) => {
@@ -214,7 +214,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
                             this.notifySettingsChanged();
                         });
                         const rowEl = document.createElement('div');
-                        rowEl.style.cssText = 'padding: 10px 0; border-bottom: 1px solid #2B2B43;';
+                        rowEl.style.cssText = 'padding: 10px 0; border-bottom: 1px solid var(--border-color);';
                         rowEl.appendChild(ctrl);
                         content.appendChild(rowEl);
                         return;

@@ -16,7 +16,7 @@ export interface FibLevel {
 
 const styles = {
     container: `
-        background: #1e222d;
+        background: transparent;
         border-radius: 6px;
         overflow: hidden;
     `,
@@ -24,10 +24,10 @@ const styles = {
         display: grid;
         grid-template-columns: 40px 80px 1fr 50px;
         padding: 10px 12px;
-        background: #2a2e39;
+        background: var(--input-bg);
         font-size: 11px;
         font-weight: 600;
-        color: #787b86;
+        color: var(--text-secondary);
         text-transform: uppercase;
         letter-spacing: 0.5px;
     `,
@@ -36,11 +36,11 @@ const styles = {
         grid-template-columns: 40px 80px 1fr 50px;
         padding: 8px 12px;
         align-items: center;
-        border-bottom: 1px solid #2B2B43;
+        border-bottom: 1px solid var(--border-color);
     `,
     levelLabel: `
         font-size: 13px;
-        color: #d1d4dc;
+        color: var(--text-primary);
         font-weight: 500;
     `,
 };
@@ -130,17 +130,17 @@ export function createFibLevelsCompact(
             border-radius: 4px;
             cursor: pointer;
             transition: all 0.1s;
-            border: 1px solid ${level.visible ? level.color : '#363a45'};
+            border: 1px solid ${level.visible ? level.color : 'var(--border-color)'};
             background: ${level.visible ? level.color + '20' : 'transparent'};
-            color: ${level.visible ? level.color : '#787b86'};
+            color: ${level.visible ? level.color : 'var(--text-secondary)'};
         `;
 
         chip.onclick = () => {
             const newVisible = !level.visible;
             level.visible = newVisible;
-            chip.style.borderColor = newVisible ? level.color : '#363a45';
+            chip.style.borderColor = newVisible ? level.color : 'var(--border-color)';
             chip.style.background = newVisible ? level.color + '20' : 'transparent';
-            chip.style.color = newVisible ? level.color : '#787b86';
+            chip.style.color = newVisible ? level.color : 'var(--text-secondary)';
             onToggle(index, newVisible);
         };
 

@@ -19,6 +19,7 @@ export interface ColorButtonOptions {
     icon: string;
     title: string;
     allowTransparent?: boolean;
+    theme?: 'dark' | 'light';
 }
 
 /**
@@ -29,6 +30,7 @@ export function createColorButton(
     options: ColorButtonOptions,
     onChange: (color: string) => void
 ): HTMLElement {
+    const isDark = options.theme !== 'light';
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'position: relative;';
 
@@ -45,7 +47,7 @@ export function createColorButton(
         background: transparent;
         border: none;
         border-radius: 4px;
-        color: #787b86;
+        color: ${isDark ? '#787b86' : '#131722'};
         cursor: pointer;
         transition: all 0.1s ease;
         position: relative;
@@ -67,7 +69,7 @@ export function createColorButton(
     btn.appendChild(colorDot);
 
     btn.addEventListener('mouseenter', () => {
-        btn.style.background = '#2a2e39';
+        btn.style.background = isDark ? '#2a2e39' : '#e0e3eb';
     });
     btn.addEventListener('mouseleave', () => {
         btn.style.background = 'transparent';
@@ -104,10 +106,11 @@ export function createColorButton(
             left: 50%;
             transform: translateX(-50%);
             margin-top: 8px;
-            background: #1e222d;
+            background: ${isDark ? '#1e222d' : '#ffffff'};
             border-radius: 8px;
             padding: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            box-shadow: 0 8px 32px rgba(0,0,0,${isDark ? '0.4' : '0.15'});
+            border: ${isDark ? 'none' : '1px solid #e0e3eb'};
             z-index: 10000;
         `;
 
@@ -123,7 +126,7 @@ export function createColorButton(
                     background: ${color};
                     border-radius: 4px;
                     cursor: pointer;
-                    border: 1px solid rgba(255,255,255,0.1);
+                    border: 1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'};
                     transition: transform 0.1s;
                 `;
                 box.addEventListener('mouseenter', () => box.style.transform = 'scale(1.15)');
@@ -154,6 +157,7 @@ export function createColorButton(
             cursor: pointer;
             -webkit-appearance: none;
             padding: 0;
+            background: transparent;
         `;
         customInput.addEventListener('change', () => {
             (drawing.style as any)[options.property] = customInput.value;

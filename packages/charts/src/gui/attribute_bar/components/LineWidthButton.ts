@@ -11,10 +11,15 @@ const LINE_WIDTHS = [1, 2, 3, 4, 5];
 /**
  * Creates a line width button with dropdown popup
  */
+/**
+ * Creates a line width button with dropdown popup
+ */
 export function createLineWidthButton(
     drawing: Drawing,
-    onChange: (width: number) => void
+    onChange: (width: number) => void,
+    theme: 'dark' | 'light' = 'dark'
 ): HTMLElement {
+    const isDark = theme === 'dark';
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'position: relative;';
 
@@ -30,21 +35,21 @@ export function createLineWidthButton(
         height: 28px;
         background: transparent;
         border: none;
-        color: #787b86;
+        color: ${isDark ? '#787b86' : '#131722'};
         cursor: pointer;
         border-radius: 4px;
         transition: all 0.1s ease;
     `;
 
     btn.addEventListener('mouseenter', () => {
-        btn.style.background = '#2a2e39';
-        btn.style.color = '#d1d4dc';
+        btn.style.background = isDark ? '#2a2e39' : '#e0e3eb';
+        btn.style.color = isDark ? '#d1d4dc' : '#2962ff';
     });
 
     btn.addEventListener('mouseleave', () => {
         if (!popup) {
             btn.style.background = 'transparent';
-            btn.style.color = '#787b86';
+            btn.style.color = isDark ? '#787b86' : '#131722';
         }
     });
 
@@ -56,7 +61,7 @@ export function createLineWidthButton(
             popup.remove();
             popup = null;
             btn.style.background = 'transparent';
-            btn.style.color = '#787b86';
+            btn.style.color = isDark ? '#787b86' : '#131722';
         }
     };
 
@@ -82,10 +87,11 @@ export function createLineWidthButton(
             left: 50%;
             transform: translateX(-50%);
             margin-top: 8px;
-            background: #1e222d;
+            background: ${isDark ? '#1e222d' : '#ffffff'};
             border-radius: 8px;
             padding: 8px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            box-shadow: 0 8px 32px rgba(0,0,0,${isDark ? '0.4' : '0.15'});
+            border: ${isDark ? 'none' : '1px solid #e0e3eb'};
             z-index: 10000;
             display: flex;
             flex-direction: column;
@@ -109,7 +115,7 @@ export function createLineWidthButton(
             linePreview.style.cssText = `
                 width: 40px;
                 height: ${width}px;
-                background: #d1d4dc;
+                background: ${isDark ? '#d1d4dc' : '#787b86'};
                 border-radius: 1px;
             `;
 
@@ -118,7 +124,7 @@ export function createLineWidthButton(
             label.textContent = `${width}px`;
             label.style.cssText = `
                 font-size: 12px;
-                color: #787b86;
+                color: ${isDark ? '#787b86' : '#131722'};
             `;
 
             // Check icon for selected
@@ -133,7 +139,7 @@ export function createLineWidthButton(
             option.appendChild(check);
 
             option.addEventListener('mouseenter', () => {
-                option.style.background = '#2a2e39';
+                option.style.background = isDark ? '#2a2e39' : '#f0f3fa';
             });
             option.addEventListener('mouseleave', () => {
                 option.style.background = 'transparent';

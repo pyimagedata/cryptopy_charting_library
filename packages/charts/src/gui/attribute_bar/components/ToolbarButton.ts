@@ -7,6 +7,7 @@ export interface ToolbarButtonOptions {
     icon: string;
     title: string;
     className?: string;
+    theme?: 'dark' | 'light';
     isDestructive?: boolean;
 }
 
@@ -43,19 +44,24 @@ export function createToolbarButton(
         btn.className = options.className;
     }
 
+    const isDark = options.theme !== 'light';
+
     btn.style.cssText = styles.button;
     if (options.isDestructive) {
         btn.style.color = '#ef5350';
+    } else {
+        // Initial color based on theme? Standard is #787b86 which is fine for both
+        btn.style.color = isDark ? '#787b86' : '#131722';
     }
 
     btn.addEventListener('mouseenter', () => {
-        btn.style.background = '#2a2e39';
-        btn.style.color = options.isDestructive ? '#ff6659' : '#d1d4dc';
+        btn.style.background = isDark ? '#2a2e39' : '#e0e3eb';
+        btn.style.color = options.isDestructive ? '#ff6659' : (isDark ? '#d1d4dc' : '#2962ff');
     });
 
     btn.addEventListener('mouseleave', () => {
         btn.style.background = 'transparent';
-        btn.style.color = options.isDestructive ? '#ef5350' : '#787b86';
+        btn.style.color = options.isDestructive ? '#ef5350' : (isDark ? '#787b86' : '#131722');
     });
 
     btn.addEventListener('click', onClick);

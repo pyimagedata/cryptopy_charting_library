@@ -84,6 +84,7 @@ export interface ChartModelOptions {
     leftPriceScale: Partial<PriceScaleOptions>;
     locale: 'en' | 'tr';
     branding: BrandingOptions;
+    theme: 'dark' | 'light';
 }
 
 /**
@@ -104,20 +105,20 @@ export const defaultChartOptions: ChartModelOptions = {
     width: 0,
     height: 0,
     layout: {
-        backgroundColor: '#1a1a2e',  // Navy background (original)
-        textColor: 'rgba(255, 255, 255, 0.7)',
+        backgroundColor: '#ffffff',  // Light background
+        textColor: '#131722',
         fontSize: 12,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     },
     grid: {
         vertLines: {
             visible: true,
-            color: 'rgba(255, 255, 255, 0.06)',  // Light white grid (original)
+            color: 'rgba(0, 0, 0, 0.06)',  // Light grid
             style: 'solid',
         },
         horzLines: {
             visible: true,
-            color: 'rgba(255, 255, 255, 0.06)',  // Light white grid (original)
+            color: 'rgba(0, 0, 0, 0.06)',  // Light grid
             style: 'solid',
         },
     },
@@ -125,15 +126,15 @@ export const defaultChartOptions: ChartModelOptions = {
         mode: 'magnet',
         vertLine: {
             visible: true,
-            color: 'rgba(255, 255, 255, 0.3)',  // Lighter crosshair
+            color: 'rgba(0, 0, 0, 0.3)',  // Darker crosshair for light mode
             width: 1,
             style: 'dashed',
             labelVisible: true,
-            labelBackgroundColor: '#2962ff',     // Blue accent (original)
+            labelBackgroundColor: '#2962ff',     // Blue accent
         },
         horzLine: {
             visible: true,
-            color: 'rgba(255, 255, 255, 0.3)',
+            color: 'rgba(0, 0, 0, 0.3)',
             width: 1,
             style: 'dashed',
             labelVisible: true,
@@ -142,7 +143,7 @@ export const defaultChartOptions: ChartModelOptions = {
     },
     watermark: {
         visible: false,
-        color: 'rgba(255, 255, 255, 0.08)',
+        color: 'rgba(0, 0, 0, 0.08)',
         text: '',
         fontSize: 48,
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -159,6 +160,7 @@ export const defaultChartOptions: ChartModelOptions = {
             visible: true,
         },
     },
+    theme: 'light',
 };
 
 /**

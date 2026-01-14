@@ -20,10 +20,10 @@ const STYLE_OPTIONS: StyleOption[] = [
 const styles = {
     button: `
         padding: 6px 12px;
-        background: #2a2e39;
+        background: var(--input-bg);
         border: none;
         border-radius: 4px;
-        color: #787b86;
+        color: var(--text-secondary);
         font-size: 12px;
         cursor: pointer;
         transition: all 0.1s;
@@ -62,12 +62,12 @@ export function createLineStyleSelect(
 
         btn.onmouseenter = () => {
             if (opt.value !== currentStyle) {
-                btn.style.background = '#363a45';
+                btn.style.background = 'var(--hover-bg)';
             }
         };
         btn.onmouseleave = () => {
             if (opt.value !== currentStyle) {
-                btn.style.background = '#2a2e39';
+                btn.style.background = 'var(--input-bg)';
             }
         };
 

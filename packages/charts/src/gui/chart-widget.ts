@@ -1,6 +1,7 @@
 import { ChartModel, ChartModelOptions, InvalidateReason } from '../model/chart-model';
 import { Delegate } from '../helpers/delegate';
 import { t, setLanguage, getCurrentLanguage } from '../helpers/translations';
+import { getTheme, ThemeType } from '../helpers/themes';
 import { CandlestickSeries, CandlestickSeriesOptions } from '../model/candlestick-series';
 import { LineSeries, LineSeriesOptions } from '../model/line-series';
 import { AreaSeries, AreaSeriesOptions } from '../model/area-series';
@@ -142,6 +143,7 @@ export class ChartWidget implements Disposable {
 
     // Technical Rating Badge
     private _technicalRatingBadge: TechnicalRatingBadge | null = null;
+    private _currentTheme: ThemeType = 'light';
 
     // Orderbook Heatmap
     private _dataProvider: OrderbookProvider | null = null;
@@ -158,6 +160,16 @@ export class ChartWidget implements Disposable {
 
 
     constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> & { symbol?: string, timeframe?: string, exchange?: string, locale?: string } = {}) {
+        // Check localStorage for theme preference
+        try {
+            const savedTheme = localStorage.getItem('tv-chart-theme');
+            if (savedTheme === 'dark' || savedTheme === 'light') {
+                options.theme = savedTheme as 'dark' | 'light';
+            }
+        } catch (e) {
+            // Include a gentle catch-all
+        }
+
         // Set language first
         if (options.locale) {
             setLanguage(options.locale as any);
@@ -267,7 +279,13 @@ export class ChartWidget implements Disposable {
                 }
             }
         });
+
         this._resizeObserver.observe(this._container);
+
+        // Apply initial theme
+        if (options.theme) {
+            this.setTheme(options.theme as ThemeType);
+        }
     }
 
     /**
@@ -413,6 +431,126 @@ export class ChartWidget implements Disposable {
         } else {
             this._loadingOverlay.style.display = 'none';
         }
+    }
+
+    /**
+     * Set chart theme (dark or light)
+     */
+    setTheme(theme: ThemeType): void {
+        const colors = getTheme(theme);
+        this._currentTheme = theme;
+
+        // Save preference
+        try {
+            localStorage.setItem('tv-chart-theme', theme);
+        } catch (e) { }
+
+        // Update model options
+        (this._model as any)._options.theme = theme;
+        (this._model as any)._options.layout.backgroundColor = colors.layout.backgroundColor;
+        (this._model as any)._options.layout.textColor = colors.layout.textColor;
+        (this._model as any)._options.grid.vertLines.color = colors.grid.color;
+        (this._model as any)._options.grid.horzLines.color = colors.grid.color;
+        (this._model as any)._options.crosshair.vertLine.color = colors.crosshair.lineColor;
+        (this._model as any)._options.crosshair.horzLine.color = colors.crosshair.lineColor;
+
+        // Update main container
+        if (this._element) {
+            this._element.style.background = colors.layout.backgroundColor;
+        }
+
+        // Update toolbar
+        if (this._toolbarWidget) {
+            this._toolbarWidget.setTheme(theme);
+        }
+
+        // Update drawing settings modal if open
+        if (this._drawingSettingsModal) {
+            this._drawingSettingsModal.setTheme(theme);
+        }
+
+        // Update drawing toolbar
+        if (this._drawingToolbarWidget) {
+            this._drawingToolbarWidget.setTheme(theme);
+        }
+
+        // Update floating attribute bar
+        if (this._floatingAttributeBar) {
+            this._floatingAttributeBar.setTheme(theme);
+        }
+
+        // Update add text tooltip
+        if (this._addTextTooltipHelper) {
+            this._addTextTooltipHelper.setTheme(theme);
+        }
+
+        // Update branding logo
+        if (this._brandingLogo) {
+            this._brandingLogo.style.color = colors.branding.textColor;
+            this._brandingLogo.style.textShadow = `
+                0 0 10px ${colors.branding.shadowColor},
+                0 0 20px ${colors.branding.shadowColor},
+                2px 2px 4px rgba(0, 0, 0, 0.5)
+            `;
+        }
+
+        // Update time axis
+        if (this._timeAxisWidget) {
+            this._timeAxisWidget.setTheme(theme);
+        }
+
+        // Update price axis
+        if (this._priceAxisWidget) {
+            this._priceAxisWidget.setTheme(theme);
+        }
+
+        // Update main chart pane
+        if (this._paneWidget) {
+            this._paneWidget.setTheme(theme);
+        }
+
+        // Update indicator panels
+        for (const pane of this._indicatorPanes.values()) {
+            pane.setTheme(theme);
+        }
+
+        // Update loading overlay
+        if (this._loadingOverlay) {
+            const isDark = theme === 'dark';
+            this._loadingOverlay.style.background = isDark
+                ? 'rgba(22, 33, 62, 0.95)'
+                : 'rgba(255, 255, 255, 0.95)';
+
+            const spinner = this._loadingOverlay.firstElementChild as HTMLElement;
+            if (spinner) {
+                spinner.style.borderColor = isDark
+                    ? 'rgba(255, 255, 255, 0.1)'
+                    : 'rgba(0, 0, 0, 0.1)';
+                spinner.style.borderTopColor = '#2962ff';
+            }
+
+            const loadingText = this._loadingOverlay.querySelector('.loading-text') as HTMLElement;
+            if (loadingText) {
+                loadingText.style.color = isDark
+                    ? 'rgba(255, 255, 255, 0.7)'
+                    : 'rgba(0, 0, 0, 0.7)';
+            }
+        }
+
+        // Update technical rating badge
+        if (this._technicalRatingBadge) {
+            this._technicalRatingBadge.setTheme(theme);
+        }
+
+        // Trigger full redraw
+        this._model.fullUpdate();
+    }
+
+    /**
+     * Get current theme
+     */
+    getTheme(): ThemeType {
+        return this._model.options.theme || 'dark';
     }
 
     // --- Private: Layout ---
@@ -720,6 +858,7 @@ export class ChartWidget implements Disposable {
                     this._drawingSettingsModal.hide();
                 }
                 this._drawingSettingsModal = createSettingsModal(this._element, selectedDrawing);
+                this._drawingSettingsModal.setTheme(this._currentTheme);
                 this._drawingSettingsModal.settingsChanged.subscribe(() => {
                     this._scheduleDraw();
                 });
@@ -1153,6 +1292,7 @@ export class ChartWidget implements Disposable {
                             this._drawingSettingsModal.hide();
                         }
                         this._drawingSettingsModal = createSettingsModal(this._element, d);
+                        this._drawingSettingsModal.setTheme(this._currentTheme);
                         this._drawingSettingsModal.settingsChanged.subscribe(() => {
                             this._scheduleDraw();
                         });
@@ -1167,6 +1307,8 @@ export class ChartWidget implements Disposable {
                     }
                 }
             });
+            // Ensure helper uses current theme
+            this._addTextTooltipHelper.setTheme(this._currentTheme);
         }
 
         // Calculate angle from line
@@ -1350,6 +1492,7 @@ export class ChartWidget implements Disposable {
                     this._drawingSettingsModal.hide();
                 }
                 this._drawingSettingsModal = createSettingsModal(this._element, hitDrawing);
+                this._drawingSettingsModal.setTheme(this._currentTheme);
                 this._drawingSettingsModal.settingsChanged.subscribe(() => {
                     this._scheduleDraw();
                 });
@@ -1935,6 +2078,9 @@ export class ChartWidget implements Disposable {
             // Remove old modal from DOM if it exists
             oldSearch.hide();
         }
+
+        // Re-apply current theme to ensure new widgets match the theme
+        this.setTheme(this._currentTheme);
     }
 
     private _createTopToolbar(): void {
@@ -1953,6 +2099,11 @@ export class ChartWidget implements Disposable {
         // Listen for language changes
         this._toolbarWidget.languageChanged.subscribe((lang: string) => {
             this._onLanguageChange(lang);
+        });
+
+        // Listen for theme changes
+        this._toolbarWidget.themeToggled.subscribe((theme: 'dark' | 'light') => {
+            this.setTheme(theme);
         });
 
         // Connect toolbar events

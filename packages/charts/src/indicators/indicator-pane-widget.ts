@@ -25,6 +25,11 @@ export interface IndicatorPaneOptions {
     borderColor: string;
     showPriceScale: boolean;
     priceScaleWidth: number;
+    priceAxisBackgroundColor: string;
+    priceAxisTextColor: string;
+    priceAxisBorderColor: string;
+    gridColor: string;
+    crosshairColor: string;
 }
 
 const defaultIndicatorPaneOptions: IndicatorPaneOptions = {
@@ -32,9 +37,14 @@ const defaultIndicatorPaneOptions: IndicatorPaneOptions = {
     minHeight: 50,
     maxHeight: 300,
     backgroundColor: '#1a1a2e',
-    borderColor: 'rgba(255, 255, 255, 0.06)', // Match main grid/border color
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     showPriceScale: true,
-    priceScaleWidth: 80, // Match main price axis width
+    priceScaleWidth: 80,
+    priceAxisBackgroundColor: '#16213e',
+    priceAxisTextColor: 'rgba(255, 255, 255, 0.5)',
+    priceAxisBorderColor: 'rgba(255, 255, 255, 0.1)',
+    gridColor: 'rgba(255, 255, 255, 0.06)',
+    crosshairColor: 'rgba(255, 255, 255, 0.4)',
 };
 
 /**
@@ -256,7 +266,7 @@ export class IndicatorPaneWidget implements Disposable {
 
         if (this._crosshairX === null) return;
 
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.strokeStyle = this._options.crosshairColor;
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
 
@@ -281,7 +291,7 @@ export class IndicatorPaneWidget implements Disposable {
         const { context: ctx, mediaSize } = scope;
         const marks = this._priceScale.marks();
 
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.strokeStyle = this._options.gridColor;
         ctx.lineWidth = 1;
 
         for (const mark of marks) {
@@ -457,11 +467,11 @@ export class IndicatorPaneWidget implements Disposable {
         this._priceAxisCtx.scale(dpr, dpr);
 
         // Background
-        this._priceAxisCtx.fillStyle = '#16213e';
+        this._priceAxisCtx.fillStyle = this._options.priceAxisBackgroundColor;
         this._priceAxisCtx.fillRect(0, 0, width, height);
 
-        // Left border - Synchronize with main chart's price axis border
-        this._priceAxisCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        // Left border
+        this._priceAxisCtx.strokeStyle = this._options.priceAxisBorderColor;
         this._priceAxisCtx.lineWidth = 1;
         this._priceAxisCtx.beginPath();
         this._priceAxisCtx.moveTo(0.5, 0);
@@ -470,7 +480,7 @@ export class IndicatorPaneWidget implements Disposable {
 
         // Price labels
         const marks = this._priceScale.marks();
-        this._priceAxisCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        this._priceAxisCtx.fillStyle = this._options.priceAxisTextColor;
         this._priceAxisCtx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
         this._priceAxisCtx.textAlign = 'right';
         this._priceAxisCtx.textBaseline = 'middle';
@@ -753,5 +763,22 @@ export class IndicatorPaneWidget implements Disposable {
         this._priceAxisCanvas = null;
         this._priceAxisCtx = null;
         this._legendContainer = null;
+    }
+
+    /**
+     * Set theme colors for the indicator pane
+     */
+    public setTheme(theme: 'dark' | 'light'): void {
+        const isDark = theme === 'dark';
+
+        this._options.backgroundColor = isDark ? '#1a1a2e' : '#ffffff';
+        this._options.borderColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+        this._options.priceAxisBackgroundColor = isDark ? '#16213e' : '#f8f9fa';
+        this._options.priceAxisTextColor = isDark ? 'rgba(255, 255, 255, 0.5)' : '#787b86';
+        this._options.priceAxisBorderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+        this._options.gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+        this._options.crosshairColor = isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.3)';
+
+        this.render();
     }
 }

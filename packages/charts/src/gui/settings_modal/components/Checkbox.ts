@@ -35,7 +35,7 @@ export function createCheckbox(
     if (label) {
         const labelSpan = document.createElement('span');
         labelSpan.textContent = label;
-        labelSpan.style.cssText = 'font-size: 13px; color: #d1d4dc;';
+        labelSpan.style.cssText = 'font-size: 13px; color: var(--text-primary);';
         wrapper.appendChild(labelSpan);
     }
 

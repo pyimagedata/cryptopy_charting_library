@@ -20,7 +20,7 @@ export function createLineWidthSelect(
         btn.style.cssText = `
             width: 28px; height: 28px;
             display: flex; align-items: center; justify-content: center;
-            background: ${width === currentWidth ? '#2962ff' : '#2a2e39'};
+            background: ${width === currentWidth ? '#2962ff' : 'var(--input-bg)'};
             border: none;
             border-radius: 4px;
             cursor: pointer;
@@ -32,16 +32,16 @@ export function createLineWidthSelect(
         line.style.cssText = `
             width: 16px;
             height: ${width}px;
-            background: ${width === currentWidth ? '#ffffff' : '#d1d4dc'};
+            background: ${width === currentWidth ? '#ffffff' : 'var(--text-secondary)'};
             border-radius: 1px;
         `;
         btn.appendChild(line);
 
         btn.onclick = () => {
             wrapper.querySelectorAll('button').forEach(b => {
-                (b as HTMLButtonElement).style.background = '#2a2e39';
+                (b as HTMLButtonElement).style.background = 'var(--input-bg)';
                 const l = b.querySelector('div');
-                if (l) l.style.background = '#d1d4dc';
+                if (l) l.style.background = 'var(--text-secondary)';
             });
             btn.style.background = '#2962ff';
             line.style.background = '#ffffff';
@@ -50,12 +50,12 @@ export function createLineWidthSelect(
 
         btn.onmouseenter = () => {
             if (width !== currentWidth) {
-                btn.style.background = '#363a45';
+                btn.style.background = 'var(--hover-bg)';
             }
         };
         btn.onmouseleave = () => {
             if (width !== currentWidth) {
-                btn.style.background = '#2a2e39';
+                btn.style.background = 'var(--input-bg)';
             }
         };
 

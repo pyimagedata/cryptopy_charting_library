@@ -196,6 +196,84 @@ export class TechnicalRatingBadge {
     }
 
     /**
+     * Set theme
+     */
+    setTheme(theme: 'dark' | 'light'): void {
+        const isDark = theme === 'dark';
+        const style = document.getElementById('tv-rating-badge-styles');
+
+        if (style) {
+            style.textContent = `
+                #tv-technical-rating-badge .rating-card {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    padding: 8px 14px;
+                    border-radius: 8px;
+                    background: ${isDark ? 'rgba(20, 24, 32, 0.85)' : 'rgba(255, 255, 255, 0.85)'};
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'};
+                    box-shadow: ${isDark ? '0 4px 16px rgba(0, 0, 0, 0.3)' : '0 4px 16px rgba(0, 0, 0, 0.1)'};
+                    min-width: 85px;
+                    transition: transform 0.2s ease, box-shadow 0.2s ease;
+                }
+                #tv-technical-rating-badge .rating-card:hover {
+                    transform: translateY(-2px);
+                    box-shadow: ${isDark ? '0 6px 20px rgba(0, 0, 0, 0.4)' : '0 6px 20px rgba(0, 0, 0, 0.15)'};
+                }
+                #tv-technical-rating-badge .rating-label {
+                    font-size: 9px;
+                    color: ${isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)'};
+                    font-weight: 500;
+                    text-transform: uppercase;
+                    letter-spacing: 0.8px;
+                    margin-bottom: 4px;
+                }
+                #tv-technical-rating-badge .rating-value {
+                    font-size: 11px;
+                    font-weight: 700;
+                    padding: 4px 10px;
+                    border-radius: 4px;
+                    text-align: center;
+                    white-space: nowrap;
+                    letter-spacing: 0.3px;
+                }
+                #tv-technical-rating-badge .rating-value.strong-buy {
+                    background: linear-gradient(135deg, #26a69a 0%, #00897b 100%);
+                    color: #ffffff;
+                    box-shadow: 0 2px 8px rgba(38, 166, 154, 0.4);
+                }
+                #tv-technical-rating-badge .rating-value.buy {
+                    background: linear-gradient(135deg, #66bb6a 0%, #43a047 100%);
+                    color: #ffffff;
+                    box-shadow: 0 2px 8px rgba(102, 187, 106, 0.4);
+                }
+                #tv-technical-rating-badge .rating-value.neutral {
+                    background: linear-gradient(135deg, #78909c 0%, #546e7a 100%);
+                    color: #ffffff;
+                    box-shadow: 0 2px 8px rgba(120, 144, 156, 0.4);
+                }
+                #tv-technical-rating-badge .rating-value.sell {
+                    background: linear-gradient(135deg, #ff7043 0%, #f4511e 100%);
+                    color: #ffffff;
+                    box-shadow: 0 2px 8px rgba(255, 112, 67, 0.4);
+                }
+                #tv-technical-rating-badge .rating-value.strong-sell {
+                    background: linear-gradient(135deg, #ef5350 0%, #e53935 100%);
+                    color: #ffffff;
+                    box-shadow: 0 2px 8px rgba(239, 83, 80, 0.4);
+                }
+                #tv-technical-rating-badge .loading-state {
+                    color: ${isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)'};
+                    font-size: 10px;
+                    padding: 12px 16px;
+                }
+            `;
+        }
+    }
+
+    /**
      * Dispose
      */
     dispose(): void {

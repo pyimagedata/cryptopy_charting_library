@@ -59,12 +59,12 @@ export function createTextSection(
             align-items: center;
             justify-content: space-between;
             padding: 10px 0;
-            border-bottom: 1px solid #2B2B43;
+            border-bottom: 1px solid var(--border-color);
         `;
 
         const styleLabel = document.createElement('span');
         styleLabel.textContent = t('Style');
-        styleLabel.style.cssText = 'font-size: 13px; color: #d1d4dc;';
+        styleLabel.style.cssText = 'font-size: 13px; color: var(--text-primary);';
         styleRow.appendChild(styleLabel);
 
         const toggleWrapper = document.createElement('div');
@@ -81,14 +81,17 @@ export function createTextSection(
             border-radius: 4px;
             font-size: 14px;
             cursor: pointer;
-            background: ${isBold ? '#2962ff' : '#2a2e39'};
-            color: ${isBold ? '#fff' : '#787b86'};
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            background: ${isBold ? '#2962ff' : 'var(--input-bg)'};
+            color: ${isBold ? '#fff' : 'var(--text-secondary)'};
         `;
         boldBtn.onclick = () => {
             const newBold = drawing.style.fontWeight !== 'bold';
             drawing.style.fontWeight = newBold ? 'bold' : 'normal';
-            boldBtn.style.background = newBold ? '#2962ff' : '#2a2e39';
-            boldBtn.style.color = newBold ? '#fff' : '#787b86';
+            boldBtn.style.background = newBold ? '#2962ff' : 'var(--input-bg)';
+            boldBtn.style.color = newBold ? '#fff' : 'var(--text-secondary)';
             onChanged();
         };
         toggleWrapper.appendChild(boldBtn);
@@ -105,14 +108,16 @@ export function createTextSection(
             font-size: 14px;
             font-style: italic;
             cursor: pointer;
-            background: ${isItalic ? '#2962ff' : '#2a2e39'};
-            color: ${isItalic ? '#fff' : '#787b86'};
+            font-style: italic;
+            cursor: pointer;
+            background: ${isItalic ? '#2962ff' : 'var(--input-bg)'};
+            color: ${isItalic ? '#fff' : 'var(--text-secondary)'};
         `;
         italicBtn.onclick = () => {
             const newItalic = drawing.style.fontStyle !== 'italic';
             drawing.style.fontStyle = newItalic ? 'italic' : 'normal';
-            italicBtn.style.background = newItalic ? '#2962ff' : '#2a2e39';
-            italicBtn.style.color = newItalic ? '#fff' : '#787b86';
+            italicBtn.style.background = newItalic ? '#2962ff' : 'var(--input-bg)';
+            italicBtn.style.color = newItalic ? '#fff' : 'var(--text-secondary)';
             onChanged();
         };
         toggleWrapper.appendChild(italicBtn);
@@ -129,10 +134,11 @@ export function createTextSection(
             min-height: 80px;
             padding: 10px;
             margin: 12px 0;
-            background: #1e222d;
-            border: 1px solid #363a45;
+            margin: 12px 0;
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
             border-radius: 6px;
-            color: #d1d4dc;
+            color: var(--text-primary);
             font-size: 13px;
             resize: vertical;
             outline: none;
@@ -141,7 +147,7 @@ export function createTextSection(
             textArea.style.borderColor = '#2962ff';
         });
         textArea.addEventListener('blur', () => {
-            textArea.style.borderColor = '#363a45';
+            textArea.style.borderColor = 'var(--border-color)';
         });
         textArea.addEventListener('input', () => {
             drawing.style.text = textArea.value;
@@ -156,12 +162,12 @@ export function createTextSection(
             align-items: center;
             justify-content: space-between;
             padding: 10px 0;
-            border-bottom: 1px solid #2B2B43;
+            border-bottom: 1px solid var(--border-color);
         `;
 
         const alignLabel = document.createElement('span');
         alignLabel.textContent = t('Alignment');
-        alignLabel.style.cssText = 'font-size: 13px; color: #d1d4dc;';
+        alignLabel.style.cssText = 'font-size: 13px; color: var(--text-primary);';
         alignRow.appendChild(alignLabel);
 
         const alignSelects = document.createElement('div');

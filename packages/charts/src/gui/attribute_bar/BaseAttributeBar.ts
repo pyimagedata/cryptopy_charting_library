@@ -28,6 +28,7 @@ export class BaseAttributeBar {
     protected _element: HTMLElement | null = null;
     protected _isVisible: boolean = false;
     protected _currentDrawing: Drawing | null = null;
+    protected _theme: 'dark' | 'light' = 'dark';
 
     // Drag state
     private _isDragging: boolean = false;
@@ -54,6 +55,23 @@ export class BaseAttributeBar {
     }
 
     // --- Public API ---
+
+    setTheme(theme: 'dark' | 'light'): void {
+        if (this._theme === theme) return;
+        this._theme = theme;
+
+        if (this._element) {
+            const isDark = theme === 'dark';
+            this._element.style.background = isDark ? '#1e222d' : '#ffffff';
+            this._element.style.boxShadow = isDark ? '0 4px 20px rgba(0,0,0,0.4)' : '0 4px 20px rgba(0,0,0,0.15)';
+            this._element.style.border = isDark ? 'none' : '1px solid #e0e3eb';
+        }
+
+        // Rebuild if visible to update buttons
+        if (this._isVisible && this._currentDrawing) {
+            this._rebuildForDrawingType(this._currentDrawing.type);
+        }
+    }
 
     show(drawing: Drawing): void {
         if (!this._element) return;
@@ -199,7 +217,7 @@ export class BaseAttributeBar {
     protected _addDragHandle(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.drag, title: 'Move toolbar', className: 'drag-handle' },
+            { icon: ICONS.drag, title: 'Move toolbar', className: 'drag-handle', theme: this._theme },
             () => { }
         );
         btn.style.cursor = 'grab';
@@ -216,7 +234,7 @@ export class BaseAttributeBar {
     protected _addTemplateButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.template, title: 'Template' },
+            { icon: ICONS.template, title: 'Template', theme: this._theme },
             () => this.settingsClicked.fire()
         );
         this._element.appendChild(btn);
@@ -224,7 +242,15 @@ export class BaseAttributeBar {
 
     protected _addSeparator(): void {
         if (!this._element) return;
-        this._element.appendChild(createSeparator());
+        // Separator can be theme-aware too if implementation supports it, 
+        // but it's usually just a border. Assuming createSeparator handles or returns simple element.
+        // Let's check separator implementation effectively? It's just a div with border-left usually.
+        // I'll leave as is for now, but really should check if it needs color update.
+        const sep = createSeparator();
+        if (this._theme === 'light') {
+            sep.style.borderLeftColor = '#e0e3eb';
+        }
+        this._element.appendChild(sep);
     }
 
     protected _addColorButton(property: 'color' | 'fillColor' = 'color', title: string = 'Color'): void {
@@ -232,7 +258,7 @@ export class BaseAttributeBar {
         const icon = property === 'fillColor' ? ICONS.fillBucket : ICONS.pencil;
         const colorBtn = createColorButton(
             this._currentDrawing,
-            { property, icon, title },
+            { property, icon, title, theme: this._theme },
             (color) => this.colorChanged.fire(color)
         );
         this._element.appendChild(colorBtn);
@@ -242,7 +268,8 @@ export class BaseAttributeBar {
         if (!this._element || !this._currentDrawing) return;
         const btn = createLineWidthButton(
             this._currentDrawing,
-            (width) => this.lineWidthChanged.fire(width)
+            (width) => this.lineWidthChanged.fire(width),
+            this._theme
         );
         this._element.appendChild(btn);
     }
@@ -251,7 +278,7 @@ export class BaseAttributeBar {
         if (!this._element || !this._currentDrawing) return;
         const colorBtn = createColorButton(
             this._currentDrawing,
-            { property: 'textColor', icon: ICONS.textColor, title: 'Text Color' },
+            { property: 'textColor', icon: ICONS.textColor, title: 'Text Color', theme: this._theme },
             (color) => this.colorChanged.fire(color)
         );
         this._element.appendChild(colorBtn);
@@ -260,7 +287,7 @@ export class BaseAttributeBar {
     protected _addSettingsButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.settings, title: 'Settings' },
+            { icon: ICONS.settings, title: 'Settings', theme: this._theme },
             () => this.settingsClicked.fire()
         );
         this._element.appendChild(btn);
@@ -269,7 +296,7 @@ export class BaseAttributeBar {
     protected _addLockButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.lock, title: 'Lock drawing' },
+            { icon: ICONS.lock, title: 'Lock drawing', theme: this._theme },
             () => this.lockClicked.fire()
         );
         this._element.appendChild(btn);
@@ -278,7 +305,7 @@ export class BaseAttributeBar {
     protected _addDeleteButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.delete, title: 'Delete', isDestructive: true },
+            { icon: ICONS.delete, title: 'Delete', isDestructive: true, theme: this._theme },
             () => this.deleteClicked.fire()
         );
         this._element.appendChild(btn);
@@ -287,7 +314,7 @@ export class BaseAttributeBar {
     protected _addMoreButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.more, title: 'More options' },
+            { icon: ICONS.more, title: 'More options', theme: this._theme },
             () => { }
         );
         this._element.appendChild(btn);

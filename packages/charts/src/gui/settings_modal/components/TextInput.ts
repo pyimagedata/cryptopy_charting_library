@@ -7,10 +7,10 @@ const styles = {
     input: `
         width: 120px;
         padding: 6px 10px;
-        background: #1e222d;
-        border: 1px solid #363a45;
+        background: var(--input-bg);
+        border: 1px solid var(--border-color);
         border-radius: 4px;
-        color: #d1d4dc;
+        color: var(--text-primary);
         font-size: 13px;
         outline: none;
         transition: border-color 0.15s;
@@ -51,7 +51,7 @@ export function createTextInput(
     });
 
     input.addEventListener('blur', () => {
-        input.style.borderColor = '#363a45';
+        input.style.borderColor = 'var(--border-color)';
     });
 
     input.addEventListener('input', () => {
