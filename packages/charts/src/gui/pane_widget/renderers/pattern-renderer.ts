@@ -13,6 +13,8 @@ import {
     TrianglePatternDrawing
 } from '../../../drawings';
 
+import { fillWithOpacity } from './utils';
+
 export type PatternDrawing =
     | XABCDPatternDrawing
     | ElliottImpulseDrawing
@@ -37,12 +39,6 @@ export function drawPatternWave(
 
     // Draw fills: XAB triangle and BCD triangle (NOT for headShoulders or trianglePattern - they have custom fills)
     if (drawing.style.fillColor && drawing.type !== 'headShoulders' && drawing.type !== 'trianglePattern') {
-        ctx.save();
-        ctx.fillStyle = drawing.style.fillColor;
-        if (drawing.style.fillOpacity !== undefined) {
-            ctx.globalAlpha = drawing.style.fillOpacity;
-        }
-
         // Fill XAB triangle (X, A, B)
         if (pixelPoints.length >= 3) {
             ctx.beginPath();
@@ -50,7 +46,7 @@ export function drawPatternWave(
             ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y); // A
             ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y); // B
             ctx.closePath();
-            ctx.fill();
+            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
         }
 
         // Fill BCD triangle (B, C, D)
@@ -60,9 +56,8 @@ export function drawPatternWave(
             ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y); // C
             ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y); // D
             ctx.closePath();
-            ctx.fill();
+            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
         }
-        ctx.restore();
     }
 
     // Draw lines: X-A, A-B, B-C, C-D
@@ -283,14 +278,6 @@ function drawTrianglePattern(
 
     // Draw filled triangle area
     if (drawing.style.fillColor) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.fillStyle = drawing.style.fillColor;
-
-        if (drawing.style.fillOpacity !== undefined) {
-            ctx.globalAlpha = drawing.style.fillOpacity;
-        }
-
         if (pixelPoints.length >= 4 && apexX !== null && apexY !== null) {
             const A = pixelPoints[0];
             const B = pixelPoints[1];
@@ -300,19 +287,20 @@ function drawTrianglePattern(
             const topSlope = (D.y - B.y) / (D.x - B.x);
             const topStartY = B.y - topSlope * (B.x - A.x);
 
+            ctx.beginPath();
             ctx.moveTo(A.x, topStartY);
             ctx.lineTo(apexX, apexY);
             ctx.lineTo(A.x, A.y);
             ctx.closePath();
-            ctx.fill();
+            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
         } else if (pixelPoints.length >= 3) {
+            ctx.beginPath();
             ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
             ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
             ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
             ctx.closePath();
-            ctx.fill();
+            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
         }
-        ctx.restore();
     }
 
     // Draw dashed trendlines
@@ -362,7 +350,8 @@ function drawHeadAndShoulders(
     pixelPoints: { x: number; y: number }[],
     dpr: number
 ): void {
-    ctx.fillStyle = drawing.style.fillColor || 'rgba(206, 147, 216, 0.4)';
+    const fillColor = drawing.style.fillColor || 'rgba(206, 147, 216, 0.4)';
+    const fillOpacity = drawing.style.fillOpacity;
 
     // Calculate neckline slope from P2 to P4 (when available)
     let necklineSlope = 0;
@@ -408,7 +397,7 @@ function drawHeadAndShoulders(
         ctx.lineTo(p1.x, p1.y);
         ctx.lineTo(p2.x, p2.y);
         ctx.closePath();
-        ctx.fill();
+        fillWithOpacity(ctx, fillColor, fillOpacity);
 
         // HEAD FILL: P2-P3-P4
         ctx.beginPath();
@@ -416,7 +405,7 @@ function drawHeadAndShoulders(
         ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y);
         ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y);
         ctx.closePath();
-        ctx.fill();
+        fillWithOpacity(ctx, fillColor, fillOpacity);
     }
 
     // RIGHT SHOULDER FILL
@@ -447,7 +436,7 @@ function drawHeadAndShoulders(
         ctx.lineTo(p5.x, p5.y);
         ctx.lineTo(rsRightX, rsRightY);
         ctx.closePath();
-        ctx.fill();
+        fillWithOpacity(ctx, fillColor, fillOpacity);
     }
 
     // Draw dashed neckline
