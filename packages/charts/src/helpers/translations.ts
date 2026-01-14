@@ -165,6 +165,32 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'Bold': 'Kalın',
         'Italic': 'İtalik',
         '+ Add Text': '+ Metin Ekle',
+
+        // Indicator Settings
+        'Inputs': 'Girişler',
+        'Cancel': 'İptal',
+        'Period': 'Periyot',
+        'Source': 'Kaynak',
+        'Upper Band': 'Üst Bant',
+        'Lower Band': 'Alt Bant',
+        'Middle Band': 'Orta Bant',
+        'Overbought': 'Aşırı Alım',
+        'Oversold': 'Aşırı Satım',
+        'Signal': 'Sinyal',
+        'Fast Length': 'Hızlı Periyot',
+        'Slow Length': 'Yavaş Periyot',
+        'Signal Length': 'Sinyal Periyotu',
+        'MACD': 'MACD',
+        'Histogram': 'Histogram',
+        'Length': 'Uzunluk',
+        'StdDev': 'Std Sapma',
+        'close': 'Kapanış',
+        'open': 'Açılış',
+        'high': 'Yüksek',
+        'low': 'Düşük',
+        'hl2': 'O/D Orta',
+        'hlc3': 'Y/D/K Orta',
+        'ohlc4': 'A/Y/D/K Orta',
     }
 };
 

@@ -12,6 +12,7 @@ import {
     createLineWidthSelect,
     createSliderInput
 } from '../components';
+import { t } from '../../../helpers/translations';
 
 export interface SectionContext {
     getValue: (key: string) => any;
@@ -24,7 +25,7 @@ export function renderSection(section: SettingsSection, context: SectionContext)
 
     if (section.title) {
         const titleEl = document.createElement('div');
-        titleEl.textContent = section.title;
+        titleEl.textContent = t(section.title);
         titleEl.style.cssText = `
             font-size: 12px;
             font-weight: 600;
@@ -57,7 +58,7 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
     switch (row.type) {
         case 'number': {
             const label = document.createElement('label');
-            label.textContent = row.label ?? '';
+            label.textContent = row.label ? t(row.label) : '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
 
@@ -71,7 +72,7 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
 
         case 'color': {
             const label = document.createElement('label');
-            label.textContent = row.label ?? '';
+            label.textContent = row.label ? t(row.label) : '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
 
@@ -85,7 +86,7 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
         case 'checkbox': {
             rowEl.innerHTML = '';
             rowEl.appendChild(createCheckbox(
-                row.label,
+                row.label ? t(row.label) : '',
                 currentValue as boolean ?? (row as any).defaultValue ?? false,
                 (value) => (row as any).key && context.setValue((row as any).key, value)
             ));
@@ -94,7 +95,7 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
 
         case 'lineWidth': {
             const label = document.createElement('label');
-            label.textContent = row.label ?? '';
+            label.textContent = row.label ? t(row.label) : '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
 
@@ -109,7 +110,7 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
 
         case 'slider': {
             const label = document.createElement('label');
-            label.textContent = row.label ?? '';
+            label.textContent = row.label ? t(row.label) : '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
 
@@ -123,7 +124,7 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
 
         default: {
             const label = document.createElement('label');
-            label.textContent = row.label ?? '';
+            label.textContent = row.label ? t(row.label) : '';
             label.style.cssText = `color: #131722; font-size: 14px;`;
             rowEl.appendChild(label);
         }

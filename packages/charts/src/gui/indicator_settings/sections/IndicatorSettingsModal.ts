@@ -11,6 +11,7 @@ import {
     IndicatorSettings
 } from '../base';
 import { renderSection, SectionContext } from '../sections';
+import { t } from '../../../helpers/translations';
 
 export class IndicatorSettingsModal {
     private _element: HTMLElement | null = null;
@@ -43,8 +44,9 @@ export class IndicatorSettingsModal {
         this._config.tabs.forEach(tab => {
             tab.sections.forEach(section => {
                 section.rows.forEach(row => {
-                    if (row.key) {
-                        this._collectedSettings[row.key] = provider.getSettingValue(row.key);
+                    const key = (row as any).key;
+                    if (key) {
+                        this._collectedSettings[key] = provider.getSettingValue(key);
                     }
                 });
             });
@@ -106,7 +108,7 @@ export class IndicatorSettingsModal {
         header.style.cssText = `padding: 20px 24px 0; display: flex; align-items: center; justify-content: space-between;`;
 
         const title = document.createElement('div');
-        title.textContent = this._config?.name || 'Settings';
+        title.textContent = this._config?.name || t('Settings');
         title.style.cssText = `font-size: 20px; font-weight: 600; color: #131722;`;
         header.appendChild(title);
 
@@ -125,7 +127,7 @@ export class IndicatorSettingsModal {
 
         this._config?.tabs.forEach(tab => {
             const tabBtn = document.createElement('button');
-            tabBtn.textContent = tab.label;
+            tabBtn.textContent = t(tab.label);
             const isActive = tab.id === this._activeTabId;
             tabBtn.style.cssText = `
                 background: none; border: none; padding: 12px 0; margin-right: 24px;
@@ -175,13 +177,13 @@ export class IndicatorSettingsModal {
         footer.style.cssText = `padding: 16px 24px; border-top: 1px solid #e0e3eb; display: flex; justify-content: flex-end; gap: 10px;`;
 
         const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = t('Cancel');
         cancelBtn.style.cssText = `background: white; border: 1px solid #e0e3eb; border-radius: 6px; padding: 10px 20px; color: #131722; font-size: 14px; font-weight: 500; cursor: pointer;`;
         cancelBtn.addEventListener('click', () => this.hide());
         footer.appendChild(cancelBtn);
 
         const okBtn = document.createElement('button');
-        okBtn.textContent = 'Ok';
+        okBtn.textContent = t('Ok');
         okBtn.style.cssText = `background: #131722; border: none; border-radius: 6px; padding: 10px 24px; color: white; font-size: 14px; font-weight: 500; cursor: pointer;`;
         okBtn.addEventListener('click', () => {
             if (this._provider) {
