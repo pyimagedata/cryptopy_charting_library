@@ -15,6 +15,7 @@ export interface ContextMenuItem {
 
 export interface ContextMenuOptions {
     items: ContextMenuItem[];
+    container?: HTMLElement;  // Optional container (default: document.body)
 }
 
 // SVG Icons (TradingView style - outline)
@@ -55,8 +56,11 @@ export class ContextMenu {
     private _onKeyDown: (e: KeyboardEvent) => void;
     private _currentPrice: number = 0;
 
+    private _container: HTMLElement;
+
     constructor(options: ContextMenuOptions) {
         this._items = options.items;
+        this._container = options.container || document.body;
         this._onClickOutside = this._handleClickOutside.bind(this);
         this._onKeyDown = this._handleKeyDown.bind(this);
         this._createElement();
@@ -82,7 +86,20 @@ export class ContextMenu {
         `;
 
         this._renderItems();
-        document.body.appendChild(this._element);
+        this._container.appendChild(this._element);
+    }
+
+    /**
+     * Move context menu to a different container (for fullscreen support)
+     */
+    setContainer(container: HTMLElement): void {
+        if (this._element && this._element.parentNode) {
+            this._element.parentNode.removeChild(this._element);
+        }
+        this._container = container;
+        if (this._element) {
+            this._container.appendChild(this._element);
+        }
     }
 
     private _renderItems(): void {

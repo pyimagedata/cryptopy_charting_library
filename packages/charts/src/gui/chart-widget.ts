@@ -1127,6 +1127,17 @@ export class ChartWidget implements Disposable {
         document.addEventListener('mouseup', this._onMouseUp.bind(this));
 
         window.addEventListener('resize', this._onResize.bind(this));
+
+        // Handle fullscreen changes - move context menu and modals to correct container
+        document.addEventListener('fullscreenchange', () => {
+            if (document.fullscreenElement === this._element) {
+                // Entering fullscreen - move context menu to chart element
+                this._contextMenu?.setContainer(this._element!);
+            } else if (!document.fullscreenElement) {
+                // Exiting fullscreen - move context menu back to body
+                this._contextMenu?.setContainer(document.body);
+            }
+        });
     }
 
     private _onWheel(e: WheelEvent): void {
