@@ -1749,11 +1749,21 @@ export class ChartWidget implements Disposable {
     }
 
     private _onContextScreenshot(): void {
+        // Collect indicator panes data for screenshot
+        const indicatorPanesData: { canvas: HTMLCanvasElement | null; height: number }[] = [];
+        for (const pane of this._indicatorPanes.values()) {
+            indicatorPanesData.push({
+                canvas: pane.canvas,
+                height: pane.height
+            });
+        }
+
         handleContextScreenshot(
             this._model,
             this._paneWidget,
             this._priceAxisWidget,
-            this._timeAxisWidget
+            this._timeAxisWidget,
+            indicatorPanesData
         );
     }
 

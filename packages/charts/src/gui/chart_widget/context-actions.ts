@@ -51,7 +51,8 @@ export function handleContextScreenshot(
     model: ChartModel,
     paneWidget: PaneWidget | null,
     priceAxisWidget: PriceAxisWidget | null,
-    timeAxisWidget: TimeAxisWidget | null
+    timeAxisWidget: TimeAxisWidget | null,
+    indicatorPanes?: { canvas: HTMLCanvasElement | null; height: number }[]
 ): void {
     const mainCanvas = paneWidget?.canvas;
     if (!mainCanvas) return;
@@ -66,13 +67,22 @@ export function handleContextScreenshot(
     const mainWidth = mainCanvas.width / dpr;
     const mainHeight = mainCanvas.height / dpr;
     const priceWidth = priceCanvas ? priceCanvas.width / dpr : 0;
-    const priceHeight = priceCanvas ? priceCanvas.height / dpr : 0;
     const timeWidth = timeCanvas ? timeCanvas.width / dpr : 0;
     const timeHeight = timeCanvas ? timeCanvas.height / dpr : 0;
 
+    // Calculate total indicator panes height
+    let indicatorPanesHeight = 0;
+    if (indicatorPanes) {
+        for (const pane of indicatorPanes) {
+            if (pane.canvas) {
+                indicatorPanesHeight += pane.canvas.height / dpr;
+            }
+        }
+    }
+
     // Total screenshot dimensions (CSS pixels)
     const totalWidth = mainWidth + priceWidth;
-    const totalHeight = mainHeight + timeHeight;
+    const totalHeight = mainHeight + indicatorPanesHeight + timeHeight;
 
     // Create combined canvas at 1x scale (for clean output)
     const combinedCanvas = document.createElement('canvas');
@@ -92,21 +102,41 @@ export function handleContextScreenshot(
         0, 0, mainWidth, mainHeight                  // destination (1x scale)
     );
 
-    // Draw price axis
+    // Draw price axis (next to main chart)
     if (priceCanvas) {
         ctx.drawImage(
             priceCanvas,
             0, 0, priceCanvas.width, priceCanvas.height,
-            mainWidth, 0, priceWidth, priceHeight
+            mainWidth, 0, priceWidth, mainHeight
         );
     }
 
-    // Draw time axis
+    // Draw indicator panes (below main chart)
+    let currentY = mainHeight;
+    if (indicatorPanes) {
+        for (const pane of indicatorPanes) {
+            if (pane.canvas) {
+                const paneHeight = pane.canvas.height / dpr;
+                const paneWidth = pane.canvas.width / dpr;
+
+                // Draw indicator pane
+                ctx.drawImage(
+                    pane.canvas,
+                    0, 0, pane.canvas.width, pane.canvas.height,
+                    0, currentY, paneWidth, paneHeight
+                );
+
+                currentY += paneHeight;
+            }
+        }
+    }
+
+    // Draw time axis (at the bottom)
     if (timeCanvas) {
         ctx.drawImage(
             timeCanvas,
             0, 0, timeCanvas.width, timeCanvas.height,
-            0, mainHeight, timeWidth, timeHeight
+            0, currentY, timeWidth, timeHeight
         );
     }
 
