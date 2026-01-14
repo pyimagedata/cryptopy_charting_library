@@ -15,6 +15,8 @@ import {
     CurveDrawing,
 } from '../../../drawings';
 
+import { fillWithOpacity } from './utils';
+
 // ============================================================================
 // Rectangle
 // ============================================================================
@@ -39,11 +41,9 @@ export function drawRectangle(
 
     // Draw Fill
     if (style.fillColor) {
-        ctx.save();
-        ctx.globalAlpha = style.fillOpacity !== undefined ? style.fillOpacity : 0.2;
-        ctx.fillStyle = style.fillColor;
-        ctx.fillRect(x, y, w, h);
-        ctx.restore();
+        ctx.beginPath();
+        ctx.rect(x, y, w, h);
+        fillWithOpacity(ctx, style.fillColor, style.fillOpacity);
     }
 
     // Draw Border
@@ -112,8 +112,7 @@ export function drawRotatedRectangle(
                 ctx.lineTo(scaledCorners[i].x, scaledCorners[i].y);
             }
             ctx.closePath();
-            ctx.fillStyle = drawing.style.fillColor;
-            ctx.fill();
+            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
         }
 
         // Draw stroke
@@ -206,8 +205,7 @@ export function drawEllipse(
         if (drawing.style.fillColor && scaledRx > 0 && scaledRy > 0) {
             ctx.beginPath();
             ctx.ellipse(scaledCx, scaledCy, scaledRx, scaledRy, rotation, 0, Math.PI * 2);
-            ctx.fillStyle = drawing.style.fillColor;
-            ctx.fill();
+            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
         }
 
         if (scaledRx > 0 && scaledRy > 0) {
@@ -283,8 +281,7 @@ export function drawTriangleShape(
             ctx.lineTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
             ctx.closePath();
-            ctx.fillStyle = drawing.style.fillColor;
-            ctx.fill();
+            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
         }
 
         ctx.beginPath();
@@ -343,8 +340,7 @@ export function drawArc(
             ctx.moveTo(p0.x, p0.y);
             ctx.quadraticCurveTo(controlX, controlY, p1.x, p1.y);
             ctx.lineTo(p0.x, p0.y);
-            ctx.fillStyle = drawing.style.fillColor;
-            ctx.fill();
+            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
         }
 
         ctx.beginPath();
@@ -436,8 +432,7 @@ export function drawCircle(
     if (drawing.style.fillColor) {
         ctx.beginPath();
         ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = drawing.style.fillColor;
-        ctx.fill();
+        fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
     }
 
     ctx.beginPath();
@@ -473,8 +468,7 @@ export function drawPolyline(
             ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
         }
         ctx.closePath();
-        ctx.fillStyle = drawing.style.fillColor;
-        ctx.fill();
+        fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
     }
 
     ctx.beginPath();

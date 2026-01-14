@@ -109,3 +109,35 @@ export function drawLabel(
     ctx.fillStyle = textColor;
     ctx.fillText(text, x, y);
 }
+
+/**
+ * Fill the current path with color and opacity support.
+ * This is the CENTRAL function for all fill operations.
+ * @param ctx - Canvas context
+ * @param fillColor - Fill color (hex or rgba)
+ * @param fillOpacity - Optional opacity (0-1), defaults to calculated from rgba or 0.2
+ */
+export function fillWithOpacity(
+    ctx: CanvasRenderingContext2D,
+    fillColor: string,
+    fillOpacity?: number
+): void {
+    ctx.save();
+
+    // Determine opacity
+    let opacity = fillOpacity;
+    if (opacity === undefined) {
+        // Try to extract from rgba color
+        const rgbaMatch = fillColor.match(/rgba?\([^)]+,\s*([\d.]+)\s*\)/);
+        if (rgbaMatch) {
+            opacity = parseFloat(rgbaMatch[1]);
+        } else {
+            opacity = 0.2; // Default fallback
+        }
+    }
+
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+    ctx.restore();
+}

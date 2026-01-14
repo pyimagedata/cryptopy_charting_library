@@ -29,6 +29,7 @@ import {
     colorRow,
     lineWidthRow,
     lineStyleRow,
+    sliderRow,
 } from './drawing-settings-config';
 
 export interface EllipseOptions {
@@ -65,8 +66,8 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
             color: options.color || '#2962ff',
             lineWidth: options.lineWidth || 2,
             lineDash: options.lineDash || [],
-            fillColor: options.fillColor || 'rgba(41, 98, 255, 0.2)',
-            fillOpacity: options.fillOpacity || 0.2,
+            fillColor: options.fillColor || '#2962ff',
+            fillOpacity: options.fillOpacity ?? 0.2,
         };
     }
 
@@ -90,6 +91,7 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
                         title: 'Background',
                         rows: [
                             colorRow('fillColor', 'Background Color'),
+                            sliderRow('fillOpacity', 'Opacity', 0, 100, '%'),
                         ]
                     }
                 ]),
@@ -116,6 +118,7 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
                 if (this.style.lineDash[0] === 6) return 'dashed';
                 return 'dotted';
             case 'fillColor': return this.style.fillColor;
+            case 'fillOpacity': return Math.round((this.style.fillOpacity ?? 0.2) * 100);
             case 'visible': return this.visible;
             default: return undefined;
         }
@@ -136,6 +139,9 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
                 break;
             case 'fillColor':
                 this.style.fillColor = value;
+                break;
+            case 'fillOpacity':
+                this.style.fillOpacity = value / 100;
                 break;
             case 'visible':
                 this.visible = value;
@@ -357,7 +363,8 @@ export class EllipseDrawing implements Drawing, DrawingSettingsProvider {
             color: data.style.color,
             lineWidth: data.style.lineWidth,
             lineDash: data.style.lineDash,
-            fillColor: data.style.fillColor
+            fillColor: data.style.fillColor,
+            fillOpacity: data.style.fillOpacity
         });
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
