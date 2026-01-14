@@ -49,36 +49,68 @@ export function handleContextCopyPrice(model: ChartModel): void {
  */
 export function handleContextScreenshot(
     model: ChartModel,
-    width: number,
-    height: number,
     paneWidget: PaneWidget | null,
     priceAxisWidget: PriceAxisWidget | null,
     timeAxisWidget: TimeAxisWidget | null
 ): void {
-    const canvas = paneWidget?.canvas;
-    if (!canvas) return;
+    const mainCanvas = paneWidget?.canvas;
+    if (!mainCanvas) return;
 
+    const priceCanvas = priceAxisWidget?.canvas;
+    const timeCanvas = timeAxisWidget?.canvas;
+
+    // Get DPR for proper scaling
+    const dpr = window.devicePixelRatio || 1;
+
+    // Calculate actual display dimensions (CSS pixels)
+    const mainWidth = mainCanvas.width / dpr;
+    const mainHeight = mainCanvas.height / dpr;
+    const priceWidth = priceCanvas ? priceCanvas.width / dpr : 0;
+    const priceHeight = priceCanvas ? priceCanvas.height / dpr : 0;
+    const timeWidth = timeCanvas ? timeCanvas.width / dpr : 0;
+    const timeHeight = timeCanvas ? timeCanvas.height / dpr : 0;
+
+    // Total screenshot dimensions (CSS pixels)
+    const totalWidth = mainWidth + priceWidth;
+    const totalHeight = mainHeight + timeHeight;
+
+    // Create combined canvas at 1x scale (for clean output)
     const combinedCanvas = document.createElement('canvas');
-    combinedCanvas.width = width;
-    combinedCanvas.height = height;
+    combinedCanvas.width = totalWidth;
+    combinedCanvas.height = totalHeight;
     const ctx = combinedCanvas.getContext('2d');
     if (!ctx) return;
 
+    // Fill background
     ctx.fillStyle = model.options.layout.backgroundColor;
-    ctx.fillRect(0, 0, combinedCanvas.width, combinedCanvas.height);
+    ctx.fillRect(0, 0, totalWidth, totalHeight);
 
-    ctx.drawImage(canvas, 0, 0);
+    // Draw main chart (scale down from DPR canvas to 1x)
+    ctx.drawImage(
+        mainCanvas,
+        0, 0, mainCanvas.width, mainCanvas.height,  // source (full DPR canvas)
+        0, 0, mainWidth, mainHeight                  // destination (1x scale)
+    );
 
-    const priceCanvas = priceAxisWidget?.canvas;
+    // Draw price axis
     if (priceCanvas) {
-        ctx.drawImage(priceCanvas, canvas.width, 0);
+        ctx.drawImage(
+            priceCanvas,
+            0, 0, priceCanvas.width, priceCanvas.height,
+            mainWidth, 0, priceWidth, priceHeight
+        );
     }
 
-    const timeCanvas = timeAxisWidget?.canvas;
+    // Draw time axis
     if (timeCanvas) {
-        ctx.drawImage(timeCanvas, 0, canvas.height);
+        ctx.drawImage(
+            timeCanvas,
+            0, 0, timeCanvas.width, timeCanvas.height,
+            0, mainHeight, timeWidth, timeHeight
+        );
     }
 
+    // Download
     const link = document.createElement('a');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     link.download = `chart-screenshot-${timestamp}.png`;

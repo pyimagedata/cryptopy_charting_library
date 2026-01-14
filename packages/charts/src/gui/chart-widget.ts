@@ -1751,8 +1751,6 @@ export class ChartWidget implements Disposable {
     private _onContextScreenshot(): void {
         handleContextScreenshot(
             this._model,
-            this._width,
-            this._height,
             this._paneWidget,
             this._priceAxisWidget,
             this._timeAxisWidget
