@@ -83,6 +83,18 @@ export interface ChartModelOptions {
     rightPriceScale: Partial<PriceScaleOptions>;
     leftPriceScale: Partial<PriceScaleOptions>;
     locale: 'en' | 'tr';
+    branding: BrandingOptions;
+}
+
+/**
+ * Branding options for logo customization
+ */
+export interface BrandingOptions {
+    logo?: {
+        text?: string;       // Logo text (e.g., 'MyApp')
+        imageUrl?: string;   // Alternative logo image URL
+        visible?: boolean;   // Visibility control (default: true)
+    };
 }
 
 /**
@@ -141,6 +153,12 @@ export const defaultChartOptions: ChartModelOptions = {
     rightPriceScale: {},
     leftPriceScale: {},
     locale: 'en',
+    branding: {
+        logo: {
+            text: 'cryptopy',
+            visible: true,
+        },
+    },
 };
 
 /**

@@ -598,29 +598,45 @@ export class ChartWidget implements Disposable {
         this._element.appendChild(this._loadingOverlay);
 
         // Branding Logo (Global Overlay)
-        this._brandingLogo = document.createElement('div');
-        this._brandingLogo.className = 'tv-branding-logo';
-        this._brandingLogo.style.cssText = `
-            position: absolute;
-            z-index: 50; 
-            pointer-events: none;
-            user-select: none;
-            color: rgba(255, 255, 255, 0.9);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            font-size: 28px;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            text-shadow: 
-                0 0 10px rgba(41, 98, 255, 0.8),
-                0 0 20px rgba(41, 98, 255, 0.4),
-                2px 2px 4px rgba(0, 0, 0, 0.5);
-            /* Using CSS Custom Properties for positioning */
-            left: calc(var(--tv-drawing-toolbar-width) + var(--tv-content-padding));
-            bottom: calc(var(--tv-time-axis-height) + var(--tv-content-padding));
-        `;
-        this._brandingLogo.textContent = 'cryptopy';
-        this._element.appendChild(this._brandingLogo);
+        const brandingOpts = this._model.options.branding?.logo;
+        const logoVisible = brandingOpts?.visible !== false;
+
+        if (logoVisible) {
+            this._brandingLogo = document.createElement('div');
+            this._brandingLogo.className = 'tv-branding-logo';
+            this._brandingLogo.style.cssText = `
+                position: absolute;
+                z-index: 50; 
+                pointer-events: none;
+                user-select: none;
+                color: rgba(255, 255, 255, 0.9);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-size: 28px;
+                font-weight: 800;
+                display: flex;
+                align-items: center;
+                text-shadow: 
+                    0 0 10px rgba(41, 98, 255, 0.8),
+                    0 0 20px rgba(41, 98, 255, 0.4),
+                    2px 2px 4px rgba(0, 0, 0, 0.5);
+                /* Using CSS Custom Properties for positioning */
+                left: calc(var(--tv-drawing-toolbar-width) + var(--tv-content-padding));
+                bottom: calc(var(--tv-time-axis-height) + var(--tv-content-padding));
+            `;
+
+            // Use image if imageUrl provided, otherwise use text
+            if (brandingOpts?.imageUrl) {
+                const img = document.createElement('img');
+                img.src = brandingOpts.imageUrl;
+                img.style.cssText = 'height: 32px; width: auto;';
+                img.alt = brandingOpts?.text || 'Logo';
+                this._brandingLogo.appendChild(img);
+            } else {
+                this._brandingLogo.textContent = brandingOpts?.text || 'cryptopy';
+            }
+
+            this._element.appendChild(this._brandingLogo);
+        }
 
         // Add spinner animation via style tag
         const spinnerStyle = document.createElement('style');

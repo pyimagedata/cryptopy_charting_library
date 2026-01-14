@@ -1002,7 +1002,7 @@ export class DrawingManager {
         // Extrapolate if outside range
         if (this._timestamps.length >= 2) {
             const lastIndex = this._timestamps.length - 1;
-            const interval = this._timestamps[lastIndex] - this._timestamps[lastIndex - 1];
+            const interval = this._estimateInterval();
             if (floatIndex < 0) {
                 return this._timestamps[0] + (floatIndex * interval);
             } else {
@@ -1045,7 +1045,7 @@ export class DrawingManager {
         if (time < this._timestamps[0]) {
             // Extrapolate backwards
             if (this._timestamps.length >= 2) {
-                const interval = this._timestamps[1] - this._timestamps[0];
+                const interval = this._estimateInterval();
                 const diff = this._timestamps[0] - time;
                 const indexDiff = diff / interval;
                 return -indexDiff;
@@ -1057,7 +1057,7 @@ export class DrawingManager {
         if (time > this._timestamps[lastIndex]) {
             // Extrapolate forwards
             if (this._timestamps.length >= 2) {
-                const interval = this._timestamps[lastIndex] - this._timestamps[lastIndex - 1];
+                const interval = this._estimateInterval();
                 const diff = time - this._timestamps[lastIndex];
                 const indexDiff = diff / interval;
                 return lastIndex + indexDiff;
@@ -1363,8 +1363,38 @@ export class DrawingManager {
         this._drawings.clear();
         this._activeDrawing = null;
         this._selectedDrawing = null;
-        this._drawingsChanged.destroy();
         this._modeChanged.destroy();
         this._selectionChanged.destroy();
+    }
+
+    /**
+     * Estimate the time interval (bar spacing) more robustly
+     * by looking at recent bars and finding the minimal positive difference.
+     * This avoids using large gaps (weekend/holidays) as the interval which causes drawing instability.
+     */
+    private _estimateInterval(): number {
+        if (this._timestamps.length < 2) return 60 * 1000; // Default 1 min fallback
+
+        // Look at last 50 bars to find minimal interval
+        let minDiff = Infinity;
+        const lookback = Math.min(this._timestamps.length - 1, 50);
+        let found = false;
+
+        for (let i = 0; i < lookback; i++) {
+            const idx = this._timestamps.length - 1 - i;
+            const diff = this._timestamps[idx] - this._timestamps[idx - 1];
+            if (diff > 0 && diff < minDiff) {
+                minDiff = diff;
+                found = true;
+            }
+        }
+
+        // If no valid diff found or it's still infinity, fallback to last diff
+        if (!found || minDiff === Infinity) {
+            const lastIdx = this._timestamps.length - 1;
+            return this._timestamps[lastIdx] - this._timestamps[lastIdx - 1];
+        }
+
+        return minDiff;
     }
 }
