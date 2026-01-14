@@ -132,6 +132,39 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'Exchange:': 'Borsa:',
         'All Exchanges': 'Tüm Borsalar',
         'Fetching symbols from all exchanges': 'Tüm borsalardan semboller getiriliyor',
+
+        // Settings Modal
+        'Style': 'Stil',
+        'Coordinates': 'Koordinatlar',
+        'Visibility': 'Görünürlük',
+        'Template...': 'Şablon...',
+        'Ok': 'Tamam',
+        'Settings': 'Ayarlar',
+        'Drawing Settings': 'Çizim Ayarları',
+
+        // Settings Fields
+        'Border': 'Kenarlık',
+        'Color': 'Renk',
+        'Width': 'Genişlik',
+        'Extend Left': 'Sola Uzat',
+        'Extend Right': 'Sağa Uzat',
+        'Background': 'Arkaplan',
+        'Points': 'Noktalar',
+        'Opacity': 'Opaklık',
+        'Point': 'Nokta',
+        'Display': 'Görünüm',
+        'Visible': 'Görünür',
+        'Locked': 'Kilitli',
+        'Line Color': 'Çizgi Rengi',
+        'Line Width': 'Çizgi Kalınlığı',
+        'Line Style': 'Çizgi Stili',
+        'Extend': 'Uzat',
+        'Size': 'Boyut',
+        'Alignment': 'Hizalama',
+        'Enter text...': 'Metin girin...',
+        'Bold': 'Kalın',
+        'Italic': 'İtalik',
+        '+ Add Text': '+ Metin Ekle',
     }
 };
 

@@ -9,6 +9,8 @@
  * All hover detection and state management stays in ChartWidget.
  */
 
+import { t } from '../../helpers/translations';
+
 export interface TooltipClickHandler {
     (): void;
 }
@@ -74,7 +76,7 @@ export class AddTextTooltipHelper {
             transform: translate(-50%, -50%);
             user-select: none;
         `;
-        this._element.textContent = '+ Add Text';
+        this._element.textContent = t('+ Add Text');
 
         this._element.addEventListener('click', (e) => {
             e.stopPropagation();

@@ -8,6 +8,7 @@ import { createColorSelect } from '../components/ColorSelect';
 import { createLineWidthSelect } from '../components/LineWidthSelect';
 import { createLineStyleSelect, dashToLineStyle, lineStyleToDash, LineStyleValue } from '../components/LineStyleSelect';
 import { createSection, createSettingsRow } from '../base/SettingsComponents';
+import { t } from '../../../helpers/translations';
 
 /**
  * Creates a complete border settings section with color, width, and style controls
@@ -16,9 +17,9 @@ export function createBorderSection(
     drawing: Drawing,
     onChanged: () => void
 ): HTMLElement {
-    return createSection('Border', (content) => {
+    return createSection(t('Border'), (content) => {
         // Color
-        const colorRow = createSettingsRow('Color',
+        const colorRow = createSettingsRow(t('Color'),
             createColorSelect(drawing.style.color, (color: string) => {
                 drawing.style.color = color;
                 onChanged();
@@ -27,7 +28,7 @@ export function createBorderSection(
         content.appendChild(colorRow);
 
         // Width
-        const widthRow = createSettingsRow('Width',
+        const widthRow = createSettingsRow(t('Width'),
             createLineWidthSelect(drawing.style.lineWidth, (width: number) => {
                 drawing.style.lineWidth = width;
                 onChanged();
@@ -37,7 +38,7 @@ export function createBorderSection(
 
         // Style
         const currentStyle = dashToLineStyle(drawing.style.lineDash);
-        const styleRow = createSettingsRow('Style',
+        const styleRow = createSettingsRow(t('Style'),
             createLineStyleSelect(currentStyle, (style: LineStyleValue) => {
                 drawing.style.lineDash = lineStyleToDash(style);
                 onChanged();

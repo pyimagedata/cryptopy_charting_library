@@ -6,6 +6,7 @@
 
 import { Delegate } from '../../../helpers/delegate';
 import { Drawing } from '../../../drawings';
+import { t } from '../../../helpers/translations';
 
 /** Tab configuration */
 export interface ModalTab {
@@ -31,12 +32,14 @@ export abstract class BaseSettingsModal {
     readonly closed = new Delegate<void>();
     readonly settingsChanged = new Delegate<Drawing>();
 
-    // Default tabs
-    protected _tabs: ModalTab[] = [
-        { id: 'style', label: 'Style' },
-        { id: 'coordinates', label: 'Coordinates' },
-        { id: 'visibility', label: 'Visibility' },
-    ];
+    // Get tabs - method for dynamic translation (can be overridden)
+    protected getTabs(): ModalTab[] {
+        return [
+            { id: 'style', label: t('Style') },
+            { id: 'coordinates', label: t('Coordinates') },
+            { id: 'visibility', label: t('Visibility') },
+        ];
+    }
 
     constructor(container: HTMLElement) {
         this._container = container;
@@ -208,7 +211,7 @@ export abstract class BaseSettingsModal {
             padding: 0 12px;
         `;
 
-        this._tabs.forEach(tab => {
+        this.getTabs().forEach((tab: ModalTab) => {
             const tabBtn = document.createElement('button');
             tabBtn.textContent = tab.label;
             tabBtn.dataset.tabId = tab.id;
@@ -265,7 +268,7 @@ export abstract class BaseSettingsModal {
 
         // Template button
         const templateBtn = document.createElement('button');
-        templateBtn.textContent = 'Template...';
+        templateBtn.textContent = t('Template...');
         templateBtn.style.cssText = `
             padding: 8px 16px;
             background: #2a2e39;
@@ -280,7 +283,7 @@ export abstract class BaseSettingsModal {
 
         // OK button
         const okBtn = document.createElement('button');
-        okBtn.textContent = 'Ok';
+        okBtn.textContent = t('Ok');
         okBtn.style.cssText = `
             padding: 8px 24px;
             background: #2962ff;

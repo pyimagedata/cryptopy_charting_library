@@ -6,6 +6,7 @@
 
 import { Drawing } from '../../../drawings';
 import { BaseSettingsModal } from '../base/BaseSettingsModal';
+import { t } from '../../../helpers/translations';
 import {
     SettingsConfig,
     SettingsSection,
@@ -77,8 +78,9 @@ export class GenericSettingsModal extends BaseSettingsModal {
 
     /** Get modal title */
     protected getTitle(): string {
-        if (!this._currentDrawing) return 'Settings';
-        return DRAWING_TITLES[this._currentDrawing.type] || 'Drawing Settings';
+        if (!this._currentDrawing) return t('Settings');
+        const title = DRAWING_TITLES[this._currentDrawing.type];
+        return title ? t(title) : t('Drawing Settings');
     }
 
     /** Initialize by reading settings config from drawing */
@@ -96,20 +98,16 @@ export class GenericSettingsModal extends BaseSettingsModal {
         ];
 
         if (lineBasedTypes.includes(drawing.type)) {
-            // Line-based drawings have Text tab
-            this._tabs = [
-                { id: 'style', label: 'Style' },
-                { id: 'text', label: 'Text' },
-                { id: 'coordinates', label: 'Coordinates' },
-                { id: 'visibility', label: 'Visibility' },
+            // Override getTabs for line-based drawings
+            this.getTabs = () => [
+                { id: 'style', label: t('Style') },
+                { id: 'text', label: t('Text') },
+                { id: 'coordinates', label: t('Coordinates') },
+                { id: 'visibility', label: t('Visibility') },
             ];
         } else {
-            // Other drawings don't have Text tab
-            this._tabs = [
-                { id: 'style', label: 'Style' },
-                { id: 'coordinates', label: 'Coordinates' },
-                { id: 'visibility', label: 'Visibility' },
-            ];
+            // Use default tabs from base class
+            delete (this as any).getTabs;
         }
     }
 
@@ -161,7 +159,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
         provider: Drawing & DrawingSettingsProvider
     ): void {
         sections.forEach(section => {
-            const sectionEl = createSection(section.title, (content) => {
+            const sectionEl = createSection(t(section.title), (content) => {
                 section.rows.forEach(row => {
                     if (isGroupRow(row)) {
                         const groupEl = document.createElement('div');
@@ -169,7 +167,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
 
                         if (row.label) {
                             const labelEl = document.createElement('span');
-                            labelEl.textContent = row.label;
+                            labelEl.textContent = t(row.label);
                             labelEl.style.cssText = 'font-size: 13px; color: #d1d4dc;';
                             groupEl.appendChild(labelEl);
                         }
@@ -224,7 +222,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
 
                     const control = this._createControlForRow(row, provider);
                     if (control) {
-                        const rowEl = createSettingsRow(row.label || '', control);
+                        const rowEl = createSettingsRow(row.label ? t(row.label) : '', control);
                         content.appendChild(rowEl);
                     }
                 });

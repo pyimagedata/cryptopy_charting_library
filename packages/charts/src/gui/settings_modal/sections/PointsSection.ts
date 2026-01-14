@@ -5,6 +5,7 @@
 
 import { Drawing, DrawingPoint } from '../../../drawings';
 import { createSection } from '../base/SettingsComponents';
+import { t } from '../../../helpers/translations';
 
 /**
  * Creates a points section showing coordinates of drawing points
@@ -12,7 +13,7 @@ import { createSection } from '../base/SettingsComponents';
 export function createPointsSection(
     drawing: Drawing
 ): HTMLElement {
-    return createSection('Points', (content) => {
+    return createSection(t('Points'), (content) => {
         drawing.points.forEach((point: DrawingPoint, index: number) => {
             const pointRow = document.createElement('div');
             pointRow.style.cssText = `
@@ -24,7 +25,7 @@ export function createPointsSection(
             `;
 
             const label = document.createElement('span');
-            label.textContent = `Point ${index + 1}`;
+            label.textContent = `${t('Point')} ${index + 1}`;
             label.style.cssText = 'font-size: 13px; color: #787b86;';
 
             const values = document.createElement('span');

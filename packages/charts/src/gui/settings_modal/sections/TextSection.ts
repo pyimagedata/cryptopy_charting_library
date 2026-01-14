@@ -7,6 +7,7 @@ import { Drawing } from '../../../drawings';
 import { createColorSelect } from '../components/ColorSelect';
 import { createSelect } from '../components/Select';
 import { createSection, createSettingsRow } from '../base/SettingsComponents';
+import { t } from '../../../helpers/translations';
 
 const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
 
@@ -29,9 +30,9 @@ export function createTextSection(
     drawing: Drawing,
     onChanged: () => void
 ): HTMLElement {
-    return createSection('Text', (content) => {
+    return createSection(t('Text'), (content) => {
         // Text Color
-        const colorRow = createSettingsRow('Color',
+        const colorRow = createSettingsRow(t('Color'),
             createColorSelect(drawing.style.textColor || drawing.style.color, (color: string) => {
                 drawing.style.textColor = color;
                 onChanged();
@@ -48,7 +49,7 @@ export function createTextSection(
                 onChanged();
             }
         );
-        const sizeRow = createSettingsRow('Size', fontSizeSelect);
+        const sizeRow = createSettingsRow(t('Size'), fontSizeSelect);
         content.appendChild(sizeRow);
 
         // Bold/Italic toggle buttons
@@ -62,7 +63,7 @@ export function createTextSection(
         `;
 
         const styleLabel = document.createElement('span');
-        styleLabel.textContent = 'Style';
+        styleLabel.textContent = t('Style');
         styleLabel.style.cssText = 'font-size: 13px; color: #d1d4dc;';
         styleRow.appendChild(styleLabel);
 
@@ -72,7 +73,7 @@ export function createTextSection(
         // Bold button
         const boldBtn = document.createElement('button');
         boldBtn.innerHTML = '<b>B</b>';
-        boldBtn.title = 'Bold';
+        boldBtn.title = t('Bold');
         const isBold = drawing.style.fontWeight === 'bold';
         boldBtn.style.cssText = `
             width: 28px; height: 28px;
@@ -95,7 +96,7 @@ export function createTextSection(
         // Italic button
         const italicBtn = document.createElement('button');
         italicBtn.innerHTML = '<i>I</i>';
-        italicBtn.title = 'Italic';
+        italicBtn.title = t('Italic');
         const isItalic = drawing.style.fontStyle === 'italic';
         italicBtn.style.cssText = `
             width: 28px; height: 28px;
@@ -122,7 +123,7 @@ export function createTextSection(
         // Text content (textarea)
         const textArea = document.createElement('textarea');
         textArea.value = drawing.style.text || '';
-        textArea.placeholder = 'Enter text...';
+        textArea.placeholder = t('Enter text...');
         textArea.style.cssText = `
             width: 100%;
             min-height: 80px;
@@ -159,7 +160,7 @@ export function createTextSection(
         `;
 
         const alignLabel = document.createElement('span');
-        alignLabel.textContent = 'Alignment';
+        alignLabel.textContent = t('Alignment');
         alignLabel.style.cssText = 'font-size: 13px; color: #d1d4dc;';
         alignRow.appendChild(alignLabel);
 
