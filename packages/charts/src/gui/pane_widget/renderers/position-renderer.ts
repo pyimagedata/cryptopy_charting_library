@@ -5,6 +5,7 @@
 
 import { LongPositionDrawing } from '../../../drawings/long-position-drawing';
 import { ShortPositionDrawing } from '../../../drawings/short-position-drawing';
+import { fillWithOpacity } from './utils';
 
 /**
  * Draw a Long Position projection
@@ -84,8 +85,9 @@ function renderPosition(
 
     // Draw Profit Zone (green)
     if (profitHeight > 0) {
-        ctx.fillStyle = drawing.profitColor;
-        ctx.fillRect(left, Math.min(entryY, targetY), width, profitHeight);
+        ctx.beginPath();
+        ctx.rect(left, Math.min(entryY, targetY), width, profitHeight);
+        fillWithOpacity(ctx, drawing.profitColor);
 
         // Border
         ctx.strokeStyle = '#26a69a';
@@ -95,8 +97,9 @@ function renderPosition(
 
     // Draw Loss Zone (red)
     if (lossHeight > 0) {
-        ctx.fillStyle = drawing.lossColor;
-        ctx.fillRect(left, Math.min(entryY, stopY), width, lossHeight);
+        ctx.beginPath();
+        ctx.rect(left, Math.min(entryY, stopY), width, lossHeight);
+        fillWithOpacity(ctx, drawing.lossColor);
 
         // Border
         ctx.strokeStyle = '#ef5350';
