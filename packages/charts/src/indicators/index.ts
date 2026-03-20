@@ -35,7 +35,7 @@ export { ParabolicSARIndicator, ParabolicSAROptions } from './parabolic-sar-indi
 export { VolumeIndicator, VolumeIndicatorOptions } from './volume-indicator';
 export { HMAIndicator, HMAIndicatorOptions } from './hma-indicator';
 export { StochRSIIndicator, StochRSIIndicatorOptions } from './stoch-rsi-indicator';
-
+export { TdojiOscillatorIndicator, TdojiOscillatorOptions } from './tdoji-oscillator-indicator';
 
 
 

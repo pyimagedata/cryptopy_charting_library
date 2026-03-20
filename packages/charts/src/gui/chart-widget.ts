@@ -13,7 +13,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, TdojiOscillatorIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -1946,6 +1946,13 @@ export class ChartWidget implements Disposable {
                 break;
             case 'stochrsi':
                 this.addIndicator(new StochRSIIndicator({ rsiPeriod: 14, stochPeriod: 14, kPeriod: 3, dPeriod: 3 }));
+                break;
+            case 'tdoji':
+                this.addIndicator(new TdojiOscillatorIndicator({
+                    curveLength: 144,
+                    slopeLength: 5,
+                    signalLength: 21,
+                }));
                 break;
 
 

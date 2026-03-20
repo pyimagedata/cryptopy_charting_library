@@ -413,13 +413,12 @@ export class IndicatorPaneWidget implements Disposable {
         const lineColors = (indicator as any).getLineColors?.() || [options.color, '#ff6d00', '#2196f3'];
 
         for (let lineIdx = 0; lineIdx < lineCount; lineIdx++) {
-            ctx.strokeStyle = lineColors[lineIdx] || options.color;
             ctx.lineWidth = options.lineWidth;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-
-            ctx.beginPath();
-            let started = false;
+            let previousX: number | null = null;
+            let previousY: number | null = null;
+            let previousColor: string | null = null;
 
             for (let i = startIndex; i <= endIndex; i++) {
                 const point = data[i];
@@ -428,15 +427,22 @@ export class IndicatorPaneWidget implements Disposable {
 
                 const x = this._timeScale.indexToCoordinate(i as any);
                 const y = this._priceScale.priceToCoordinate(values[lineIdx]);
+                const color = (indicator as any).getLineColor?.(lineIdx, i, values[lineIdx], point)
+                    || lineColors[lineIdx]
+                    || options.color;
 
-                if (!started) {
-                    ctx.moveTo(x, y);
-                    started = true;
-                } else {
+                if (previousX !== null && previousY !== null) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = previousColor ?? color;
+                    ctx.moveTo(previousX, previousY);
                     ctx.lineTo(x, y);
+                    ctx.stroke();
                 }
+
+                previousX = x;
+                previousY = y;
+                previousColor = color;
             }
-            ctx.stroke();
         }
     }
 

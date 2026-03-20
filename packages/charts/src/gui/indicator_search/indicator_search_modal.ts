@@ -9,7 +9,7 @@ export interface IndicatorItem {
     name: string;
     shortName: string;
     description: string;
-    category: 'trend' | 'momentum' | 'volatility' | 'volume';
+    category: 'trend' | 'momentum' | 'volatility' | 'volume' | 'custom';
     type: 'overlay' | 'panel';
 }
 
@@ -92,6 +92,14 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         shortName: 'StochRSI',
         description: 'Combines Stochastic oscillator with RSI to identify overbought/oversold levels of the RSI',
         category: 'momentum',
+        type: 'panel'
+    },
+    {
+        id: 'tdoji',
+        name: 'Tdoji Oscilator',
+        shortName: 'TDOJI',
+        description: 'Linear regression slope oscillator with EMA smoothing, SMA signal, and zero-line context',
+        category: 'custom',
         type: 'panel'
     },
 ];
@@ -260,6 +268,7 @@ export class IndicatorSearchModal {
             { id: 'momentum', label: 'Momentum' },
             { id: 'volatility', label: 'Volatility' },
             { id: 'volume', label: 'Volume' },
+            { id: 'custom', label: 'Özel' },
         ];
 
         categories.forEach(cat => {
