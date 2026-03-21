@@ -43,7 +43,11 @@ export {
     OverlayIndicatorRenderer,
     RSIIndicator,
     RSIIndicatorOptions,
+    ZigZagIndicator,
+    ZigZagIndicatorOptions,
 } from './indicators';
+
+export * from './patterns';
 
 // Drawings
 export {

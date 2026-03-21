@@ -16,10 +16,12 @@ import { t } from '../../../helpers/translations';
 export class IndicatorSettingsModal {
     private _element: HTMLElement | null = null;
     private _overlay: HTMLElement | null = null;
+    private _header: HTMLElement | null = null;
     private _config: IndicatorSettingsConfig | null = null;
     private _provider: IndicatorSettingsProvider | null = null;
     private _activeTabId: string = 'inputs';
     private _collectedSettings: IndicatorSettings = {};
+    private _dragCleanup: (() => void) | null = null;
 
     private readonly _settingsChanged = new Delegate<IndicatorSettings>();
     private readonly _closed = new Delegate<void>();
@@ -54,6 +56,11 @@ export class IndicatorSettingsModal {
 
         this._renderContent();
         if (this._overlay) this._overlay.style.display = 'flex';
+        if (this._element) {
+            this._element.style.position = 'relative';
+            this._element.style.left = '0px';
+            this._element.style.top = '0px';
+        }
     }
 
     hide(): void {
@@ -106,6 +113,8 @@ export class IndicatorSettingsModal {
     private _createHeader(): HTMLElement {
         const header = document.createElement('div');
         header.style.cssText = `padding: 20px 24px 0; display: flex; align-items: center; justify-content: space-between;`;
+        header.style.cursor = 'move';
+        this._header = header;
 
         const title = document.createElement('div');
         title.textContent = this._config?.name || t('Settings');
@@ -117,6 +126,8 @@ export class IndicatorSettingsModal {
         closeBtn.style.cssText = `background: none; border: none; cursor: pointer; padding: 4px; display: flex; border-radius: 4px;`;
         closeBtn.addEventListener('click', () => this.hide());
         header.appendChild(closeBtn);
+
+        this._setupDragging(header);
 
         return header;
     }
@@ -154,9 +165,17 @@ export class IndicatorSettingsModal {
 
     private _createContent(): HTMLElement {
         const content = document.createElement('div');
-        content.style.cssText = `padding: 20px 24px; overflow-y: auto; flex: 1; max-height: 400px;`;
-
         const activeTab = this._config?.tabs.find(t => t.id === this._activeTabId);
+        const isStyleTab = activeTab?.id === 'style';
+        content.style.cssText = `
+            padding: 20px 24px;
+            overflow-y: ${isStyleTab ? 'visible' : 'auto'};
+            overflow-x: visible;
+            flex: 1;
+            max-height: ${isStyleTab ? '520px' : '400px'};
+            min-height: ${isStyleTab ? '220px' : '0'};
+        `;
+
         if (!activeTab) return content;
 
         const context: SectionContext = {
@@ -200,10 +219,65 @@ export class IndicatorSettingsModal {
     }
 
     dispose(): void {
+        this._dragCleanup?.();
         this._settingsChanged.destroy();
         this._closed.destroy();
         if (this._overlay?.parentNode) this._overlay.parentNode.removeChild(this._overlay);
         this._overlay = null;
         this._element = null;
+    }
+
+    private _setupDragging(handle: HTMLElement): void {
+        this._dragCleanup?.();
+
+        let startX = 0;
+        let startY = 0;
+        let originLeft = 0;
+        let originTop = 0;
+        let dragging = false;
+
+        const onMouseMove = (e: MouseEvent) => {
+            if (!dragging || !this._element || !this._overlay) return;
+
+            const nextLeft = originLeft + (e.clientX - startX);
+            const nextTop = originTop + (e.clientY - startY);
+            const maxLeft = Math.max(0, this._overlay.clientWidth - this._element.offsetWidth);
+            const maxTop = Math.max(0, this._overlay.clientHeight - this._element.offsetHeight);
+            const centeredLeft = (this._overlay.clientWidth - this._element.offsetWidth) / 2;
+            const centeredTop = (this._overlay.clientHeight - this._element.offsetHeight) / 2;
+
+            this._element.style.position = 'absolute';
+            this._element.style.left = `${Math.max(0, Math.min(centeredLeft + nextLeft, maxLeft))}px`;
+            this._element.style.top = `${Math.max(0, Math.min(centeredTop + nextTop, maxTop))}px`;
+        };
+
+        const onMouseUp = () => {
+            dragging = false;
+            document.body.style.userSelect = '';
+        };
+
+        const onMouseDown = (e: MouseEvent) => {
+            if ((e.target as HTMLElement).closest('button')) {
+                return;
+            }
+
+            dragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            originLeft = parseFloat(this._element?.style.left || '0') || 0;
+            originTop = parseFloat(this._element?.style.top || '0') || 0;
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+        };
+
+        handle.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+
+        this._dragCleanup = () => {
+            handle.removeEventListener('mousedown', onMouseDown);
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
     }
 }

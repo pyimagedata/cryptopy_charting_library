@@ -13,7 +13,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -1541,8 +1541,20 @@ export class ChartWidget implements Disposable {
         const threshold = 8; // pixels
         const timeScale = this._model.timeScale;
         const priceScale = this._model.rightPriceScale;
+        const indicators = [...this._indicatorManager.overlayIndicators].reverse();
 
-        for (const indicator of this._indicatorManager.overlayIndicators) {
+        for (const indicator of indicators) {
+            if (!indicator.visible) {
+                continue;
+            }
+
+            if (typeof (indicator as any).hitTest === 'function') {
+                if ((indicator as any).hitTest(x, y, timeScale, priceScale)) {
+                    return indicator;
+                }
+                continue;
+            }
+
             const data = indicator.data;
             if (data.length === 0) continue;
 
@@ -1960,6 +1972,23 @@ export class ChartWidget implements Disposable {
             case 'tdoji-mom':
                 this.addIndicator(new TdojiMomIndicator({ period: 60 }));
                 break;
+            case 'zigzag':
+                this.addOverlayIndicator(new ZigZagIndicator({
+                    period: 15,
+                }));
+                break;
+            case 'abcd-pattern':
+                this.addOverlayIndicator(new ABCDPatternIndicator({
+                    period: 15,
+                }));
+                break;
+            case 'harmonic-patterns':
+                this.addOverlayIndicator(new HarmonicPatternIndicator({
+                    period: 15,
+                    showABCD: true,
+                    showGartley: true,
+                }));
+                break;
 
 
 
@@ -1999,6 +2028,11 @@ export class ChartWidget implements Disposable {
                 indicator.calculate(data);
             }
         }
+
+        indicator.dataChanged.subscribe(() => {
+            this._updateMainLegend();
+            this._scheduleDraw();
+        });
 
         // Trigger redraw
         this._scheduleDraw();

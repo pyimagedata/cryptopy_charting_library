@@ -38,5 +38,6 @@ export { StochRSIIndicator, StochRSIIndicatorOptions } from './stoch-rsi-indicat
 export { TdojiOscillatorIndicator, TdojiOscillatorOptions } from './tdoji-oscillator-indicator';
 export { TdojiSRIndicator, TdojiSRIndicatorOptions } from './tdoji-sr-indicator';
 export { TdojiMomIndicator, TdojiMomIndicatorOptions } from './tdoji-mom-indicator';
-
-
+export { ZigZagIndicator, ZigZagIndicatorOptions } from './zigzag-indicator';
+export { ABCDPatternIndicator, ABCDPatternIndicatorOptions } from './abcd-pattern-indicator';
+export { HarmonicPatternIndicator, HarmonicPatternIndicatorOptions } from './harmonic-pattern-indicator';

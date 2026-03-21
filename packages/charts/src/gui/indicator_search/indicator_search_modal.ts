@@ -9,7 +9,7 @@ export interface IndicatorItem {
     name: string;
     shortName: string;
     description: string;
-    category: 'standard' | 'custom';
+    category: 'standard' | 'custom' | 'pattern';
     type: 'overlay' | 'panel';
 }
 
@@ -117,6 +117,30 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         description: 'EMA(60) tabanli close farkini kolon histogram olarak gosterir',
         category: 'custom',
         type: 'panel'
+    },
+    {
+        id: 'zigzag',
+        name: 'ZigZag',
+        shortName: 'ZZ',
+        description: 'Pivot high ve low noktalarini deviation filtresi ile birlestiren formasyon indikatori',
+        category: 'pattern',
+        type: 'overlay'
+    },
+    {
+        id: 'abcd-pattern',
+        name: 'ABCD Pattern',
+        shortName: 'ABCD',
+        description: 'ZigZag pivotlarindan bullish veya bearish ABCD harmonic formasyonu tespit eder',
+        category: 'pattern',
+        type: 'overlay'
+    },
+    {
+        id: 'harmonic-patterns',
+        name: 'Harmonic Patterns',
+        shortName: 'HARM',
+        description: 'ABCD ve Gartley patternlerini ortak zigzag pivotlariyla tespit eder',
+        category: 'pattern',
+        type: 'overlay'
     },
 ];
 
@@ -281,6 +305,7 @@ export class IndicatorSearchModal {
         const categories = [
             { id: 'standard', label: 'İndikatörler' },
             { id: 'custom', label: 'Özel' },
+            { id: 'pattern', label: 'Formasyon' },
         ];
 
         categories.forEach(cat => {
@@ -397,7 +422,9 @@ export class IndicatorSearchModal {
 
         if (indicators.length === 0) {
             const empty = document.createElement('div');
-            empty.textContent = 'No indicators found';
+            empty.textContent = this._activeCategory === 'pattern'
+                ? 'Henüz formasyon eklenmedi'
+                : 'No indicators found';
             empty.style.cssText = `
                 padding: 40px;
                 text-align: center;

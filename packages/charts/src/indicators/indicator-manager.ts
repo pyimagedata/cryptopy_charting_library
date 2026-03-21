@@ -20,6 +20,9 @@ import { StochRSIIndicator } from './stoch-rsi-indicator';
 import { TdojiOscillatorIndicator } from './tdoji-oscillator-indicator';
 import { TdojiSRIndicator } from './tdoji-sr-indicator';
 import { TdojiMomIndicator } from './tdoji-mom-indicator';
+import { ZigZagIndicator } from './zigzag-indicator';
+import { ABCDPatternIndicator } from './abcd-pattern-indicator';
+import { HarmonicPatternIndicator } from './harmonic-pattern-indicator';
 
 
 
@@ -231,6 +234,9 @@ export class IndicatorManager {
             else if (indicator instanceof TdojiOscillatorIndicator) typeId = 'TdojiOscillator';
             else if (indicator instanceof TdojiSRIndicator) typeId = 'TdojiSR';
             else if (indicator instanceof TdojiMomIndicator) typeId = 'TdojiMom';
+            else if (indicator instanceof ZigZagIndicator) typeId = 'ZigZag';
+            else if (indicator instanceof ABCDPatternIndicator) typeId = 'ABCDPattern';
+            else if (indicator instanceof HarmonicPatternIndicator) typeId = 'HarmonicPattern';
 
 
 
@@ -310,6 +316,15 @@ export class IndicatorManager {
                 break;
             case 'TdojiMom':
                 indicator = new TdojiMomIndicator(item.options as any);
+                break;
+            case 'ZigZag':
+                indicator = new ZigZagIndicator(item.options as any);
+                break;
+            case 'ABCDPattern':
+                indicator = new ABCDPatternIndicator(item.options as any);
+                break;
+            case 'HarmonicPattern':
+                indicator = new HarmonicPatternIndicator(item.options as any);
                 break;
 
 
