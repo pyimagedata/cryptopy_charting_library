@@ -1,9 +1,21 @@
 import { PatternSourceBar, ZigZagPoint } from './types';
 
 export function calculateHarmonicPivots(sourceData: PatternSourceBar[], period: number): ZigZagPoint[] {
+    let points: ZigZagPoint[] = [];
+    scanHarmonicPivots(sourceData, period, (snapshot) => {
+        points = snapshot.slice();
+    });
+    return points;
+}
+
+export function scanHarmonicPivots(
+    sourceData: PatternSourceBar[],
+    period: number,
+    onPivotChange: (points: ZigZagPoint[], currentIndex: number, direction: number) => void
+): void {
     const normalizedPeriod = Math.max(2, Math.floor(period));
     if (sourceData.length < normalizedPeriod) {
-        return [];
+        return;
     }
 
     const points: ZigZagPoint[] = [];
@@ -24,27 +36,24 @@ export function calculateHarmonicPivots(sourceData: PatternSourceBar[], period: 
             direction = previousDirection;
         }
 
-        if (!isPivotHigh && !isPivotLow) {
-            continue;
-        }
+        if (isPivotHigh || isPivotLow) {
+            const point: ZigZagPoint = {
+                index: i,
+                time: sourceData[i].time,
+                price: direction === 1 ? high : low,
+                kind: direction === 1 ? 'high' : 'low',
+            };
 
-        const point: ZigZagPoint = {
-            index: i,
-            time: sourceData[i].time,
-            price: direction === 1 ? high : low,
-            kind: direction === 1 ? 'high' : 'low',
-        };
-
-        if (direction !== previousDirection) {
-            addPivot(points, point);
-        } else {
-            updatePivot(points, point);
+            if (direction !== previousDirection) {
+                addPivot(points, point);
+            } else {
+                updatePivot(points, point);
+            }
         }
 
         previousDirection = direction;
+        onPivotChange(points.slice(), i, direction);
     }
-
-    return points;
 }
 
 function isHighest(sourceData: PatternSourceBar[], index: number, period: number): boolean {
@@ -71,18 +80,18 @@ function isLowest(sourceData: PatternSourceBar[], index: number, period: number)
     return true;
 }
 
-function addPivot(points: ZigZagPoint[], point: ZigZagPoint): void {
+function addPivot(points: ZigZagPoint[], point: ZigZagPoint): boolean {
     if (points.length > 0 && points[0].index === point.index && points[0].kind === point.kind) {
         points[0] = point;
-        return;
+        return true;
     }
     points.unshift(point);
+    return true;
 }
 
-function updatePivot(points: ZigZagPoint[], point: ZigZagPoint): void {
+function updatePivot(points: ZigZagPoint[], point: ZigZagPoint): boolean {
     if (points.length === 0) {
-        addPivot(points, point);
-        return;
+        return addPivot(points, point);
     }
 
     const current = points[0];
@@ -92,5 +101,8 @@ function updatePivot(points: ZigZagPoint[], point: ZigZagPoint): void {
 
     if (shouldReplace) {
         points[0] = point;
+        return true;
     }
+
+    return false;
 }

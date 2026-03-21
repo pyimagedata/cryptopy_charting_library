@@ -1,5 +1,5 @@
 import { ABCDPattern, PatternSourceBar, ZigZagPoint } from './types';
-import { calculateHarmonicPivots } from './harmonic-pivots';
+import { scanHarmonicPivots } from './harmonic-pivots';
 
 export interface ABCDDetectionOptions {
     period: number;
@@ -17,34 +17,50 @@ export function detectABCDPatterns(
     sourceData: PatternSourceBar[],
     options: ABCDDetectionOptions
 ): ABCDPattern[] {
-    const zigZagPoints = calculateHarmonicPivots(sourceData, options.period).slice().reverse();
-    if (zigZagPoints.length < 4) {
-        return [];
-    }
-
     const patterns: ABCDPattern[] = [];
-    for (let i = 0; i <= zigZagPoints.length - 4; i++) {
-        const candidate = _buildPattern(
-            zigZagPoints[i],
-            zigZagPoints[i + 1],
-            zigZagPoints[i + 2],
-            zigZagPoints[i + 3],
-            options
-        );
-        if (candidate) {
-            patterns.push(candidate);
-        }
-    }
+    const seen = new Set<string>();
+    const seenAbcKeys = new Set<string>();
 
-    return _dedupePatterns(patterns);
+    scanHarmonicPivots(sourceData, options.period, (pivotSnapshot) => {
+        const zigZagPoints = pivotSnapshot.slice().reverse();
+        if (zigZagPoints.length < 4) {
+            return;
+        }
+
+        const start = zigZagPoints.length - 4;
+        const candidate = _buildPattern(
+            zigZagPoints[start],
+            zigZagPoints[start + 1],
+            zigZagPoints[start + 2],
+            zigZagPoints[start + 3]
+        );
+        if (!candidate) {
+            return;
+        }
+
+        const key = `${candidate.direction}:${candidate.points[0].index}-${candidate.points[1].index}-${candidate.points[2].index}`;
+        if (seen.has(key)) {
+            return;
+        }
+
+        const abcKey = `${candidate.points[0].index}-${candidate.points[1].index}-${candidate.points[2].index}`;
+        if (seenAbcKeys.has(abcKey)) {
+            return;
+        }
+
+        seen.add(key);
+        seenAbcKeys.add(abcKey);
+        patterns.push(candidate);
+    });
+
+    return patterns;
 }
 
 function _buildPattern(
     a: ZigZagPoint,
     b: ZigZagPoint,
     c: ZigZagPoint,
-    d: ZigZagPoint,
-    options: ABCDDetectionOptions
+    d: ZigZagPoint
 ): ABCDPattern | null {
     const points = [a, b, c, d] as [typeof a, typeof b, typeof c, typeof d];
 
@@ -91,7 +107,7 @@ function _buildPattern(
         return null;
     }
 
-        return {
+    return {
         points,
         direction: sellPattern ? 'bearish' : 'bullish',
         bcRatio,
@@ -100,20 +116,4 @@ function _buildPattern(
         extensionOne,
         extension1272,
     };
-}
-
-function _dedupePatterns(patterns: ABCDPattern[]): ABCDPattern[] {
-    const seen = new Set<string>();
-    const deduped: ABCDPattern[] = [];
-
-    for (const pattern of patterns) {
-        const key = pattern.points.map((point) => point.index).join('-');
-        if (seen.has(key)) {
-            continue;
-        }
-        seen.add(key);
-        deduped.push(pattern);
-    }
-
-    return deduped;
 }

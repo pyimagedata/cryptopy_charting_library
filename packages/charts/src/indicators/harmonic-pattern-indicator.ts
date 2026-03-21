@@ -10,10 +10,10 @@ import {
     lineWidthRow,
     checkboxRow,
 } from '../gui/indicator_settings';
-import { ABCDPattern, detectABCDPatterns, detectGartleyPatterns, GartleyPattern } from '../patterns';
+import { detectABCDPatterns, detectBatPatterns, detectCypherPatterns, detectGartleyPatterns } from '../patterns';
 
 type HarmonicPattern = {
-    kind: 'abcd' | 'gartley';
+    kind: 'abcd' | 'gartley' | 'bat' | 'cypher';
     direction: 'bullish' | 'bearish';
     points: { index: number; time: number; price: number }[];
     ratios?: { first?: string; second?: string };
@@ -26,6 +26,8 @@ export interface HarmonicPatternIndicatorOptions extends IndicatorOptions {
     showRatios: boolean;
     showABCD: boolean;
     showGartley: boolean;
+    showBat: boolean;
+    showCypher: boolean;
 }
 
 const defaults: Partial<HarmonicPatternIndicatorOptions> = {
@@ -39,6 +41,8 @@ const defaults: Partial<HarmonicPatternIndicatorOptions> = {
     showRatios: true,
     showABCD: true,
     showGartley: true,
+    showBat: true,
+    showCypher: true,
 };
 
 export class HarmonicPatternIndicator extends OverlayIndicator {
@@ -61,7 +65,9 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
         const needsRecalc =
             normalized.period !== undefined && normalized.period !== this._optionsEx.period ||
             normalized.showABCD !== undefined ||
-            normalized.showGartley !== undefined;
+            normalized.showGartley !== undefined ||
+            normalized.showBat !== undefined ||
+            normalized.showCypher !== undefined;
         Object.assign(this._optionsEx, normalized);
         Object.assign(this._options, normalized);
         this._dataChanged.fire();
@@ -76,6 +82,8 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                     numberRow('period', 'ZigZag Period', 2, 50, 1),
                     checkboxRow('showABCD', 'Show ABCD', this._optionsEx.showABCD),
                     checkboxRow('showGartley', 'Show Gartley', this._optionsEx.showGartley),
+                    checkboxRow('showBat', 'Show Bat', this._optionsEx.showBat),
+                    checkboxRow('showCypher', 'Show Cypher', this._optionsEx.showCypher),
                 ] }]),
                 createStyleTab([{ rows: [
                     colorRow('bullishColor', 'Bullish Color', this._optionsEx.bullishColor),
@@ -120,6 +128,24 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                 const gartleys = detectGartleyPatterns(sourceData, period);
                 this._patterns.push(...gartleys.map((pattern): HarmonicPattern => ({
                     kind: 'gartley',
+                    direction: pattern.direction,
+                    points: pattern.points,
+                })));
+            }
+
+            if (this._optionsEx.showBat) {
+                const bats = detectBatPatterns(sourceData, period);
+                this._patterns.push(...bats.map((pattern): HarmonicPattern => ({
+                    kind: 'bat',
+                    direction: pattern.direction,
+                    points: pattern.points,
+                })));
+            }
+
+            if (this._optionsEx.showCypher) {
+                const cyphers = detectCypherPatterns(sourceData, period);
+                this._patterns.push(...cyphers.map((pattern): HarmonicPattern => ({
+                    kind: 'cypher',
                     direction: pattern.direction,
                     points: pattern.points,
                 })));
@@ -174,7 +200,7 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                 ctx.moveTo(points[1].x, points[1].y);
                 ctx.lineTo(points[3].x, points[3].y);
                 ctx.stroke();
-            } else if (pattern.kind === 'gartley' && points.length >= 5) {
+            } else if ((pattern.kind === 'gartley' || pattern.kind === 'bat' || pattern.kind === 'cypher') && points.length >= 5) {
                 ctx.beginPath();
                 ctx.moveTo(points[0].x, points[0].y);
                 ctx.lineTo(points[2].x, points[2].y);
@@ -186,7 +212,21 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
             }
             ctx.setLineDash([]);
 
-            this._drawLabels(ctx, points, pattern.kind === 'gartley' ? ['X', 'A', 'B', 'C', 'D'] : ['A', 'B', 'C', 'D'], color, hpr, vpr);
+            this._drawLabels(
+                ctx,
+                points,
+                pattern.kind === 'gartley'
+                    ? ['X', 'A', 'B', 'C', 'Gartley']
+                    : pattern.kind === 'bat'
+                        ? ['X', 'A', 'B', 'C', 'Bat']
+                        : pattern.kind === 'cypher'
+                            ? ['X', 'A', 'B', 'C', 'Cypher']
+                        : ['A', 'B', 'C', 'ABCD'],
+                color,
+                pattern.direction,
+                hpr,
+                vpr
+            );
             if (this._optionsEx.showRatios && pattern.ratios && points.length >= 4) {
                 this._drawRatioTag(ctx, (points[0].x + points[2].x) / 2, (points[0].y + points[2].y) / 2 - 14 * vpr, pattern.ratios.first || '', color, hpr, vpr);
                 this._drawRatioTag(ctx, (points[1].x + points[3].x) / 2, (points[1].y + points[3].y) / 2 - 14 * vpr, pattern.ratios.second || '', color, hpr, vpr);
@@ -208,18 +248,53 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
         return false;
     }
 
-    private _drawLabels(ctx: CanvasRenderingContext2D, points: { x: number; y: number }[], labels: string[], color: string, hpr: number, vpr: number): void {
+    private _drawLabels(
+        ctx: CanvasRenderingContext2D,
+        points: { x: number; y: number }[],
+        labels: string[],
+        color: string,
+        direction: 'bullish' | 'bearish',
+        hpr: number,
+        vpr: number
+    ): void {
         ctx.font = `${11 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         points.forEach((point, index) => {
+            const label = labels[index] || '';
+            if (index === points.length - 1 && label.length > 1) {
+                const paddingX = 6 * hpr;
+                const textWidth = ctx.measureText(label).width;
+                const boxWidth = textWidth + paddingX * 2;
+                const boxHeight = 16 * vpr;
+                const offsetX = 12 * hpr;
+                const offsetY = direction === 'bullish' ? 18 * vpr : -18 * vpr;
+                const boxX = point.x + offsetX;
+                const boxY = point.y + offsetY - boxHeight / 2;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1 * hpr;
+                ctx.beginPath();
+                ctx.moveTo(point.x, point.y);
+                ctx.lineTo(boxX, point.y + offsetY);
+                ctx.stroke();
+                ctx.globalAlpha = 0.92;
+                ctx.fillStyle = color;
+                ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'left';
+                ctx.fillText(label, boxX + paddingX, point.y + offsetY + 0.5 * vpr);
+                ctx.textAlign = 'center';
+                return;
+            }
+
             const radius = 10 * hpr;
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(labels[index] || '', point.x, point.y + 0.5 * vpr);
+            ctx.fillText(label, point.x, point.y + 0.5 * vpr);
         });
     }
 
@@ -236,11 +311,20 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
 
     private _dedupePatterns(patterns: HarmonicPattern[]): HarmonicPattern[] {
         const seen = new Set<string>();
+        const seenAbcKeys = new Set<string>();
         const deduped: HarmonicPattern[] = [];
         for (const pattern of patterns) {
             const key = `${pattern.kind}:${pattern.points.map((point) => point.index).join('-')}`;
             if (seen.has(key)) continue;
+            const abcPoints = pattern.kind === 'gartley'
+                ? pattern.points.slice(1, 4)
+                : pattern.points.slice(0, 3);
+            const abcKey = abcPoints.length === 3
+                ? abcPoints.map((point) => point.index).join('-')
+                : undefined;
+            if (abcKey && seenAbcKeys.has(abcKey)) continue;
             seen.add(key);
+            if (abcKey) seenAbcKeys.add(abcKey);
             deduped.push(pattern);
         }
         return deduped;
