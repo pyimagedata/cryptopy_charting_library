@@ -9,7 +9,7 @@ export interface IndicatorItem {
     name: string;
     shortName: string;
     description: string;
-    category: 'trend' | 'momentum' | 'volatility' | 'volume' | 'custom';
+    category: 'standard' | 'custom';
     type: 'overlay' | 'panel';
 }
 
@@ -19,7 +19,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Exponential Moving Average',
         shortName: 'EMA',
         description: 'Trend-following indicator that gives more weight to recent prices',
-        category: 'trend',
+        category: 'standard',
         type: 'overlay'
     },
     {
@@ -27,7 +27,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Relative Strength Index',
         shortName: 'RSI',
         description: 'Momentum oscillator measuring speed and change of price movements',
-        category: 'momentum',
+        category: 'standard',
         type: 'panel'
     },
     {
@@ -35,7 +35,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Simple Moving Average',
         shortName: 'SMA',
         description: 'Average price over a specified period',
-        category: 'trend',
+        category: 'standard',
         type: 'overlay'
     },
     {
@@ -43,7 +43,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Bollinger Bands',
         shortName: 'BB',
         description: 'Volatility bands placed above and below a moving average',
-        category: 'volatility',
+        category: 'standard',
         type: 'overlay'
     },
     {
@@ -51,7 +51,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'MACD',
         shortName: 'MACD',
         description: 'Trend-following momentum indicator showing relationship between two EMAs',
-        category: 'momentum',
+        category: 'standard',
         type: 'panel'
     },
     {
@@ -59,7 +59,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Stochastic',
         shortName: 'STOCH',
         description: 'Momentum indicator comparing closing price to price range',
-        category: 'momentum',
+        category: 'standard',
         type: 'panel'
     },
     {
@@ -67,7 +67,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Parabolic SAR',
         shortName: 'SAR',
         description: 'Stop and Reverse indicator that identifies potential trend reversals',
-        category: 'trend',
+        category: 'standard',
         type: 'overlay'
     },
     {
@@ -75,7 +75,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Volume',
         shortName: 'Vol',
         description: 'Measures the number of shares or contracts traded in a security or market during a given period',
-        category: 'volume',
+        category: 'standard',
         type: 'panel'
     },
     {
@@ -83,7 +83,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Hull Moving Average',
         shortName: 'HMA',
         description: 'Modified moving average with reduced lag and increased smoothness',
-        category: 'trend',
+        category: 'standard',
         type: 'overlay'
     },
     {
@@ -91,7 +91,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         name: 'Stochastic RSI',
         shortName: 'StochRSI',
         description: 'Combines Stochastic oscillator with RSI to identify overbought/oversold levels of the RSI',
-        category: 'momentum',
+        category: 'standard',
         type: 'panel'
     },
     {
@@ -125,7 +125,7 @@ export class IndicatorSearchModal {
     private _overlay: HTMLElement | null = null;
     private _searchInput: HTMLInputElement | null = null;
     private _resultsList: HTMLElement | null = null;
-    private _activeCategory: string = 'all';
+    private _activeCategory: string = 'standard';
 
     private readonly _indicatorSelected = new Delegate<string>();
     private readonly _closed = new Delegate<void>();
@@ -279,11 +279,7 @@ export class IndicatorSearchModal {
         `;
 
         const categories = [
-            { id: 'all', label: 'All' },
-            { id: 'trend', label: 'Trend' },
-            { id: 'momentum', label: 'Momentum' },
-            { id: 'volatility', label: 'Volatility' },
-            { id: 'volume', label: 'Volume' },
+            { id: 'standard', label: 'İndikatörler' },
             { id: 'custom', label: 'Özel' },
         ];
 
@@ -297,13 +293,13 @@ export class IndicatorSearchModal {
                 padding: 12px 16px;
                 font-size: 13px;
                 font-weight: 500;
-                color: ${cat.id === 'all' ? '#131722' : '#787b86'};
+                color: ${cat.id === 'standard' ? '#131722' : '#787b86'};
                 cursor: pointer;
                 position: relative;
                 transition: color 0.15s;
             `;
 
-            if (cat.id === 'all') {
+            if (cat.id === 'standard') {
                 const underline = document.createElement('div');
                 underline.className = 'tab-underline';
                 underline.style.cssText = `
@@ -385,15 +381,11 @@ export class IndicatorSearchModal {
 
     private _filterIndicators(): void {
         const query = this._searchInput?.value.toLowerCase() || '';
-        let filtered = AVAILABLE_INDICATORS.filter(ind =>
+        const filtered = AVAILABLE_INDICATORS.filter(ind =>
             ind.name.toLowerCase().includes(query) ||
             ind.shortName.toLowerCase().includes(query) ||
             ind.description.toLowerCase().includes(query)
-        );
-
-        if (this._activeCategory !== 'all') {
-            filtered = filtered.filter(ind => ind.category === this._activeCategory);
-        }
+        ).filter(ind => ind.category === this._activeCategory);
 
         this._renderResults(filtered);
     }
