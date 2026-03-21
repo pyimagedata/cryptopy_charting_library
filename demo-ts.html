@@ -16,16 +16,267 @@
             height: 100vh;
             width: 100vw;
             overflow: hidden;
+            position: relative;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
 
         #chart {
             width: 100%;
             height: 100%;
+            position: relative;
+        }
+
+        .replay-panel {
+            position: fixed;
+            left: 50%;
+            bottom: 18px;
+            transform: translateX(-50%);
+            z-index: 40;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: min(980px, calc(100vw - 28px));
+            padding: 12px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            background:
+                linear-gradient(180deg, rgba(22, 28, 43, 0.96), rgba(14, 19, 31, 0.94));
+            backdrop-filter: blur(14px);
+            color: #e5e7eb;
+            box-shadow:
+                0 16px 40px rgba(0, 0, 0, 0.35),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        .replay-panel.hidden {
+            display: none;
+        }
+
+        .replay-panel__row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .replay-panel__row--main {
+            flex-wrap: wrap;
+        }
+
+        .replay-divider {
+            width: 1px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.1);
+            flex: 0 0 auto;
+        }
+
+        .replay-ghost,
+        .replay-chip,
+        .replay-icon-btn,
+        .replay-close,
+        .replay-speed {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+            color: #f8fafc;
+            border-radius: 10px;
+        }
+
+        .replay-chip,
+        .replay-ghost,
+        .replay-speed {
+            height: 36px;
+            padding: 0 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .replay-icon-btn,
+        .replay-close {
+            width: 36px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .replay-chip,
+        .replay-ghost,
+        .replay-icon-btn,
+        .replay-close {
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
+        }
+
+        .replay-chip:hover,
+        .replay-ghost:hover,
+        .replay-icon-btn:hover,
+        .replay-close:hover,
+        .replay-speed:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.14);
+        }
+
+        .replay-chip.active {
+            background: rgba(41, 98, 255, 0.18);
+            color: #93c5fd;
+            border-color: rgba(41, 98, 255, 0.42);
+        }
+
+        .replay-chip svg,
+        .replay-icon-btn svg,
+        .replay-close svg {
+            flex: 0 0 auto;
+        }
+
+        .replay-speed {
+            appearance: none;
+            outline: none;
+            min-width: 70px;
+            cursor: pointer;
+        }
+
+        .replay-speed option {
+            color: #111827;
+        }
+
+        .replay-pill {
+            min-width: 56px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            padding: 0 12px;
+            background: rgba(99, 102, 241, 0.14);
+            color: #c7d2fe;
+            font-size: 13px;
+            border: 1px solid rgba(99, 102, 241, 0.24);
+        }
+
+        .replay-status {
+            min-width: 210px;
+            color: #93c5fd;
+            font-size: 12px;
+            letter-spacing: 0.01em;
+        }
+
+        .replay-grow {
+            flex: 1 1 auto;
+        }
+
+        .replay-slider-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .replay-slider-label {
+            color: #94a3b8;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .replay-panel input[type="range"] {
+            width: 100%;
+            accent-color: #2962ff;
+        }
+
+        .replay-panel button:disabled,
+        .replay-panel select:disabled,
+        .replay-panel input:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .replay-picker-line {
+            position: absolute;
+            top: 38px;
+            bottom: 28px;
+            width: 2px;
+            background: #2962ff;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+            z-index: 35;
+            pointer-events: none;
+            display: none;
+        }
+
+        .replay-picker-line::after {
+            content: "✂";
+            position: absolute;
+            left: 50%;
+            bottom: -24px;
+            transform: translateX(-50%);
+            color: #111827;
+            background: #ffffff;
+            border-radius: 999px;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
         }
 </style>
 </head>
 <body>
     <div id="chart"></div>
+    <div id="replay-picker-line" class="replay-picker-line"></div>
+    <div id="replay-panel" class="replay-panel hidden">
+        <div class="replay-panel__row replay-panel__row--main">
+            <button id="replay-select" class="replay-chip" type="button">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 4v12"/>
+                    <path d="M15 7l-4 3 4 3"/>
+                    <path d="M18 4v12"/>
+                </svg>
+                <span>Select bar</span>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 4.5 6 7.5 9 4.5"/>
+                </svg>
+            </button>
+            <div class="replay-divider"></div>
+            <button id="replay-step-back" class="replay-icon-btn" type="button" disabled title="Geri">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12.5 5 7 10l5.5 5"/>
+                </svg>
+            </button>
+            <button id="replay-play" class="replay-icon-btn" type="button" disabled title="Oynat">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="m7 5 8 5-8 5z"/>
+                </svg>
+            </button>
+            <button id="replay-step-forward" class="replay-icon-btn" type="button" disabled title="Ileri">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m7.5 5 5.5 5-5.5 5"/>
+                </svg>
+            </button>
+            <select id="replay-speed" class="replay-speed" disabled>
+            <option value="1200">0.5x</option>
+            <option value="700">1x</option>
+            <option value="350">2x</option>
+            <option value="150">4x</option>
+            </select>
+            <div id="replay-interval" class="replay-pill">1H</div>
+            <div class="replay-divider"></div>
+            <div id="replay-status" class="replay-status">Canli</div>
+            <div class="replay-grow"></div>
+            <button id="replay-stop" class="replay-close" type="button" disabled title="Kapat">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                    <path d="M5 5 15 15"/>
+                    <path d="M15 5 5 15"/>
+                </svg>
+            </button>
+        </div>
+        <div class="replay-slider-wrap">
+            <div class="replay-slider-label">Bar</div>
+            <input id="replay-slider" type="range" min="0" max="0" value="0" step="1" disabled>
+        </div>
+    </div>
 
     <script src="packages/charts/dist/charts.js"></script>
     <script>
@@ -38,6 +289,24 @@
         // Initialize chart variables
         let chart;
         let currentSeries;
+        let fullData = [];
+        let replayActive = false;
+        let replaySelecting = false;
+        let replayIndex = -1;
+        let replayTimer = null;
+        let replayStopButton;
+        let replayBackButton;
+        let replayPlayButton;
+        let replayForwardButton;
+        let replaySelectButton;
+        let replaySpeedSelect;
+        let replaySlider;
+        let replayStatus;
+        let replayIntervalLabel;
+        let replayPanel;
+        let replayPickerLine;
+        let replayToolbarButton = null;
+        let replayToolbarObserver = null;
         
         // ========================================================================
         // Binance Data Fetcher
@@ -206,12 +475,372 @@
         // ========================================================================
         let currentWebSocket = null;
 
+        function getPrimarySeries() {
+            return chart?.model?.serieses?.[0] ?? null;
+        }
+
+        function closeRealtimeFeed() {
+            if (!currentWebSocket) return;
+            currentWebSocket.close();
+            currentWebSocket = null;
+        }
+
+        function clearReplayTimer() {
+            if (replayTimer !== null) {
+                clearInterval(replayTimer);
+                replayTimer = null;
+            }
+        }
+
+        function getPaneCanvas() {
+            return chart?._paneWidget?.canvas ?? null;
+        }
+
+        function setReplayPickerVisible(visible) {
+            if (!replayPickerLine) return;
+            replayPickerLine.style.display = visible ? 'block' : 'none';
+        }
+
+        function setReplaySelectionMode(active) {
+            if (active && replayActive) {
+                clearReplayTimer();
+                replayActive = false;
+                renderChartData(fullData);
+            }
+            replaySelecting = active;
+            if (!active) {
+                setReplayPickerVisible(false);
+            } else {
+                updateReplayStatusText('Bir bar sec');
+            }
+            updateReplayControls();
+        }
+
+        function updateReplayStatusText(text) {
+            if (replayStatus) {
+                replayStatus.textContent = text;
+            }
+        }
+
+        function formatReplayTime(timestamp) {
+            try {
+                return new Date(timestamp).toLocaleString('tr-TR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (error) {
+                return String(timestamp);
+            }
+        }
+
+        function updateReplayControls() {
+            if (!replayStatus) return;
+
+            const hasData = fullData.length > 0;
+            const replayEnabled = replayActive && hasData;
+            const showPanel = replayEnabled || replaySelecting;
+
+            if (replayPanel) {
+                replayPanel.classList.toggle('hidden', !showPanel);
+            }
+
+            replayStopButton.disabled = !replayActive && !replaySelecting;
+            replayBackButton.disabled = !replayEnabled || replayIndex <= 0;
+            replayPlayButton.disabled = !replayEnabled;
+            replayForwardButton.disabled = !replayEnabled || replayIndex >= fullData.length - 1;
+            replaySpeedSelect.disabled = !replayEnabled;
+            replaySlider.disabled = !replayEnabled;
+            replaySelectButton.disabled = !hasData;
+            replaySlider.max = String(Math.max(0, fullData.length - 1));
+            replaySlider.value = String(Math.max(0, replayEnabled ? replayIndex : fullData.length - 1));
+            replaySelectButton.classList.toggle('active', replaySelecting);
+            replayPlayButton.innerHTML = replayTimer === null
+                ? `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><path d="m7 5 8 5-8 5z"/></svg>`
+                : `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><path d="M6 5h3v10H6zm5 0h3v10h-3z"/></svg>`;
+            replayStopButton.title = replaySelecting ? 'Secimi iptal et' : 'Replay bitir';
+            replayIntervalLabel.textContent = String(currentInterval).toUpperCase();
+
+            if (replayToolbarButton) {
+                replayToolbarButton.style.background = replayActive || replaySelecting ? 'rgba(41, 98, 255, 0.18)' : 'transparent';
+                replayToolbarButton.style.color = replayActive || replaySelecting ? '#2962ff' : '#787b86';
+            }
+
+            if (!hasData) {
+                updateReplayStatusText('Veri yok');
+                return;
+            }
+
+            if (replaySelecting) {
+                updateReplayStatusText('Bir bar sec');
+                return;
+            }
+
+            if (!replayActive) {
+                updateReplayStatusText('Canli');
+                return;
+            }
+
+            const currentBar = fullData[Math.max(0, replayIndex)];
+            updateReplayStatusText(`Replay ${replayIndex + 1}/${fullData.length} • ${formatReplayTime(currentBar.time)}`);
+        }
+
+        function renderChartData(data) {
+            const series = getPrimarySeries();
+            if (!series) return;
+            chart.setData(series, data);
+            chart.timeScale().scrollToPosition(0, false);
+            chart.model.fullUpdate();
+        }
+
+        function mergeCandleIntoFullData(candle) {
+            if (fullData.length === 0) {
+                fullData = [{ ...candle }];
+                return;
+            }
+
+            const lastCandle = fullData[fullData.length - 1];
+            if (lastCandle.time === candle.time) {
+                lastCandle.high = Math.max(lastCandle.high, candle.high);
+                lastCandle.low = Math.min(lastCandle.low, candle.low);
+                lastCandle.close = candle.close;
+                lastCandle.volume = candle.volume;
+                return;
+            }
+
+            if (candle.time > lastCandle.time) {
+                fullData.push({ ...candle });
+            }
+        }
+
+        function renderReplaySlice() {
+            if (!replayActive || fullData.length === 0) return;
+            const clampedIndex = Math.max(0, Math.min(fullData.length - 1, replayIndex));
+            replayIndex = clampedIndex;
+            renderChartData(fullData.slice(0, replayIndex + 1));
+            updateReplayControls();
+        }
+
+        function stepReplay(delta) {
+            if (!replayActive || fullData.length === 0) return;
+            replayIndex = Math.max(0, Math.min(fullData.length - 1, replayIndex + delta));
+            renderReplaySlice();
+
+            if (replayIndex >= fullData.length - 1) {
+                clearReplayTimer();
+                updateReplayControls();
+            }
+        }
+
+        function startReplayTimer() {
+            if (!replayActive || replayTimer !== null) return;
+            const speed = Number(replaySpeedSelect.value || 700);
+            replayTimer = setInterval(() => {
+                if (replayIndex >= fullData.length - 1) {
+                    clearReplayTimer();
+                    updateReplayControls();
+                    return;
+                }
+                stepReplay(1);
+            }, speed);
+            updateReplayControls();
+        }
+
+        function enterReplayMode(startIndex) {
+            if (fullData.length === 0 || replayActive) return;
+            closeRealtimeFeed();
+            clearReplayTimer();
+            replayActive = true;
+            replaySelecting = false;
+            setReplayPickerVisible(false);
+            replayIndex = Math.max(0, Math.min(fullData.length - 1, startIndex));
+            renderReplaySlice();
+        }
+
+        async function exitReplayMode() {
+            if (!replayActive && !replaySelecting) return;
+            const wasReplayActive = replayActive;
+            clearReplayTimer();
+            replayActive = false;
+            replaySelecting = false;
+            setReplayPickerVisible(false);
+            replayIndex = fullData.length - 1;
+            updateReplayControls();
+            if (wasReplayActive) {
+                await updateChartData(currentSymbol, currentInterval, currentExchange, true);
+            }
+        }
+
+        function updateReplayPickerFromClientX(clientX) {
+            if (!replaySelecting || fullData.length === 0) return;
+            const paneCanvas = getPaneCanvas();
+            if (!paneCanvas) return;
+            const rect = paneCanvas.getBoundingClientRect();
+            const chartRect = document.getElementById('chart').getBoundingClientRect();
+            const localX = clientX - rect.left;
+            const index = Math.max(0, Math.min(fullData.length - 1, Math.round(chart.timeScale().coordinateToIndex(localX))));
+            const snappedX = chart.timeScale().indexToCoordinate(index);
+            replayPickerLine.style.left = `${rect.left - chartRect.left + snappedX}px`;
+            replayPickerLine.dataset.index = String(index);
+            setReplayPickerVisible(true);
+        }
+
+        function attachReplaySelectionEvents() {
+            const paneCanvas = getPaneCanvas();
+            if (!paneCanvas) return;
+
+            paneCanvas.addEventListener('mousemove', (event) => {
+                updateReplayPickerFromClientX(event.clientX);
+            });
+
+            paneCanvas.addEventListener('mouseleave', () => {
+                if (replaySelecting) {
+                    setReplayPickerVisible(false);
+                }
+            });
+
+            paneCanvas.addEventListener('click', (event) => {
+                if (!replaySelecting) return;
+                event.preventDefault();
+                event.stopPropagation();
+                updateReplayPickerFromClientX(event.clientX);
+                const index = Number(replayPickerLine.dataset.index || '-1');
+                if (Number.isFinite(index) && index >= 0) {
+                    enterReplayMode(index);
+                }
+            }, true);
+        }
+
+        function ensureReplayToolbarButton() {
+            const toolbar = document.querySelector('#chart .chart-toolbar');
+            if (!toolbar) return;
+
+            const existing = toolbar.querySelector('.toolbar-replay');
+            if (existing) {
+                replayToolbarButton = existing;
+                updateReplayControls();
+                return;
+            }
+
+            const button = document.createElement('button');
+            button.className = 'toolbar-replay';
+            button.title = 'Bar Replay';
+            button.innerHTML = `
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9.5 5 4 10l5.5 5"/>
+                    <path d="M16 5 10.5 10l5.5 5"/>
+                </svg>
+            `;
+            button.style.cssText = `
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 32px;
+                height: 28px;
+                background: transparent;
+                border: none;
+                border-radius: 4px;
+                color: #787b86;
+                cursor: pointer;
+                transition: background 0.15s, color 0.15s;
+            `;
+            button.addEventListener('mouseenter', () => {
+                if (!replayActive && !replaySelecting) {
+                    button.style.background = '#2a2e39';
+                    button.style.color = '#d1d4dc';
+                }
+            });
+            button.addEventListener('mouseleave', () => {
+                if (!replayActive && !replaySelecting) {
+                    button.style.background = 'transparent';
+                    button.style.color = '#787b86';
+                }
+            });
+            button.addEventListener('click', () => {
+                if (replaySelecting) {
+                    setReplaySelectionMode(false);
+                    return;
+                }
+                if (replayActive) {
+                    void exitReplayMode();
+                    return;
+                }
+                setReplaySelectionMode(true);
+            });
+
+            const indicatorsButton = toolbar.querySelector('.toolbar-indicators');
+            if (indicatorsButton?.nextSibling) {
+                toolbar.insertBefore(button, indicatorsButton.nextSibling);
+            } else {
+                toolbar.appendChild(button);
+            }
+            replayToolbarButton = button;
+            updateReplayControls();
+        }
+
+        function observeToolbarForReplayButton() {
+            if (replayToolbarObserver) {
+                replayToolbarObserver.disconnect();
+            }
+            replayToolbarObserver = new MutationObserver(() => {
+                ensureReplayToolbarButton();
+            });
+            replayToolbarObserver.observe(document.getElementById('chart'), { childList: true, subtree: true });
+            ensureReplayToolbarButton();
+        }
+
+        function initReplayControls() {
+            replayPanel = document.getElementById('replay-panel');
+            replayStopButton = document.getElementById('replay-stop');
+            replayBackButton = document.getElementById('replay-step-back');
+            replayPlayButton = document.getElementById('replay-play');
+            replayForwardButton = document.getElementById('replay-step-forward');
+            replaySelectButton = document.getElementById('replay-select');
+            replaySpeedSelect = document.getElementById('replay-speed');
+            replaySlider = document.getElementById('replay-slider');
+            replayStatus = document.getElementById('replay-status');
+            replayIntervalLabel = document.getElementById('replay-interval');
+            replayPickerLine = document.getElementById('replay-picker-line');
+
+            replayStopButton.addEventListener('click', () => {
+                void exitReplayMode();
+            });
+            replaySelectButton.addEventListener('click', () => {
+                if (!fullData.length) return;
+                setReplaySelectionMode(!replaySelecting);
+            });
+            replayBackButton.addEventListener('click', () => stepReplay(-1));
+            replayForwardButton.addEventListener('click', () => stepReplay(1));
+            replayPlayButton.addEventListener('click', () => {
+                if (!replayActive) return;
+                if (replayTimer === null) {
+                    startReplayTimer();
+                } else {
+                    clearReplayTimer();
+                    updateReplayControls();
+                }
+            });
+            replaySpeedSelect.addEventListener('change', () => {
+                if (replayTimer !== null) {
+                    clearReplayTimer();
+                    startReplayTimer();
+                } else {
+                    updateReplayControls();
+                }
+            });
+            replaySlider.addEventListener('input', (event) => {
+                if (!replayActive) return;
+                replayIndex = Number(event.target.value);
+                renderReplaySlice();
+            });
+
+            updateReplayControls();
+        }
+
         function subscribeToWebSocket(symbol, interval, exchange) {
             // Close existing WebSocket
-            if (currentWebSocket) {
-                currentWebSocket.close();
-                currentWebSocket = null;
-            }
+            closeRealtimeFeed();
 
             // Route to appropriate WebSocket based on exchange
             if (exchange.startsWith('BINANCE')) {
@@ -384,7 +1013,14 @@
         }
 
         function updateChartWithCandle(candle, isClosed) {
-            const series = chart.model.serieses[0];
+            mergeCandleIntoFullData(candle);
+            updateReplayControls();
+
+            if (replayActive) {
+                return;
+            }
+
+            const series = getPrimarySeries();
             if (!series || !series.data || series.data.length === 0) return;
 
             const lastCandle = series.data[series.data.length - 1];
@@ -405,18 +1041,27 @@
             chart.model.fullUpdate();
         }
 
-        async function updateChartData(symbol, interval, exchange) {
+        async function updateChartData(symbol, interval, exchange, skipReplayReset = false) {
             // Show loading indicator
             chart.setLoading(true, `Loading ${symbol} from ${exchange}...`);
             
             try {
+                if (!skipReplayReset) {
+                    clearReplayTimer();
+                    replayActive = false;
+                    replaySelecting = false;
+                    setReplayPickerVisible(false);
+                    replayIndex = -1;
+                }
+
                 const data = await fetchData(symbol, interval, exchange);
                 if (data.length > 0) {
-                    const series = chart.model.serieses[0];
+                    fullData = data.map(bar => ({ ...bar }));
+                    updateReplayControls();
+
+                    const series = getPrimarySeries();
                     if (series) {
-                        chart.setData(series, data);
-                        chart.model.timeScale.scrollToPosition(0, false);
-                        chart.model.fullUpdate();
+                        renderChartData(fullData);
                         console.log(`✅ Loaded ${data.length} candles for ${symbol} from ${exchange}`);
                         
                         // Subscribe to WebSocket for real-time updates
@@ -431,6 +1076,8 @@
         }
 
         async function initChart() {
+            initReplayControls();
+
             // Create full screen chart
             chart = LightweightCharts.createChart('#chart', {
                  locale: 'tr', // 'en' or 'tr'
@@ -451,6 +1098,9 @@
                 borderVisible: false,
                 wickVisible: true
             });
+            observeToolbarForReplayButton();
+            attachReplaySelectionEvents();
+            updateReplayControls();
 
             // Listen for symbol changes (now includes exchange info)
             chart.symbolChanged.subscribe(async (symbolInfo) => {
