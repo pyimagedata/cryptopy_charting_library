@@ -794,7 +794,7 @@ export class ChartWidget implements Disposable {
         this._createTopToolbar();
 
         // Initialize Symbol Search Modal
-        this._symbolSearch = new SymbolSearch({ initialExchange: this._currentExchange });
+        this._symbolSearch = new SymbolSearch();
         this._symbolSearch.symbolSelected.subscribe((symbol: SymbolInfo) => {
             this._onSymbolChange(symbol);
         });
@@ -2103,7 +2103,7 @@ export class ChartWidget implements Disposable {
         // Re-create symbol search modal
         if (this._symbolSearch) {
             const oldSearch = this._symbolSearch;
-            this._symbolSearch = new SymbolSearch({ initialExchange: this._currentExchange });
+            this._symbolSearch = new SymbolSearch();
             this._symbolSearch.symbolSelected.subscribe((symbol: SymbolInfo) => {
                 this._onSymbolChange(symbol);
             });

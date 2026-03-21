@@ -33,7 +33,6 @@ export interface SymbolInfo {
 export interface SymbolSearchConfig {
     categories?: SymbolType[];
     defaultCategory?: SymbolType;
-    initialExchange?: string;
 }
 
 const DEFAULT_CONFIG: Required<SymbolSearchConfig> = {
@@ -125,7 +124,7 @@ export class SymbolSearch {
     private _searchInput: HTMLInputElement | null = null;
     private _symbols: SymbolInfo[] = [];
     private _activeCategory: SymbolType = 'all';
-    private _exchangeFilter: string = 'all';
+    private _cryptoExchange: string = 'all';  // 'all', 'BINANCE', 'BINANCE-FUTURES'
     private _exchangeDropdown: HTMLSelectElement | null = null;
     private _isLoading: boolean = false;
     private _symbolsFetched: boolean = false;  // Cache flag
@@ -133,16 +132,8 @@ export class SymbolSearch {
 
     constructor(config: SymbolSearchConfig = {}) {
         this._config = { ...DEFAULT_CONFIG, ...config };
-        this._exchangeFilter = config.initialExchange || 'all';
-        this._activeCategory = this._getDefaultCategoryForExchange(config.initialExchange) || this._config.defaultCategory;
+        this._activeCategory = this._config.defaultCategory;
         this._createUI();
-    }
-
-    private _getDefaultCategoryForExchange(exchange?: string): SymbolType | null {
-        if (!exchange) return null;
-        if (exchange === 'BIST' || exchange === 'NASDAQ' || exchange === 'NYSE') return 'stocks';
-        if (exchange.includes('BINANCE') || exchange.includes('BYBIT') || exchange.includes('OKX')) return 'crypto';
-        return null;
     }
 
     get symbolSelected(): Delegate<SymbolInfo> {
@@ -666,9 +657,7 @@ export class SymbolSearch {
             selectedBtn.appendChild(arrow);
         };
 
-        const initialOption = this._exchangeFilter === 'all'
-            ? { value: 'all', label: t('All Exchanges'), logo: null }
-            : null;
+        updateSelectedBtn('all', null, t('All Exchanges'));
 
         // Dropdown menu
         const dropdownMenu = document.createElement('div');
@@ -690,7 +679,6 @@ export class SymbolSearch {
 
         const exchangeOptions = [
             { value: 'all', label: t('All Exchanges'), logo: null },
-            { value: 'BIST', label: 'BIST', logo: null },
             { value: 'BINANCE', label: 'Binance (Spot)', logo: SymbolSearch.EXCHANGE_LOGOS['BINANCE'] },
             { value: 'BINANCE-FUTURES', label: 'Binance Futures', logo: SymbolSearch.EXCHANGE_LOGOS['BINANCE-FUTURES'] },
             { value: 'BYBIT', label: 'Bybit (Spot)', logo: SymbolSearch.EXCHANGE_LOGOS['BYBIT'] },
@@ -698,9 +686,6 @@ export class SymbolSearch {
             { value: 'OKX', label: 'OKX (Spot)', logo: SymbolSearch.EXCHANGE_LOGOS['OKX'] },
             { value: 'OKX-FUTURES', label: 'OKX Futures', logo: SymbolSearch.EXCHANGE_LOGOS['OKX-FUTURES'] },
         ];
-
-        const initialSelection = exchangeOptions.find((opt) => opt.value === this._exchangeFilter) || initialOption || exchangeOptions[0];
-        updateSelectedBtn(initialSelection.value, initialSelection.logo, initialSelection.label);
 
         exchangeOptions.forEach(opt => {
             const item = document.createElement('div');
@@ -734,7 +719,7 @@ export class SymbolSearch {
             item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
 
             item.addEventListener('click', () => {
-                this._exchangeFilter = opt.value;
+                this._cryptoExchange = opt.value;
                 updateSelectedBtn(opt.value, opt.logo, opt.label);
                 dropdownMenu.style.display = 'none';
                 this._applyFilters();
@@ -763,11 +748,8 @@ export class SymbolSearch {
     private _updateExchangeFilterVisibility(): void {
         const filterRow = this._dialog?.querySelector('#exchange-filter-row') as HTMLElement;
         if (filterRow) {
-            const isCryptoContext = this._exchangeFilter === 'all'
-                || this._exchangeFilter.includes('BINANCE')
-                || this._exchangeFilter.includes('BYBIT')
-                || this._exchangeFilter.includes('OKX');
-            filterRow.style.display = (this._activeCategory === 'crypto' || this._activeCategory === 'all' || isCryptoContext) ? 'flex' : 'none';
+            // Show for crypto and all categories
+            filterRow.style.display = (this._activeCategory === 'crypto' || this._activeCategory === 'all') ? 'flex' : 'none';
         }
     }
 
@@ -823,8 +805,9 @@ export class SymbolSearch {
             filtered = filtered.filter(s => s.type === this._activeCategory);
         }
 
-        if (this._exchangeFilter !== 'all') {
-            filtered = filtered.filter(s => s.exchange === this._exchangeFilter);
+        // Exchange filter (for crypto)
+        if (this._cryptoExchange !== 'all') {
+            filtered = filtered.filter(s => s.exchange === this._cryptoExchange);
         }
 
         // Search filter
