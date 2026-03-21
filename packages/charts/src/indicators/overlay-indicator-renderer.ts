@@ -65,6 +65,19 @@ export class OverlayIndicatorRenderer {
             if (styleFilter === 'histogram' && !isHistogram) continue;
             if (styleFilter === 'non-histogram' && isHistogram) continue;
 
+            if (typeof (indicator as any).drawOverlay === 'function') {
+                (indicator as any).drawOverlay(
+                    ctx,
+                    timeScale,
+                    priceScale,
+                    horizontalPixelRatio,
+                    verticalPixelRatio,
+                    visibleRange,
+                    scope
+                );
+                continue;
+            }
+
             const data = indicator.data;
             if (data.length === 0) continue;
 

@@ -18,6 +18,8 @@ import { VolumeIndicator } from './volume-indicator';
 import { HMAIndicator } from './hma-indicator';
 import { StochRSIIndicator } from './stoch-rsi-indicator';
 import { TdojiOscillatorIndicator } from './tdoji-oscillator-indicator';
+import { TdojiSRIndicator } from './tdoji-sr-indicator';
+import { TdojiMomIndicator } from './tdoji-mom-indicator';
 
 
 
@@ -227,6 +229,8 @@ export class IndicatorManager {
             else if (indicator instanceof HMAIndicator) typeId = 'HMA';
             else if (indicator instanceof StochRSIIndicator) typeId = 'StochasticRSI';
             else if (indicator instanceof TdojiOscillatorIndicator) typeId = 'TdojiOscillator';
+            else if (indicator instanceof TdojiSRIndicator) typeId = 'TdojiSR';
+            else if (indicator instanceof TdojiMomIndicator) typeId = 'TdojiMom';
 
 
 
@@ -300,6 +304,12 @@ export class IndicatorManager {
                 break;
             case 'TdojiOscillator':
                 indicator = new TdojiOscillatorIndicator(item.options as any);
+                break;
+            case 'TdojiSR':
+                indicator = new TdojiSRIndicator(item.options as any);
+                break;
+            case 'TdojiMom':
+                indicator = new TdojiMomIndicator(item.options as any);
                 break;
 
 

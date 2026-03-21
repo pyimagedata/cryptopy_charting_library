@@ -102,6 +102,22 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         category: 'custom',
         type: 'panel'
     },
+    {
+        id: 'tdoji-sr',
+        name: 'TDOJI-SR',
+        shortName: 'SR',
+        description: 'Prev close based support and resistance ladder with labels and level notes',
+        category: 'custom',
+        type: 'overlay'
+    },
+    {
+        id: 'tdoji-mom',
+        name: 'TDOJI MOM',
+        shortName: 'MOM',
+        description: 'EMA(60) tabanli close farkini kolon histogram olarak gosterir',
+        category: 'custom',
+        type: 'panel'
+    },
 ];
 
 export class IndicatorSearchModal {

@@ -36,7 +36,7 @@ export { VolumeIndicator, VolumeIndicatorOptions } from './volume-indicator';
 export { HMAIndicator, HMAIndicatorOptions } from './hma-indicator';
 export { StochRSIIndicator, StochRSIIndicatorOptions } from './stoch-rsi-indicator';
 export { TdojiOscillatorIndicator, TdojiOscillatorOptions } from './tdoji-oscillator-indicator';
-
-
+export { TdojiSRIndicator, TdojiSRIndicatorOptions } from './tdoji-sr-indicator';
+export { TdojiMomIndicator, TdojiMomIndicatorOptions } from './tdoji-mom-indicator';
 
 

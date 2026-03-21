@@ -26,7 +26,7 @@ const defaultTdojiOscillatorOptions: Partial<TdojiOscillatorOptions> = {
     curveLength: 144,
     slopeLength: 5,
     signalLength: 21,
-    color: '#2563eb',
+    color: '#94a3b8',
     lineWidth: 2,
     upColor: '#22c55e',
     downColor: '#ef4444',

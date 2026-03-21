@@ -13,7 +13,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, TdojiOscillatorIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -794,7 +794,7 @@ export class ChartWidget implements Disposable {
         this._createTopToolbar();
 
         // Initialize Symbol Search Modal
-        this._symbolSearch = new SymbolSearch();
+        this._symbolSearch = new SymbolSearch({ initialExchange: this._currentExchange });
         this._symbolSearch.symbolSelected.subscribe((symbol: SymbolInfo) => {
             this._onSymbolChange(symbol);
         });
@@ -1954,6 +1954,12 @@ export class ChartWidget implements Disposable {
                     signalLength: 21,
                 }));
                 break;
+            case 'tdoji-sr':
+                this.addOverlayIndicator(new TdojiSRIndicator());
+                break;
+            case 'tdoji-mom':
+                this.addIndicator(new TdojiMomIndicator({ period: 60 }));
+                break;
 
 
 
@@ -2097,7 +2103,7 @@ export class ChartWidget implements Disposable {
         // Re-create symbol search modal
         if (this._symbolSearch) {
             const oldSearch = this._symbolSearch;
-            this._symbolSearch = new SymbolSearch();
+            this._symbolSearch = new SymbolSearch({ initialExchange: this._currentExchange });
             this._symbolSearch.symbolSelected.subscribe((symbol: SymbolInfo) => {
                 this._onSymbolChange(symbol);
             });
