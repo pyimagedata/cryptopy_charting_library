@@ -142,6 +142,14 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         category: 'pattern',
         type: 'overlay'
     },
+    {
+        id: 'chart-patterns',
+        name: 'Chart Patterns',
+        shortName: 'CHART',
+        description: 'Double top ve double bottom gibi klasik grafik formasyonlarini tespit eder',
+        category: 'pattern',
+        type: 'overlay'
+    },
 ];
 
 export class IndicatorSearchModal {

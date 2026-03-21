@@ -23,6 +23,7 @@ import { TdojiMomIndicator } from './tdoji-mom-indicator';
 import { ZigZagIndicator } from './zigzag-indicator';
 import { ABCDPatternIndicator } from './abcd-pattern-indicator';
 import { HarmonicPatternIndicator } from './harmonic-pattern-indicator';
+import { ChartPatternsIndicator } from './chart-patterns-indicator';
 
 
 
@@ -237,6 +238,7 @@ export class IndicatorManager {
             else if (indicator instanceof ZigZagIndicator) typeId = 'ZigZag';
             else if (indicator instanceof ABCDPatternIndicator) typeId = 'ABCDPattern';
             else if (indicator instanceof HarmonicPatternIndicator) typeId = 'HarmonicPattern';
+            else if (indicator instanceof ChartPatternsIndicator) typeId = 'ChartPatterns';
 
 
 
@@ -325,6 +327,9 @@ export class IndicatorManager {
                 break;
             case 'HarmonicPattern':
                 indicator = new HarmonicPatternIndicator(item.options as any);
+                break;
+            case 'ChartPatterns':
+                indicator = new ChartPatternsIndicator(item.options as any);
                 break;
 
 

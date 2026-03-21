@@ -41,3 +41,4 @@ export { TdojiMomIndicator, TdojiMomIndicatorOptions } from './tdoji-mom-indicat
 export { ZigZagIndicator, ZigZagIndicatorOptions } from './zigzag-indicator';
 export { ABCDPatternIndicator, ABCDPatternIndicatorOptions } from './abcd-pattern-indicator';
 export { HarmonicPatternIndicator, HarmonicPatternIndicatorOptions } from './harmonic-pattern-indicator';
+export { ChartPatternsIndicator, ChartPatternsIndicatorOptions } from './chart-patterns-indicator';

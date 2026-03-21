@@ -13,7 +13,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -1987,6 +1987,15 @@ export class ChartWidget implements Disposable {
                     period: 15,
                     showABCD: true,
                     showGartley: true,
+                }));
+                break;
+            case 'chart-patterns':
+                this.addOverlayIndicator(new ChartPatternsIndicator({
+                    period: 7,
+                    showDoubleTop: true,
+                    showDoubleBottom: true,
+                    showPrediction: true,
+                    showHistory: false,
                 }));
                 break;
 
