@@ -1,11 +1,5 @@
-/**
- * Fibonacci Levels Editor Component
- * Table-based editor for managing Fibonacci levels (visibility, color, label)
- */
-
 import { createColorSelect } from './ColorSelect';
 import { createCheckbox } from './Checkbox';
-import { createTextInput } from './TextInput';
 
 export interface FibLevel {
     level: number;
@@ -16,38 +10,62 @@ export interface FibLevel {
 
 const styles = {
     container: `
-        background: transparent;
-        border-radius: 6px;
-        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
     `,
-    header: `
-        display: grid;
-        grid-template-columns: 40px 80px 1fr 50px;
-        padding: 10px 12px;
+    toolbar: `
+        display: flex;
+        justify-content: flex-end;
+    `,
+    addButton: `
+        height: 32px;
+        padding: 0 11px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
         background: var(--input-bg);
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        color: var(--text-primary);
+        font-size: 12px;
+        cursor: pointer;
+    `,
+    grid: `
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 14px;
     `,
     row: `
-        display: grid;
-        grid-template-columns: 40px 80px 1fr 50px;
-        padding: 8px 12px;
+        display: flex;
         align-items: center;
-        border-bottom: 1px solid var(--border-color);
+        gap: 8px;
+        min-width: 0;
     `,
-    levelLabel: `
-        font-size: 13px;
+    input: `
+        flex: 1 1 0;
+        min-width: 72px;
+        height: 36px;
+        padding: 0 10px;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        background: var(--input-bg);
         color: var(--text-primary);
-        font-weight: 500;
+        font-size: 13px;
+        outline: none;
+        box-sizing: border-box;
+    `,
+    removeButton: `
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+        flex-shrink: 0;
     `,
 };
 
-/**
- * Creates a Fibonacci levels editor table
- */
 export function createFibLevelsEditor(
     levels: FibLevel[],
     onChange: (levels: FibLevel[]) => void
@@ -55,65 +73,110 @@ export function createFibLevelsEditor(
     const container = document.createElement('div');
     container.style.cssText = styles.container;
 
-    // Header
-    const header = document.createElement('div');
-    header.style.cssText = styles.header;
-    header.innerHTML = `
-        <span></span>
-        <span>Level</span>
-        <span>Color</span>
-        <span>Visible</span>
-    `;
-    container.appendChild(header);
+    const state = levels.map((level) => ({ ...level }));
 
-    // Level rows
-    const levelsCopy = [...levels];
+    const render = () => {
+        container.innerHTML = '';
 
-    levelsCopy.forEach((level, index) => {
-        const row = document.createElement('div');
-        row.style.cssText = styles.row;
+        const toolbar = document.createElement('div');
+        toolbar.style.cssText = styles.toolbar;
 
-        // Level percentage
-        const levelLabel = document.createElement('span');
-        levelLabel.textContent = `${(level.level * 100).toFixed(1)}%`;
-        levelLabel.style.cssText = styles.levelLabel;
+        const addButton = document.createElement('button');
+        addButton.type = 'button';
+        addButton.textContent = '+ Level';
+        addButton.style.cssText = styles.addButton;
+        addButton.onclick = () => {
+            state.push({
+                level: 0,
+                label: '0',
+                color: '#787b86',
+                visible: true,
+            });
+            onChange([...state]);
+            render();
+        };
+        toolbar.appendChild(addButton);
+        container.appendChild(toolbar);
 
-        // Label input
-        const labelInput = createTextInput(
-            level.label,
-            { width: '60px', placeholder: 'Label' },
-            (value) => {
-                levelsCopy[index].label = value;
-                onChange(levelsCopy);
-            }
-        );
+        const grid = document.createElement('div');
+        grid.style.cssText = styles.grid;
 
-        // Color picker
-        const colorPicker = createColorSelect(level.color, (color) => {
-            levelsCopy[index].color = color;
-            onChange(levelsCopy);
+        state.forEach((level, index) => {
+            grid.appendChild(createLevelRow(level, index, state, () => {
+                onChange([...state]);
+                render();
+            }));
         });
 
-        // Visible checkbox
-        const visibleCheckbox = createCheckbox(level.visible, '', (checked) => {
-            levelsCopy[index].visible = checked;
-            onChange(levelsCopy);
-        });
+        container.appendChild(grid);
+    };
 
-        row.appendChild(levelLabel);
-        row.appendChild(labelInput);
-        row.appendChild(colorPicker);
-        row.appendChild(visibleCheckbox);
-
-        container.appendChild(row);
-    });
-
+    render();
     return container;
 }
 
-/**
- * Creates a compact Fibonacci levels list (for attribute bar)
- */
+function createLevelRow(
+    level: FibLevel,
+    index: number,
+    levels: FibLevel[],
+    notify: () => void
+): HTMLElement {
+    const row = document.createElement('div');
+    row.style.cssText = styles.row;
+
+    const checkbox = createCheckbox(level.visible, '', (checked) => {
+        levels[index].visible = checked;
+        notify();
+    });
+    row.appendChild(checkbox);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.inputMode = 'decimal';
+    input.value = normalizeDisplayValue(level.level);
+    input.style.cssText = styles.input;
+    input.onfocus = () => {
+        input.style.borderColor = '#2962ff';
+    };
+    input.onblur = () => {
+        input.style.borderColor = 'var(--border-color)';
+        const parsed = parseFloat(input.value.replace(',', '.'));
+        if (!Number.isNaN(parsed)) {
+            levels[index].level = parsed;
+            levels[index].label = normalizeDisplayValue(parsed);
+            input.value = normalizeDisplayValue(parsed);
+            notify();
+        } else {
+            input.value = normalizeDisplayValue(levels[index].level);
+        }
+    };
+    row.appendChild(input);
+
+    const color = createColorSelect(level.color, (nextColor) => {
+        levels[index].color = nextColor;
+        notify();
+    });
+    row.appendChild(color);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Remove level';
+    remove.style.cssText = styles.removeButton;
+    remove.onclick = () => {
+        levels.splice(index, 1);
+        notify();
+    };
+    row.appendChild(remove);
+
+    return row;
+}
+
+function normalizeDisplayValue(value: number): string {
+    const rounded = Number(value.toFixed(3));
+    return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
 export function createFibLevelsCompact(
     levels: FibLevel[],
     onToggle: (index: number, visible: boolean) => void
@@ -123,7 +186,7 @@ export function createFibLevelsCompact(
 
     levels.forEach((level, index) => {
         const chip = document.createElement('button');
-        chip.textContent = `${(level.level * 100).toFixed(1)}%`;
+        chip.textContent = normalizeDisplayValue(level.level);
         chip.style.cssText = `
             padding: 4px 8px;
             font-size: 11px;

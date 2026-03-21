@@ -76,6 +76,12 @@ export interface GroupRow {
     label?: string;
 }
 
+export interface LevelsGridRow {
+    type: 'levelsGrid';
+    key: string;
+    label: string;
+}
+
 // Union of all row types
 export type SettingsRow =
     | ColorRow
@@ -87,7 +93,8 @@ export type SettingsRow =
     | LineWidthRow
     | TextareaRow
     | ToggleColorRow
-    | GroupRow;
+    | GroupRow
+    | LevelsGridRow;
 
 // ========================================
 // Section - Group of related settings
@@ -192,4 +199,8 @@ export function isToggleColorRow(row: SettingsRow): row is ToggleColorRow {
 
 export function isGroupRow(row: SettingsRow): row is GroupRow {
     return row.type === 'group';
+}
+
+export function isLevelsGridRow(row: SettingsRow): row is LevelsGridRow {
+    return row.type === 'levelsGrid';
 }

@@ -22,7 +22,9 @@ import {
     isTextareaRow,
     isToggleColorRow,
     isGroupRow,
+    isLevelsGridRow,
 } from '../base/SettingsTypes';
+import { createFibLevelsEditor } from '../components';
 import {
     createColorSwatch,
     createNumberInput,
@@ -220,6 +222,34 @@ export class GenericSettingsModal extends BaseSettingsModal {
                         return;
                     }
 
+                    if (isLevelsGridRow(row)) {
+                        const currentLevels = provider.getSettingValue(row.key) || [];
+                        const normalizedLevels = currentLevels.map((level: any) => ({
+                            level: level.level,
+                            label: level.label,
+                            color: level.color,
+                            visible: level.visible ?? level.enabled ?? true,
+                        }));
+
+                        const editor = createFibLevelsEditor(normalizedLevels, (updatedLevels) => {
+                            const mappedLevels = updatedLevels.map((level: any) => ({
+                                level: level.level,
+                                label: level.label,
+                                color: level.color,
+                                enabled: level.visible,
+                            }));
+
+                            provider.setSettingValue(row.key, mappedLevels);
+                            this.notifySettingsChanged();
+                        });
+
+                        const rowEl = document.createElement('div');
+                        rowEl.style.cssText = 'padding: 10px 0; border-bottom: 1px solid var(--border-color);';
+                        rowEl.appendChild(editor);
+                        content.appendChild(rowEl);
+                        return;
+                    }
+
                     const control = this._createControlForRow(row, provider);
                     if (control) {
                         const rowEl = createSettingsRow(row.label ? t(row.label) : '', control);
@@ -232,7 +262,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
     }
 
     private _createControlForRow(row: SettingsRow, provider: Drawing & DrawingSettingsProvider): HTMLElement | null {
-        if (isGroupRow(row) || isToggleColorRow(row) || isTextareaRow(row)) return null;
+        if (isGroupRow(row) || isToggleColorRow(row) || isTextareaRow(row) || isLevelsGridRow(row)) return null;
 
         const currentValue = provider.getSettingValue(row.key);
 
