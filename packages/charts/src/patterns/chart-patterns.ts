@@ -8,7 +8,7 @@ export interface ChartPatternSegment {
 }
 
 export interface ChartPatternMatch {
-    kind: 'double-top' | 'double-bottom' | 'bull-pennant' | 'bear-pennant' | 'bull-flag' | 'bear-flag';
+    kind: 'double-top' | 'double-bottom' | 'bull-pennant' | 'bear-pennant' | 'bull-flag' | 'bear-flag' | 'bull-wedge-cont' | 'bear-wedge-cont';
     direction: 'bullish' | 'bearish';
     points: ZigZagPoint[];
     detectionIndex: number;
@@ -29,6 +29,8 @@ export interface ChartPatternDetectionOptions {
     showBearPennant?: boolean;
     showBullFlag?: boolean;
     showBearFlag?: boolean;
+    showBullWedgeCont?: boolean;
+    showBearWedgeCont?: boolean;
 }
 
 export function detectChartPatterns(
@@ -45,6 +47,8 @@ export function detectChartPatterns(
     const showBearPennant = options.showBearPennant !== false;
     const showBullFlag = options.showBullFlag !== false;
     const showBearFlag = options.showBearFlag !== false;
+    const showBullWedgeCont = options.showBullWedgeCont !== false;
+    const showBearWedgeCont = options.showBearWedgeCont !== false;
     const lastIndex = sourceData.length - 1;
     const scanOnlyLastBar = !showHistory;
     const maxPatterns = showHistory ? 48 : 12;
@@ -159,6 +163,36 @@ export function detectChartPatterns(
                 ? `bear-flag:${bearFlag.points[1].index}-${bearFlag.points[2].index}-${bearFlag.points[3].index}`
                 : '';
             pushPattern(key, bearFlag);
+        }
+
+        if (showBullWedgeCont && (showHistory || currentIndex === lastIndex)) {
+            const bullWedge = buildBullWedgeContinuation(
+                sourceData,
+                pivots,
+                direction,
+                currentIndex,
+                showPrediction,
+                requireHistoricalBreakout
+            );
+            const key = bullWedge
+                ? `bull-wedge-cont:${bullWedge.points[1].index}-${bullWedge.points[2].index}-${bullWedge.points[3].index}`
+                : '';
+            pushPattern(key, bullWedge);
+        }
+
+        if (showBearWedgeCont && (showHistory || currentIndex === lastIndex)) {
+            const bearWedge = buildBearWedgeContinuation(
+                sourceData,
+                pivots,
+                direction,
+                currentIndex,
+                showPrediction,
+                requireHistoricalBreakout
+            );
+            const key = bearWedge
+                ? `bear-wedge-cont:${bearWedge.points[1].index}-${bearWedge.points[2].index}-${bearWedge.points[3].index}`
+                : '';
+            pushPattern(key, bearWedge);
         }
     });
 
@@ -532,6 +566,134 @@ function buildBearFlag(
     };
 }
 
+function buildBullWedgeContinuation(
+    sourceData: PatternSourceBar[],
+    pivots: ZigZagPoint[],
+    direction: number,
+    currentIndex: number,
+    showPrediction: boolean,
+    requireHistoricalBreakout: boolean
+): ChartPatternMatch | null {
+    const working = pivots.slice();
+    if (direction === 1 && working.length >= 6) {
+        working.pop();
+    }
+    if (working.length < 5) {
+        return null;
+    }
+
+    const [x, a, b, c, d] = working.slice(-5) as [ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint];
+    const currentClose = sourceData[currentIndex].close;
+    const isWedge =
+        x.price < a.price &&
+        c.price <= a.price &&
+        b.price >= d.price &&
+        b.price < a.price &&
+        x.price < b.price &&
+        d.price > x.price &&
+        currentClose < (a.price - x.price) * 0.382 + d.price;
+
+    if (!isWedge) {
+        return null;
+    }
+
+    const upper = lineAtCurrent(a, c, currentIndex);
+    const lower = lineAtCurrent(b, d, currentIndex);
+    const angle = wedgeAngle(a, c, b, d, a.price, d.price);
+
+    if (upper.price <= lower.price || angle >= -0.099) {
+        return null;
+    }
+
+    const requiresBreakout = requireHistoricalBreakout || !showPrediction;
+    if (requiresBreakout && currentClose <= upper.price) {
+        return null;
+    }
+
+    return {
+        kind: 'bull-wedge-cont',
+        direction: 'bullish',
+        points: [x, a, b, c, d],
+        detectionIndex: currentIndex,
+        detectionTime: sourceData[currentIndex].time,
+        neckline: upper.price,
+        labelText: 'Boga Takoz Devam',
+        labelAnchor: a,
+        segments: [
+            { from: x, to: a },
+            { from: a, to: upper.point },
+            {
+                from: { index: a.index, time: a.time, price: linePriceAt(b, d, a.index) },
+                to: lower.point,
+            },
+        ],
+    };
+}
+
+function buildBearWedgeContinuation(
+    sourceData: PatternSourceBar[],
+    pivots: ZigZagPoint[],
+    direction: number,
+    currentIndex: number,
+    showPrediction: boolean,
+    requireHistoricalBreakout: boolean
+): ChartPatternMatch | null {
+    const working = pivots.slice();
+    if (direction === -1 && working.length >= 6) {
+        working.pop();
+    }
+    if (working.length < 5) {
+        return null;
+    }
+
+    const [x, a, b, c, d] = working.slice(-5) as [ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint];
+    const currentClose = sourceData[currentIndex].close;
+    const isWedge =
+        x.price > a.price &&
+        c.price > a.price &&
+        b.price < d.price &&
+        b.price > a.price &&
+        x.price > b.price &&
+        d.price < x.price;
+
+    if (!isWedge) {
+        return null;
+    }
+
+    const lower = lineAtCurrent(a, c, currentIndex);
+    const upper = lineAtCurrent(b, d, currentIndex);
+    const angle = wedgeAngle(a, c, b, d, d.price, a.price);
+    const dAboveLower = d.price > linePriceAt(a, c, d.index);
+
+    if (lower.price >= upper.price || angle <= 0.05 || !dAboveLower) {
+        return null;
+    }
+
+    const requiresBreakout = requireHistoricalBreakout || !showPrediction;
+    if (requiresBreakout && currentClose >= lower.price) {
+        return null;
+    }
+
+    return {
+        kind: 'bear-wedge-cont',
+        direction: 'bearish',
+        points: [x, a, b, c, d],
+        detectionIndex: currentIndex,
+        detectionTime: sourceData[currentIndex].time,
+        neckline: lower.price,
+        labelText: 'Ayi Takoz Devam',
+        labelAnchor: a,
+        segments: [
+            { from: x, to: a },
+            { from: a, to: lower.point },
+            {
+                from: { index: a.index, time: a.time, price: linePriceAt(b, d, a.index) },
+                to: upper.point,
+            },
+        ],
+    };
+}
+
 function lineAtCurrent(start: ZigZagPoint, end: ZigZagPoint, currentIndex: number): { price: number; point: PatternPoint } {
     const price = linePriceAt(start, end, currentIndex);
     return {
@@ -567,4 +729,26 @@ function slopeRatio(a: number, b: number): number {
         return Infinity;
     }
     return a / b;
+}
+
+function wedgeAngle(
+    topStart: PatternPoint,
+    topEnd: PatternPoint,
+    bottomStart: PatternPoint,
+    bottomEnd: PatternPoint,
+    max: number,
+    min: number
+): number {
+    const range = (max - min) / 100;
+    if (Math.abs(range) < 1e-8) {
+        return 0;
+    }
+    const topStartNorm = (topStart.price - min) / range;
+    const topEndNorm = (topEnd.price - min) / range;
+    const bottomStartNorm = (bottomStart.price - min) / range;
+    const bottomEndNorm = (bottomEnd.price - min) / range;
+    const slope1 = (topStartNorm - topEndNorm) / (topStart.index - topEnd.index);
+    const slope2 = (bottomStartNorm - bottomEndNorm) / (bottomStart.index - bottomEnd.index);
+    const tanAlpha = (slope1 - slope2) / (1 + slope1 * slope2);
+    return Math.atan(tanAlpha);
 }

@@ -24,6 +24,8 @@ export interface ChartPatternsIndicatorOptions extends IndicatorOptions {
     showBearPennant: boolean;
     showBullFlag: boolean;
     showBearFlag: boolean;
+    showBullWedgeCont: boolean;
+    showBearWedgeCont: boolean;
 }
 
 const defaults: Partial<ChartPatternsIndicatorOptions> = {
@@ -42,6 +44,8 @@ const defaults: Partial<ChartPatternsIndicatorOptions> = {
     showBearPennant: true,
     showBullFlag: true,
     showBearFlag: true,
+    showBullWedgeCont: true,
+    showBearWedgeCont: true,
 };
 
 export class ChartPatternsIndicator extends OverlayIndicator {
@@ -70,7 +74,9 @@ export class ChartPatternsIndicator extends OverlayIndicator {
             normalized.showBullPennant !== undefined ||
             normalized.showBearPennant !== undefined ||
             normalized.showBullFlag !== undefined ||
-            normalized.showBearFlag !== undefined;
+            normalized.showBearFlag !== undefined ||
+            normalized.showBullWedgeCont !== undefined ||
+            normalized.showBearWedgeCont !== undefined;
         Object.assign(this._optionsEx, normalized);
         Object.assign(this._options, normalized);
         this._dataChanged.fire();
@@ -91,6 +97,8 @@ export class ChartPatternsIndicator extends OverlayIndicator {
                     checkboxRow('showBearPennant', 'Ayi Flama', this._optionsEx.showBearPennant),
                     checkboxRow('showBullFlag', 'Boga Bayrak', this._optionsEx.showBullFlag),
                     checkboxRow('showBearFlag', 'Ayi Bayrak', this._optionsEx.showBearFlag),
+                    checkboxRow('showBullWedgeCont', 'Boga Takoz Devam', this._optionsEx.showBullWedgeCont),
+                    checkboxRow('showBearWedgeCont', 'Ayi Takoz Devam', this._optionsEx.showBearWedgeCont),
                 ] }]),
                 createStyleTab([{ rows: [
                     colorRow('bullishColor', 'Bullish Color', this._optionsEx.bullishColor),
@@ -122,6 +130,8 @@ export class ChartPatternsIndicator extends OverlayIndicator {
             showBearPennant: this._optionsEx.showBearPennant,
             showBullFlag: this._optionsEx.showBullFlag,
             showBearFlag: this._optionsEx.showBearFlag,
+            showBullWedgeCont: this._optionsEx.showBullWedgeCont,
+            showBearWedgeCont: this._optionsEx.showBearWedgeCont,
         });
 
         this._data = this._patterns.flatMap((pattern) => [
@@ -296,7 +306,11 @@ export class ChartPatternsIndicator extends OverlayIndicator {
                             ? 'Ayi Flama'
                             : pattern.kind === 'bull-flag'
                                 ? 'Boga Bayrak'
-                                : 'Ayi Bayrak'
+                                : pattern.kind === 'bear-flag'
+                                    ? 'Ayi Bayrak'
+                                    : pattern.kind === 'bull-wedge-cont'
+                                        ? 'Boga Takoz Devam'
+                                        : 'Ayi Takoz Devam'
         );
         const paddingX = 6 * hpr;
         const width = ctx.measureText(text).width + paddingX * 2;

@@ -1998,6 +1998,8 @@ export class ChartWidget implements Disposable {
                     showBearPennant: true,
                     showBullFlag: true,
                     showBearFlag: true,
+                    showBullWedgeCont: true,
+                    showBearWedgeCont: true,
                     showPrediction: true,
                     showHistory: false,
                 }));
