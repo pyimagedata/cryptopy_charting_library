@@ -146,7 +146,7 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         id: 'chart-patterns',
         name: 'Chart Patterns',
         shortName: 'CHART',
-        description: 'Double top ve double bottom gibi klasik grafik formasyonlarini tespit eder',
+        description: 'Cifte tepe, cifte dip, flama ve bayrak gibi klasik grafik formasyonlarini tespit eder',
         category: 'pattern',
         type: 'overlay'
     },

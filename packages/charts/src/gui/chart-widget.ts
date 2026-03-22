@@ -1994,6 +1994,10 @@ export class ChartWidget implements Disposable {
                     period: 7,
                     showDoubleTop: true,
                     showDoubleBottom: true,
+                    showBullPennant: true,
+                    showBearPennant: true,
+                    showBullFlag: true,
+                    showBearFlag: true,
                     showPrediction: true,
                     showHistory: false,
                 }));

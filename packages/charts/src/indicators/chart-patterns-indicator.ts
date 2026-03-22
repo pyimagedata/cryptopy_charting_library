@@ -22,6 +22,8 @@ export interface ChartPatternsIndicatorOptions extends IndicatorOptions {
     showDoubleBottom: boolean;
     showBullPennant: boolean;
     showBearPennant: boolean;
+    showBullFlag: boolean;
+    showBearFlag: boolean;
 }
 
 const defaults: Partial<ChartPatternsIndicatorOptions> = {
@@ -38,6 +40,8 @@ const defaults: Partial<ChartPatternsIndicatorOptions> = {
     showDoubleBottom: true,
     showBullPennant: true,
     showBearPennant: true,
+    showBullFlag: true,
+    showBearFlag: true,
 };
 
 export class ChartPatternsIndicator extends OverlayIndicator {
@@ -64,7 +68,9 @@ export class ChartPatternsIndicator extends OverlayIndicator {
             normalized.showDoubleTop !== undefined ||
             normalized.showDoubleBottom !== undefined ||
             normalized.showBullPennant !== undefined ||
-            normalized.showBearPennant !== undefined;
+            normalized.showBearPennant !== undefined ||
+            normalized.showBullFlag !== undefined ||
+            normalized.showBearFlag !== undefined;
         Object.assign(this._optionsEx, normalized);
         Object.assign(this._options, normalized);
         this._dataChanged.fire();
@@ -83,6 +89,8 @@ export class ChartPatternsIndicator extends OverlayIndicator {
                     checkboxRow('showDoubleBottom', 'Cifte Dip', this._optionsEx.showDoubleBottom),
                     checkboxRow('showBullPennant', 'Boga Flama', this._optionsEx.showBullPennant),
                     checkboxRow('showBearPennant', 'Ayi Flama', this._optionsEx.showBearPennant),
+                    checkboxRow('showBullFlag', 'Boga Bayrak', this._optionsEx.showBullFlag),
+                    checkboxRow('showBearFlag', 'Ayi Bayrak', this._optionsEx.showBearFlag),
                 ] }]),
                 createStyleTab([{ rows: [
                     colorRow('bullishColor', 'Bullish Color', this._optionsEx.bullishColor),
@@ -112,6 +120,8 @@ export class ChartPatternsIndicator extends OverlayIndicator {
             showDoubleBottom: this._optionsEx.showDoubleBottom,
             showBullPennant: this._optionsEx.showBullPennant,
             showBearPennant: this._optionsEx.showBearPennant,
+            showBullFlag: this._optionsEx.showBullFlag,
+            showBearFlag: this._optionsEx.showBearFlag,
         });
 
         this._data = this._patterns.flatMap((pattern) => [
@@ -282,7 +292,11 @@ export class ChartPatternsIndicator extends OverlayIndicator {
                     ? 'Cifte Dip'
                     : pattern.kind === 'bull-pennant'
                         ? 'Boga Flama'
-                        : 'Ayi Flama'
+                        : pattern.kind === 'bear-pennant'
+                            ? 'Ayi Flama'
+                            : pattern.kind === 'bull-flag'
+                                ? 'Boga Bayrak'
+                                : 'Ayi Bayrak'
         );
         const paddingX = 6 * hpr;
         const width = ctx.measureText(text).width + paddingX * 2;

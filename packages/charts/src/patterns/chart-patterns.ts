@@ -8,7 +8,7 @@ export interface ChartPatternSegment {
 }
 
 export interface ChartPatternMatch {
-    kind: 'double-top' | 'double-bottom' | 'bull-pennant' | 'bear-pennant';
+    kind: 'double-top' | 'double-bottom' | 'bull-pennant' | 'bear-pennant' | 'bull-flag' | 'bear-flag';
     direction: 'bullish' | 'bearish';
     points: ZigZagPoint[];
     detectionIndex: number;
@@ -27,6 +27,8 @@ export interface ChartPatternDetectionOptions {
     showDoubleBottom?: boolean;
     showBullPennant?: boolean;
     showBearPennant?: boolean;
+    showBullFlag?: boolean;
+    showBearFlag?: boolean;
 }
 
 export function detectChartPatterns(
@@ -41,6 +43,8 @@ export function detectChartPatterns(
     const showDoubleBottom = options.showDoubleBottom !== false;
     const showBullPennant = options.showBullPennant !== false;
     const showBearPennant = options.showBearPennant !== false;
+    const showBullFlag = options.showBullFlag !== false;
+    const showBearFlag = options.showBearFlag !== false;
     const lastIndex = sourceData.length - 1;
     const scanOnlyLastBar = !showHistory;
     const maxPatterns = showHistory ? 48 : 12;
@@ -125,6 +129,36 @@ export function detectChartPatterns(
                 ? `bear-pennant:${bearPennant.points[1].index}-${bearPennant.points[2].index}-${bearPennant.points[3].index}`
                 : '';
             pushPattern(key, bearPennant);
+        }
+
+        if (showBullFlag && (showHistory || currentIndex === lastIndex)) {
+            const bullFlag = buildBullFlag(
+                sourceData,
+                pivots,
+                direction,
+                currentIndex,
+                showPrediction,
+                requireHistoricalBreakout
+            );
+            const key = bullFlag
+                ? `bull-flag:${bullFlag.points[1].index}-${bullFlag.points[2].index}-${bullFlag.points[3].index}`
+                : '';
+            pushPattern(key, bullFlag);
+        }
+
+        if (showBearFlag && (showHistory || currentIndex === lastIndex)) {
+            const bearFlag = buildBearFlag(
+                sourceData,
+                pivots,
+                direction,
+                currentIndex,
+                showPrediction,
+                requireHistoricalBreakout
+            );
+            const key = bearFlag
+                ? `bear-flag:${bearFlag.points[1].index}-${bearFlag.points[2].index}-${bearFlag.points[3].index}`
+                : '';
+            pushPattern(key, bearFlag);
         }
     });
 
@@ -358,6 +392,146 @@ function buildBearPennant(
     };
 }
 
+function buildBullFlag(
+    sourceData: PatternSourceBar[],
+    pivots: ZigZagPoint[],
+    direction: number,
+    currentIndex: number,
+    showPrediction: boolean,
+    requireHistoricalBreakout: boolean
+): ChartPatternMatch | null {
+    const working = pivots.slice();
+    if (direction === 1 && working.length >= 6) {
+        working.pop();
+    }
+    if (working.length < 5) {
+        return null;
+    }
+
+    const [x, a, b, c, d] = working.slice(-5) as [ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint];
+    const isFlag =
+        x.price < a.price &&
+        c.price <= a.price &&
+        b.price >= d.price &&
+        b.price < a.price &&
+        x.price < b.price &&
+        d.price > x.price &&
+        d.index - a.index < 150;
+
+    if (!isFlag) {
+        return null;
+    }
+
+    const upper = lineAtCurrent(a, c, currentIndex);
+    const lower = lineAtCurrent(b, d, currentIndex);
+    const upperSlope = lineSlope(a, c);
+    const lowerSlope = lineSlope(b, d);
+    const currentClose = sourceData[currentIndex].close;
+
+    if (lower.price >= upper.price || upperSlope >= 0 || lowerSlope >= 0) {
+        return null;
+    }
+
+    const ratio = slopeRatio(upperSlope, lowerSlope);
+    if (ratio < 0.7 || ratio > 1.5) {
+        return null;
+    }
+
+    const requiresBreakout = requireHistoricalBreakout || !showPrediction;
+    if (requiresBreakout && currentClose <= upper.price) {
+        return null;
+    }
+
+    return {
+        kind: 'bull-flag',
+        direction: 'bullish',
+        points: [x, a, b, c, d],
+        detectionIndex: currentIndex,
+        detectionTime: sourceData[currentIndex].time,
+        neckline: upper.price,
+        labelText: 'Boga Bayrak',
+        labelAnchor: a,
+        segments: [
+            { from: x, to: a },
+            { from: a, to: upper.point },
+            {
+                from: { index: a.index, time: a.time, price: linePriceAt(b, d, a.index) },
+                to: lower.point,
+            },
+        ],
+    };
+}
+
+function buildBearFlag(
+    sourceData: PatternSourceBar[],
+    pivots: ZigZagPoint[],
+    direction: number,
+    currentIndex: number,
+    showPrediction: boolean,
+    requireHistoricalBreakout: boolean
+): ChartPatternMatch | null {
+    const working = pivots.slice();
+    if (direction === -1 && working.length >= 6) {
+        working.pop();
+    }
+    if (working.length < 5) {
+        return null;
+    }
+
+    const [x, a, b, c, d] = working.slice(-5) as [ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint];
+    const isFlag =
+        x.price > a.price &&
+        c.price > a.price &&
+        b.price < d.price &&
+        b.price > a.price &&
+        x.price > b.price &&
+        d.price < x.price &&
+        d.index - a.index < 150;
+
+    if (!isFlag) {
+        return null;
+    }
+
+    const lower = lineAtCurrent(a, c, currentIndex);
+    const upper = lineAtCurrent(b, d, currentIndex);
+    const lowerSlope = lineSlope(a, c);
+    const upperSlope = lineSlope(b, d);
+    const currentClose = sourceData[currentIndex].close;
+
+    if (lower.price >= upper.price || lowerSlope <= 0 || upperSlope <= 0) {
+        return null;
+    }
+
+    const ratio = slopeRatio(upperSlope, lowerSlope);
+    if (ratio < 0.7 || ratio > 1.5) {
+        return null;
+    }
+
+    const requiresBreakout = requireHistoricalBreakout || !showPrediction;
+    if (requiresBreakout && currentClose >= lower.price) {
+        return null;
+    }
+
+    return {
+        kind: 'bear-flag',
+        direction: 'bearish',
+        points: [x, a, b, c, d],
+        detectionIndex: currentIndex,
+        detectionTime: sourceData[currentIndex].time,
+        neckline: lower.price,
+        labelText: 'Ayi Bayrak',
+        labelAnchor: a,
+        segments: [
+            { from: x, to: a },
+            { from: a, to: lower.point },
+            {
+                from: { index: a.index, time: a.time, price: linePriceAt(b, d, a.index) },
+                to: upper.point,
+            },
+        ],
+    };
+}
+
 function lineAtCurrent(start: ZigZagPoint, end: ZigZagPoint, currentIndex: number): { price: number; point: PatternPoint } {
     const price = linePriceAt(start, end, currentIndex);
     return {
@@ -378,4 +552,19 @@ function linePriceAt(start: PatternPoint, end: PatternPoint, targetIndex: number
     const slope = (start.price - end.price) / deltaIndex;
     const intercept = start.price - slope * start.index;
     return slope * targetIndex + intercept;
+}
+
+function lineSlope(start: PatternPoint, end: PatternPoint): number {
+    const deltaIndex = end.index - start.index;
+    if (Math.abs(deltaIndex) < 1e-8) {
+        return 0;
+    }
+    return (end.price - start.price) / deltaIndex;
+}
+
+function slopeRatio(a: number, b: number): number {
+    if (Math.abs(a) < 1e-8 || Math.abs(b) < 1e-8) {
+        return Infinity;
+    }
+    return a / b;
 }
