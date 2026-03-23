@@ -156,12 +156,16 @@ export class PriceScale {
     setMode(mode: PriceScaleMode): void {
         if (this._options.mode === mode) return;
         this._options.mode = mode;
+        if (this._priceRange) {
+            this._priceRange = this._normalizeRangeForMode(this._priceRange);
+            this._rangeChanged.fire(this._priceRange);
+        }
         this._modeChanged.fire(mode);
     }
 
     setPriceRange(range: PriceRange | null): void {
-        this._priceRange = range;
-        this._rangeChanged.fire(range);
+        this._priceRange = range ? this._normalizeRangeForMode(range) : null;
+        this._rangeChanged.fire(this._priceRange);
     }
 
     /**
@@ -173,7 +177,8 @@ export class PriceScale {
         }
 
         // We use scaleMargins for padding, no need to double pad here
-        this._priceRange = { min, max };
+        this._priceRange = this._normalizeRangeForMode({ min, max });
+        this._rangeChanged.fire(this._priceRange);
     }
 
     /**
@@ -187,9 +192,9 @@ export class PriceScale {
      * Set visible price range (disables auto-scale)
      */
     setVisiblePriceRange(range: PriceRange): void {
-        this._priceRange = range;
+        this._priceRange = this._normalizeRangeForMode(range);
         this._isAutoScale = false;
-        this._rangeChanged.fire(range);
+        this._rangeChanged.fire(this._priceRange);
     }
 
     // --- Coordinate conversions ---
@@ -203,11 +208,14 @@ export class PriceScale {
         }
 
         const { min, max } = this._priceRange;
-        const range = max - min;
-        if (range === 0) return coordinate(this.topMarginPx);
+        const logicalMin = this._priceToLogical(min);
+        const logicalMax = this._priceToLogical(max);
+        const logicalPrice = this._priceToLogical(this._normalizePriceForMode(price, max));
+        const range = logicalMax - logicalMin;
+        if (!Number.isFinite(range) || range === 0) return coordinate(this.topMarginPx);
 
         // Normalize price to 0-1 range
-        const normalized = (price - min) / range;
+        const normalized = (logicalPrice - logicalMin) / range;
 
         // Convert to pixel coordinate
         const y = this.topMarginPx + (1 - normalized) * this.internalHeight;
@@ -226,16 +234,19 @@ export class PriceScale {
         }
 
         const { min, max } = this._priceRange;
-        const range = max - min;
+        const logicalMin = this._priceToLogical(min);
+        const logicalMax = this._priceToLogical(max);
+        const range = logicalMax - logicalMin;
 
         // Handle inverted scale
         const adjustedY = this._options.invertScale ? this._height - 1 - y : y;
 
         // Convert from pixel to normalized value
-        const normalized = 1 - (adjustedY - this.topMarginPx) / this.internalHeight;
+        const normalized = clamp(1 - (adjustedY - this.topMarginPx) / this.internalHeight, -10, 10);
 
         // Convert to price
-        const price = min + normalized * range;
+        const logicalPrice = logicalMin + normalized * range;
+        const price = this._logicalToPrice(logicalPrice);
         return barPrice(price);
     }
 
@@ -258,7 +269,9 @@ export class PriceScale {
 
         const targetCount = Math.max(3, Math.floor(this._height / 30));
 
-        const values = generateAxisValues(priceMin, priceMax, targetCount);
+        const values = this._options.mode === PriceScaleMode.Logarithmic && priceMin > 0 && priceMax > 0
+            ? this._generateLogAxisValues(priceMin, priceMax, targetCount)
+            : generateAxisValues(priceMin, priceMax, targetCount);
 
         return values
             .map(price => ({
@@ -289,14 +302,28 @@ export class PriceScale {
         const sensitivity = 0.005;
         const scaleFactor = Math.exp(deltaY * sensitivity);
 
-        const center = (this._rangeSnapshot.min + this._rangeSnapshot.max) / 2;
-        const halfRange = (this._rangeSnapshot.max - this._rangeSnapshot.min) / 2;
-        const newHalfRange = Math.max(halfRange * scaleFactor, 0.000001);
+        if (this._options.mode === PriceScaleMode.Logarithmic && this._rangeSnapshot.min > 0 && this._rangeSnapshot.max > 0) {
+            const logMin = Math.log(this._rangeSnapshot.min);
+            const logMax = Math.log(this._rangeSnapshot.max);
+            const center = (logMin + logMax) / 2;
+            const halfRange = (logMax - logMin) / 2;
+            const newHalfRange = Math.max(halfRange * scaleFactor, 0.000001);
 
-        this._priceRange = {
-            min: center - newHalfRange,
-            max: center + newHalfRange,
-        };
+            this._priceRange = {
+                min: Math.exp(center - newHalfRange),
+                max: Math.exp(center + newHalfRange),
+            };
+        } else {
+            const center = (this._rangeSnapshot.min + this._rangeSnapshot.max) / 2;
+            const halfRange = (this._rangeSnapshot.max - this._rangeSnapshot.min) / 2;
+            const newHalfRange = Math.max(halfRange * scaleFactor, 0.000001);
+
+            this._priceRange = {
+                min: center - newHalfRange,
+                max: center + newHalfRange,
+            };
+        }
+        this._priceRange = this._normalizeRangeForMode(this._priceRange);
         this._rangeChanged.fire(this._priceRange);
     }
 
@@ -319,15 +346,30 @@ export class PriceScale {
     scrollTo(y: number): void {
         if (this._scrollStartPoint === null || !this._rangeSnapshot) return;
 
-        const range = this._rangeSnapshot.max - this._rangeSnapshot.min;
-        const pricePerPixel = range / this.internalHeight;
         const pixelDelta = y - this._scrollStartPoint;
-        const priceDelta = pixelDelta * pricePerPixel * (this._options.invertScale ? -1 : 1);
+        const direction = this._options.invertScale ? -1 : 1;
 
-        this._priceRange = {
-            min: this._rangeSnapshot.min + priceDelta,
-            max: this._rangeSnapshot.max + priceDelta,
-        };
+        if (this._options.mode === PriceScaleMode.Logarithmic && this._rangeSnapshot.min > 0 && this._rangeSnapshot.max > 0) {
+            const logMin = Math.log(this._rangeSnapshot.min);
+            const logMax = Math.log(this._rangeSnapshot.max);
+            const logPerPixel = (logMax - logMin) / this.internalHeight;
+            const logDelta = pixelDelta * logPerPixel * direction;
+            this._priceRange = {
+                min: Math.exp(logMin + logDelta),
+                max: Math.exp(logMax + logDelta),
+            };
+        } else {
+            const range = this._rangeSnapshot.max - this._rangeSnapshot.min;
+            const pricePerPixel = range / this.internalHeight;
+            const priceDelta = pixelDelta * pricePerPixel * direction;
+
+            this._priceRange = {
+                min: this._rangeSnapshot.min + priceDelta,
+                max: this._rangeSnapshot.max + priceDelta,
+            };
+        }
+        this._priceRange = this._normalizeRangeForMode(this._priceRange);
+        this._rangeChanged.fire(this._priceRange);
     }
 
     endScroll(): void {
@@ -353,6 +395,79 @@ export class PriceScale {
         else decimals = 8;
 
         return price.toFixed(decimals);
+    }
+
+    private _priceToLogical(price: number): number {
+        if (this._options.mode === PriceScaleMode.Logarithmic && price > 0) {
+            return Math.log(price);
+        }
+        return price;
+    }
+
+    private _logicalToPrice(value: number): number {
+        if (this._options.mode === PriceScaleMode.Logarithmic) {
+            return Math.exp(value);
+        }
+        return value;
+    }
+
+    private _normalizePriceForMode(price: number, fallbackMax: number): number {
+        if (this._options.mode !== PriceScaleMode.Logarithmic) {
+            return price;
+        }
+
+        const safeMin = Math.max(Number.MIN_VALUE, fallbackMax * 1e-9);
+        return Math.max(price, safeMin);
+    }
+
+    private _normalizeRangeForMode(range: PriceRange): PriceRange {
+        let min = Math.min(range.min, range.max);
+        let max = Math.max(range.min, range.max);
+
+        if (this._options.mode === PriceScaleMode.Logarithmic) {
+            max = Math.max(max, Number.MIN_VALUE);
+            const safeMin = Math.max(Number.MIN_VALUE, max * 1e-9);
+            min = Math.max(min, safeMin);
+        }
+
+        if (min === max) {
+            const delta = this._options.mode === PriceScaleMode.Logarithmic
+                ? Math.max(max * 0.001, Number.MIN_VALUE)
+                : 0.000001;
+            min -= delta;
+            max += delta;
+        }
+
+        return { min, max };
+    }
+
+    private _generateLogAxisValues(min: number, max: number, targetCount: number): number[] {
+        const values: number[] = [];
+        const multipliers = [1, 2, 5];
+        const minExp = Math.floor(Math.log10(min));
+        const maxExp = Math.ceil(Math.log10(max));
+
+        for (let exp = minExp; exp <= maxExp; exp++) {
+            for (const multiplier of multipliers) {
+                const value = multiplier * Math.pow(10, exp);
+                if (value >= min && value <= max) {
+                    values.push(value);
+                }
+            }
+        }
+
+        if (values.length >= Math.max(3, Math.floor(targetCount / 2))) {
+            return values;
+        }
+
+        const generated: number[] = [];
+        const steps = Math.max(2, targetCount - 1);
+        for (let i = 0; i <= steps; i++) {
+            const ratio = i / steps;
+            generated.push(min * Math.pow(max / min, ratio));
+        }
+
+        return generated;
     }
 
     // --- Cleanup ---

@@ -43,6 +43,7 @@ export interface ToolbarOptions {
     chartType?: ChartType;
     timeframes?: string[];
     locale?: string;
+    priceScaleMode?: 'normal' | 'logarithmic';
 }
 
 const defaultToolbarOptions: ToolbarOptions = {
@@ -51,6 +52,7 @@ const defaultToolbarOptions: ToolbarOptions = {
     chartType: 'candles',
     timeframes: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', 'D', 'W'],
     locale: 'en',
+    priceScaleMode: 'normal',
 };
 
 /**
@@ -61,6 +63,7 @@ export class ToolbarWidget {
     private _options: ToolbarOptions;
     private _activeTimeframe: string;
     private _activeChartType: ChartType;
+    private _activePriceScaleMode: 'normal' | 'logarithmic';
 
     // Events
     private readonly _symbolClicked = new Delegate<void>();
@@ -70,6 +73,7 @@ export class ToolbarWidget {
     private readonly _domToggled = new Delegate<boolean>();
     private readonly _languageChanged = new Delegate<string>();
     private readonly _themeToggled = new Delegate<'dark' | 'light'>();
+    private readonly _priceScaleModeChanged = new Delegate<'normal' | 'logarithmic'>();
     private _domEnabled: boolean = false;
     private _currentTheme: 'dark' | 'light' = 'dark';
 
@@ -77,6 +81,7 @@ export class ToolbarWidget {
         this._options = { ...defaultToolbarOptions, ...options };
         this._activeTimeframe = this._options.timeframe!;
         this._activeChartType = this._options.chartType!;
+        this._activePriceScaleMode = this._options.priceScaleMode!;
         this._createElement(container);
     }
 
@@ -118,6 +123,10 @@ export class ToolbarWidget {
         return this._themeToggled;
     }
 
+    get priceScaleModeChanged(): Delegate<'normal' | 'logarithmic'> {
+        return this._priceScaleModeChanged;
+    }
+
     get domEnabled(): boolean {
         return this._domEnabled;
     }
@@ -144,6 +153,13 @@ export class ToolbarWidget {
         this._activeChartType = type;
         this._updateChartTypeButtons();
         this._chartTypeChanged.fire(type);
+    }
+
+    setPriceScaleMode(mode: 'normal' | 'logarithmic'): void {
+        if (this._activePriceScaleMode === mode) return;
+        this._activePriceScaleMode = mode;
+        this._updatePriceScaleButtons();
+        this._priceScaleModeChanged.fire(mode);
     }
 
     // --- Private methods ---
@@ -178,6 +194,12 @@ export class ToolbarWidget {
 
         // Chart type buttons
         this._createChartTypeButtons();
+
+        // Separator
+        this._createSeparator();
+
+        // Price scale mode buttons
+        this._createPriceScaleButtons();
 
         // Separator
         this._createSeparator();
@@ -318,6 +340,35 @@ export class ToolbarWidget {
             btn.dataset.active = isActive.toString();
             btn.addEventListener('click', () => {
                 this.setChartType(type);
+            });
+            container.appendChild(btn);
+        });
+
+        this._element!.appendChild(container);
+    }
+
+    private _createPriceScaleButtons(): void {
+        const container = document.createElement('div');
+        container.className = 'toolbar-price-scale-modes';
+        container.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        `;
+
+        const modes: { mode: 'normal' | 'logarithmic'; label: string; title: string }[] = [
+            { mode: 'normal', label: 'LIN', title: t('Linear scale') },
+            { mode: 'logarithmic', label: 'LOG', title: t('Logarithmic scale') },
+        ];
+
+        modes.forEach(({ mode, label, title }) => {
+            const isActive = mode === this._activePriceScaleMode;
+            const btn = this._createButton(label, isActive);
+            btn.title = title;
+            btn.dataset.scaleMode = mode;
+            btn.dataset.active = isActive.toString();
+            btn.addEventListener('click', () => {
+                this.setPriceScaleMode(mode);
             });
             container.appendChild(btn);
         });
@@ -613,6 +664,18 @@ export class ToolbarWidget {
         });
     }
 
+    private _updatePriceScaleButtons(): void {
+        const buttons = this._element?.querySelectorAll('.toolbar-price-scale-modes button');
+        buttons?.forEach(btn => {
+            const htmlBtn = btn as HTMLButtonElement;
+            const isActive = htmlBtn.dataset.scaleMode === this._activePriceScaleMode;
+            htmlBtn.dataset.active = isActive.toString();
+            htmlBtn.style.background = isActive ? '#2962ff' : 'transparent';
+            htmlBtn.style.color = isActive ? '#fff' : '#787b86';
+            htmlBtn.style.fontWeight = isActive ? '500' : '400';
+        });
+    }
+
     // --- Cleanup ---
 
     /**
@@ -676,6 +739,8 @@ export class ToolbarWidget {
         this._indicatorsClicked.destroy();
         this._domToggled.destroy();
         this._languageChanged.destroy();
+        this._themeToggled.destroy();
+        this._priceScaleModeChanged.destroy();
 
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);

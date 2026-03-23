@@ -7,6 +7,7 @@ import { LineSeries, LineSeriesOptions } from '../model/line-series';
 import { AreaSeries, AreaSeriesOptions } from '../model/area-series';
 import { HeikenAshiSeries, HeikenAshiSeriesOptions } from '../series/heiken-ashi-series';
 import { BarData, LineData } from '../model/data';
+import { PriceScaleMode } from '../model/price-scale';
 import { PaneWidget } from './pane-widget';
 import { PriceAxisWidget } from './price-axis-widget';
 import { TimeAxisWidget } from './time-axis-widget';
@@ -976,6 +977,15 @@ export class ChartWidget implements Disposable {
         if (data.length > 0) {
             this.setData(newSeries as any, data as any);
         }
+    }
+
+    private _onPriceScaleModeChange(mode: 'normal' | 'logarithmic'): void {
+        this._model.rightPriceScale.setMode(
+            mode === 'logarithmic' ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal
+        );
+        this._model.rightPriceScale.setAutoScale(true);
+        this._model.recalculateAllPanes();
+        this._model.fullUpdate();
     }
 
     private _onTimeframeChange(timeframe: string): void {
@@ -2000,6 +2010,12 @@ export class ChartWidget implements Disposable {
                     showBearFlag: true,
                     showBullWedgeCont: true,
                     showBearWedgeCont: true,
+                    showBullWedgeRev: true,
+                    showBearWedgeRev: true,
+                    showHeadAndShoulders: true,
+                    showInverseHeadAndShoulders: true,
+                    showCupAndHandle: true,
+                    showAscendingTriangle: true,
                     showPrediction: true,
                     showHistory: false,
                 }));
@@ -2175,6 +2191,9 @@ export class ChartWidget implements Disposable {
             timeframe: this._model.timeframe,
             chartType: this._activeChartType,
             locale: getCurrentLanguage(),
+            priceScaleMode: this._model.rightPriceScale.mode === PriceScaleMode.Logarithmic
+                ? 'logarithmic'
+                : 'normal',
         });
 
         // Listen for language changes
@@ -2194,6 +2213,10 @@ export class ChartWidget implements Disposable {
 
         this._toolbarWidget.chartTypeChanged.subscribe((type) => {
             this._onChartTypeChange(type);
+        });
+
+        this._toolbarWidget.priceScaleModeChanged.subscribe((mode) => {
+            this._onPriceScaleModeChange(mode);
         });
 
         this._toolbarWidget.symbolClicked.subscribe(() => {
