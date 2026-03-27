@@ -4,6 +4,7 @@
  */
 
 import { ChartModel } from '../../model/chart-model';
+import { PriceScale } from '../../model/price-scale';
 import { DrawingManager } from '../../drawings';
 
 /**
@@ -14,6 +15,8 @@ export interface ChartWidgetContext {
     drawingManager: DrawingManager;
     paneCanvas: HTMLCanvasElement | null;
     element: HTMLElement | null;
+    paneId: string | null;
+    priceScale: PriceScale;
 
     // State
     isDragging: boolean;
@@ -110,7 +113,7 @@ export function handleMouseDown(
     if (!ctx.drawingManager.isLocked) {
         // Check if clicking on a control point of selected drawing
         const selected = ctx.drawingManager.selectedDrawing;
-        if (selected) {
+        if (selected && (selected.paneId ?? null) === ctx.paneId) {
             const controlPointIndex = hitTestControlPoint(x, y, selected);
             if (controlPointIndex >= 0) {
                 return {
@@ -132,7 +135,7 @@ export function handleMouseDown(
         }
 
         // Try to select a drawing
-        const hitDrawing = ctx.drawingManager.selectDrawingAt(x, y);
+        const hitDrawing = ctx.drawingManager.selectDrawingAt(x, y, ctx.paneId);
         if (hitDrawing) {
             return {
                 isDraggingDrawing: true,
@@ -183,10 +186,10 @@ export function handleMouseDown(
         lastMouseY: e.clientY
     };
 
-    if (!ctx.model.rightPriceScale.isAutoScale && ctx.paneCanvas) {
-        const rect = ctx.paneCanvas.getBoundingClientRect();
-        ctx.model.rightPriceScale.startScroll(e.clientY - rect.top);
-    }
+        if (!ctx.priceScale.isAutoScale && ctx.paneCanvas) {
+            const rect = ctx.paneCanvas.getBoundingClientRect();
+            ctx.priceScale.startScroll(e.clientY - rect.top);
+        }
 
     return result;
 }
@@ -277,16 +280,16 @@ export function handleMouseMove(
     if (ctx.isDragging) {
         ctx.model.timeScale.scrollBy(deltaX);
 
-        if (!ctx.model.rightPriceScale.isAutoScale && ctx.paneCanvas) {
+        if (!ctx.priceScale.isAutoScale && ctx.paneCanvas) {
             const rect = ctx.paneCanvas.getBoundingClientRect();
-            ctx.model.rightPriceScale.scrollTo(e.clientY - rect.top);
+            ctx.priceScale.scrollTo(e.clientY - rect.top);
         }
 
         ctx.model.recalculateAllPanes();
     }
 
     if (ctx.isPriceScaleDragging) {
-        ctx.model.rightPriceScale.scaleTo(deltaY);
+        ctx.priceScale.scaleTo(deltaY);
         ctx.scheduleDraw();
     }
 
@@ -387,10 +390,10 @@ export function handleMouseUp(
 
     if (ctx.isDragging) {
         result.isDragging = false;
-        ctx.model.rightPriceScale.endScroll();
+        ctx.priceScale.endScroll();
     }
     if (ctx.isPriceScaleDragging) {
-        ctx.model.rightPriceScale.endScale();
+        ctx.priceScale.endScale();
         result.isPriceScaleDragging = false;
     }
     if (ctx.isDraggingDrawing) {
@@ -418,7 +421,7 @@ export function handlePriceAxisMouseDown(
     ctx: ChartWidgetContext
 ): Partial<ChartWidgetContext> {
     const rect = (e.target as HTMLElement).getBoundingClientRect();
-    ctx.model.rightPriceScale.startScale(e.clientY - rect.top);
+    ctx.priceScale.startScale(e.clientY - rect.top);
 
     return {
         isPriceScaleDragging: true,
@@ -430,6 +433,6 @@ export function handlePriceAxisMouseDown(
  * Handle price axis double click
  */
 export function handlePriceAxisDoubleClick(ctx: ChartWidgetContext): void {
-    ctx.model.rightPriceScale.setAutoScale(true);
+    ctx.priceScale.setAutoScale(true);
     ctx.model.recalculateAllPanes();
 }

@@ -93,6 +93,7 @@ export interface SerializedDrawing {
     state: DrawingState;
     visible: boolean;
     locked: boolean;
+    paneId?: string | null;
     // Type-specific properties
     extendLeft?: boolean;
     extendRight?: boolean;
@@ -132,6 +133,7 @@ export interface Drawing {
     state: DrawingState;
     visible: boolean;
     locked: boolean;
+    paneId?: string | null;
 
     /** Add a point to the drawing */
     addPoint(time: number, price: number): void;

@@ -26,6 +26,12 @@ export interface ChartPatternsIndicatorOptions extends IndicatorOptions {
     showBearFlag: boolean;
     showBullWedgeCont: boolean;
     showBearWedgeCont: boolean;
+    showBullWedgeRev: boolean;
+    showBearWedgeRev: boolean;
+    showHeadAndShoulders: boolean;
+    showInverseHeadAndShoulders: boolean;
+    showCupAndHandle: boolean;
+    showAscendingTriangle: boolean;
 }
 
 const defaults: Partial<ChartPatternsIndicatorOptions> = {
@@ -33,7 +39,7 @@ const defaults: Partial<ChartPatternsIndicatorOptions> = {
     style: IndicatorStyle.Line,
     color: '#10b981',
     lineWidth: 2,
-    period: 7,
+    period: 15,
     bullishColor: '#22c55e',
     bearishColor: '#ef4444',
     showPrediction: true,
@@ -46,6 +52,12 @@ const defaults: Partial<ChartPatternsIndicatorOptions> = {
     showBearFlag: true,
     showBullWedgeCont: true,
     showBearWedgeCont: true,
+    showBullWedgeRev: true,
+    showBearWedgeRev: true,
+    showHeadAndShoulders: true,
+    showInverseHeadAndShoulders: true,
+    showCupAndHandle: true,
+    showAscendingTriangle: true,
 };
 
 export class ChartPatternsIndicator extends OverlayIndicator {
@@ -76,7 +88,13 @@ export class ChartPatternsIndicator extends OverlayIndicator {
             normalized.showBullFlag !== undefined ||
             normalized.showBearFlag !== undefined ||
             normalized.showBullWedgeCont !== undefined ||
-            normalized.showBearWedgeCont !== undefined;
+            normalized.showBearWedgeCont !== undefined ||
+            normalized.showBullWedgeRev !== undefined ||
+            normalized.showBearWedgeRev !== undefined ||
+            normalized.showHeadAndShoulders !== undefined ||
+            normalized.showInverseHeadAndShoulders !== undefined ||
+            normalized.showCupAndHandle !== undefined ||
+            normalized.showAscendingTriangle !== undefined;
         Object.assign(this._optionsEx, normalized);
         Object.assign(this._options, normalized);
         this._dataChanged.fire();
@@ -99,6 +117,12 @@ export class ChartPatternsIndicator extends OverlayIndicator {
                     checkboxRow('showBearFlag', 'Ayi Bayrak', this._optionsEx.showBearFlag),
                     checkboxRow('showBullWedgeCont', 'Boga Takoz Devam', this._optionsEx.showBullWedgeCont),
                     checkboxRow('showBearWedgeCont', 'Ayi Takoz Devam', this._optionsEx.showBearWedgeCont),
+                    checkboxRow('showBullWedgeRev', 'Boga Takoz Donus', this._optionsEx.showBullWedgeRev),
+                    checkboxRow('showBearWedgeRev', 'Ayi Takoz Donus', this._optionsEx.showBearWedgeRev),
+                    checkboxRow('showHeadAndShoulders', 'OBO', this._optionsEx.showHeadAndShoulders),
+                    checkboxRow('showInverseHeadAndShoulders', 'TOBO', this._optionsEx.showInverseHeadAndShoulders),
+                    checkboxRow('showCupAndHandle', 'Fincan Kulp', this._optionsEx.showCupAndHandle),
+                    checkboxRow('showAscendingTriangle', 'Yukselen Ucgen', this._optionsEx.showAscendingTriangle),
                 ] }]),
                 createStyleTab([{ rows: [
                     colorRow('bullishColor', 'Bullish Color', this._optionsEx.bullishColor),
@@ -132,6 +156,12 @@ export class ChartPatternsIndicator extends OverlayIndicator {
             showBearFlag: this._optionsEx.showBearFlag,
             showBullWedgeCont: this._optionsEx.showBullWedgeCont,
             showBearWedgeCont: this._optionsEx.showBearWedgeCont,
+            showBullWedgeRev: this._optionsEx.showBullWedgeRev,
+            showBearWedgeRev: this._optionsEx.showBearWedgeRev,
+            showHeadAndShoulders: this._optionsEx.showHeadAndShoulders,
+            showInverseHeadAndShoulders: this._optionsEx.showInverseHeadAndShoulders,
+            showCupAndHandle: this._optionsEx.showCupAndHandle,
+            showAscendingTriangle: this._optionsEx.showAscendingTriangle,
         });
 
         this._data = this._patterns.flatMap((pattern) => [
@@ -310,7 +340,19 @@ export class ChartPatternsIndicator extends OverlayIndicator {
                                     ? 'Ayi Bayrak'
                                     : pattern.kind === 'bull-wedge-cont'
                                         ? 'Boga Takoz Devam'
-                                        : 'Ayi Takoz Devam'
+                                        : pattern.kind === 'bear-wedge-cont'
+                                            ? 'Ayi Takoz Devam'
+                                            : pattern.kind === 'bull-wedge-rev'
+                                                ? 'Boga Takoz Donus'
+                                                : pattern.kind === 'bear-wedge-rev'
+                                                    ? 'Ayi Takoz Donus'
+                                                    : pattern.kind === 'head-and-shoulders'
+                                                    ? 'OBO'
+                                                        : pattern.kind === 'inverse-head-and-shoulders'
+                                                        ? 'TOBO'
+                                                            : pattern.kind === 'cup-and-handle'
+                                                                ? 'Fincan Kulp'
+                                                                : 'Yukselen Ucgen'
         );
         const paddingX = 6 * hpr;
         const width = ctx.measureText(text).width + paddingX * 2;

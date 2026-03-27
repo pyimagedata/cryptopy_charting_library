@@ -7,14 +7,14 @@ import { LineSeries, LineSeriesOptions } from '../model/line-series';
 import { AreaSeries, AreaSeriesOptions } from '../model/area-series';
 import { HeikenAshiSeries, HeikenAshiSeriesOptions } from '../series/heiken-ashi-series';
 import { BarData, LineData } from '../model/data';
-import { PriceScaleMode } from '../model/price-scale';
+import { PriceScale, PriceScaleMode } from '../model/price-scale';
 import { PaneWidget } from './pane-widget';
 import { PriceAxisWidget } from './price-axis-widget';
 import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -108,6 +108,9 @@ export class ChartWidget implements Disposable {
     private _isPriceScaleDragging: boolean = false;
     private _lastMouseX: number = 0;
     private _lastMouseY: number = 0;
+    private _interactionPaneId: string | null = null;
+    private _interactionPaneCanvas: HTMLCanvasElement | null = null;
+    private _interactionPriceScale: PriceScale | null = null;
 
     private readonly _symbolChanged = new Delegate<string>();
     private readonly _timeframeChanged = new Delegate<string>();
@@ -1151,30 +1154,89 @@ export class ChartWidget implements Disposable {
     }
 
     private _onWheel(e: WheelEvent): void {
-        handleWheelEvent(e, this._getEventContext());
+        const pane = this._resolvePaneInteraction(e.currentTarget ?? e.target);
+        handleWheelEvent(e, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
     }
 
     private _onMouseDown(e: MouseEvent): void {
-        const stateUpdates = handleMouseDownEvent(e, this._getEventContext());
+        const pane = this._resolvePaneInteraction(e.currentTarget ?? e.target);
+        this._setInteractionPane(pane.paneId, pane.paneCanvas, pane.priceScale);
+        const stateUpdates = handleMouseDownEvent(e, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
         this._applyEventState(stateUpdates);
     }
 
     private _onMouseMove(e: MouseEvent): void {
-        const stateUpdates = handleMouseMoveEvent(e, this._getEventContext());
+        const shouldUseActivePane = this._isDragging || this._isDraggingDrawing || this._drawingManager.activeDrawing !== null;
+        const hoverTarget = shouldUseActivePane ? null : document.elementFromPoint(e.clientX, e.clientY);
+        const pane = shouldUseActivePane
+            ? this._resolvePaneInteraction(null)
+            : this._resolvePaneInteraction(hoverTarget ?? e.target);
+        this._drawingManager.setScales(this._model.timeScale, pane.priceScale);
+        this._drawingManager.setActivePaneId(pane.paneId);
+        const stateUpdates = handleMouseMoveEvent(e, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
         this._applyEventState(stateUpdates);
     }
 
     private _onKeyDown(e: KeyboardEvent): void {
-        handleKeyDownEvent(e, this._getEventContext());
+        handleKeyDownEvent(e, this._getEventContextForPane(this._interactionPaneId, this._interactionPaneCanvas));
+    }
+
+    private _resolvePaneInteraction(target: EventTarget | null): {
+        paneId: string | null;
+        paneCanvas: HTMLCanvasElement | null;
+        priceScale: PriceScale;
+    } {
+        const mainCanvas = this._paneWidget?.canvas ?? null;
+        if (target === mainCanvas || (target instanceof Node && this._paneWidget?.element?.contains(target))) {
+            return {
+                paneId: null,
+                paneCanvas: mainCanvas,
+                priceScale: this._model.rightPriceScale,
+            };
+        }
+
+        for (const [indicatorId, pane] of this._indicatorPanes.entries()) {
+            const canvas = pane.canvas;
+            if (target === canvas || (target instanceof Node && pane.element?.contains(target))) {
+                return {
+                    paneId: indicatorId,
+                    paneCanvas: canvas,
+                    priceScale: pane.priceScale,
+                };
+            }
+        }
+
+        return {
+            paneId: this._interactionPaneId,
+            paneCanvas: this._interactionPaneCanvas,
+            priceScale: this._interactionPriceScale ?? this._model.rightPriceScale,
+        };
+    }
+
+    private _setInteractionPane(paneId: string | null, paneCanvas: HTMLCanvasElement | null, priceScale: PriceScale): void {
+        this._interactionPaneId = paneId;
+        this._interactionPaneCanvas = paneCanvas;
+        this._interactionPriceScale = priceScale;
+        this._drawingManager.setScales(this._model.timeScale, priceScale);
+        this._drawingManager.setActivePaneId(paneId);
     }
 
     /** Create context object for event handlers */
-    private _getEventContext(): ChartWidgetContext {
+    private _getEventContextForPane(
+        paneId: string | null,
+        paneCanvas: HTMLCanvasElement | null
+    ): ChartWidgetContext {
+        const priceScale = paneId === null
+            ? this._model.rightPriceScale
+            : this._indicatorPanes.get(paneId)?.priceScale ?? this._model.rightPriceScale;
+
         return {
             model: this._model,
             drawingManager: this._drawingManager,
-            paneCanvas: this._paneWidget?.canvas ?? null,
+            paneCanvas,
             element: this._element,
+            paneId,
+            priceScale,
             isDragging: this._isDragging,
             isDraggingDrawing: this._isDraggingDrawing,
             draggingControlPoint: this._draggingControlPoint,
@@ -1211,25 +1273,40 @@ export class ChartWidget implements Disposable {
     }
 
     private _onMouseLeave(): void {
-        handleMouseLeaveEvent(this._getEventContext());
+        handleMouseLeaveEvent(this._getEventContextForPane(this._interactionPaneId, this._interactionPaneCanvas));
     }
 
     private _onMouseUp(e: MouseEvent): void {
-        const stateUpdates = handleMouseUpEvent(e, this._getEventContext());
+        const pane = this._resolvePaneInteraction(null);
+        const stateUpdates = handleMouseUpEvent(e, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
         this._applyEventState(stateUpdates);
+
+        if (!this._isDragging && !this._isDraggingDrawing && this._drawingManager.activeDrawing === null) {
+            this._interactionPaneId = null;
+            this._interactionPaneCanvas = null;
+            this._interactionPriceScale = null;
+            this._drawingManager.setActivePaneId(null);
+            this._drawingManager.setScales(this._model.timeScale, this._model.rightPriceScale);
+        }
     }
 
     private _onPriceAxisMouseDown(e: MouseEvent): void {
-        const stateUpdates = handlePriceAxisMouseDownEvent(e, this._getEventContext());
+        const stateUpdates = handlePriceAxisMouseDownEvent(e, this._getEventContextForPane(null, this._paneWidget?.canvas ?? null));
         this._applyEventState(stateUpdates);
     }
 
     private _onPriceAxisDoubleClick(): void {
-        handlePriceAxisDoubleClickEvent(this._getEventContext());
+        handlePriceAxisDoubleClickEvent(this._getEventContextForPane(null, this._paneWidget?.canvas ?? null));
     }
 
     /** Handle mouse move on pane - show Add Text tooltip on line midpoint */
     private _onPaneMouseMove(e: MouseEvent): void {
+        if (e.currentTarget !== this._paneWidget?.canvas) {
+            this._hideAddTextTooltip();
+            this._hoveredDrawingForText = null;
+            return;
+        }
+
         const paneRect = this._paneWidget?.canvas?.getBoundingClientRect();
         if (!paneRect) return;
 
@@ -1627,9 +1704,22 @@ export class ChartWidget implements Disposable {
         this._drawScheduled = false;
 
         const crosshair = this._model.crosshairPosition;
+        let mainPaneLocalY: number | null = null;
+
+        if (crosshair && crosshair.visible && this._paneWidget?.element && this._lastMouseY !== 0) {
+            const rect = this._paneWidget.element.getBoundingClientRect();
+            if (this._lastMouseY >= rect.top && this._lastMouseY <= rect.bottom) {
+                mainPaneLocalY = this._lastMouseY - rect.top;
+            }
+        }
+
         if (crosshair) {
-            this._priceAxisWidget?.setCrosshair(crosshair.y, crosshair.visible);
+            this._paneWidget?.setCrosshair(crosshair.x, mainPaneLocalY);
+            this._priceAxisWidget?.setCrosshair(mainPaneLocalY ?? 0, mainPaneLocalY !== null);
             this._timeAxisWidget?.setCrosshair(crosshair.x, crosshair.visible);
+        } else {
+            this._paneWidget?.setCrosshair(null, null);
+            this._priceAxisWidget?.setCrosshair(0, false);
         }
 
         this._updateLastPriceLabel();
@@ -1644,7 +1734,7 @@ export class ChartWidget implements Disposable {
 
         // Render drawings on top of chart
         this._paneWidget?.renderDrawings(
-            this._drawingManager.drawings,
+            this._drawingManager.getDrawingsForPane(null),
             (time) => this._drawingManager.timeToPixel(time),
             (price) => this._drawingManager.priceToPixel(price),
             this._drawingManager.hoveredForAddText
@@ -1905,7 +1995,9 @@ export class ChartWidget implements Disposable {
     private _renderIndicatorPanes(): void {
         const crosshair = this._model.crosshairPosition;
 
-        for (const pane of this._indicatorPanes.values()) {
+        const mainSeries = this._model.serieses[0];
+
+        for (const [paneId, pane] of this._indicatorPanes.entries()) {
             if (crosshair && crosshair.visible) {
                 // X is synchronized (time axis)
                 // Y is only shown if the mouse is actually over THIS specific pane
@@ -1924,7 +2016,15 @@ export class ChartWidget implements Disposable {
             } else {
                 pane.setCrosshair(null, null);
             }
+
+            pane.setChartData(mainSeries?.data ?? []);
             pane.render();
+            pane.renderDrawings(
+                this._drawingManager.getDrawingsForPane(paneId),
+                (time) => this._drawingManager.timeToPixel(time),
+                (price) => pane.priceScale.priceToCoordinate(price),
+                null
+            );
         }
     }
 
@@ -1959,6 +2059,32 @@ export class ChartWidget implements Disposable {
                 break;
             case 'sar':
                 this.addOverlayIndicator(new ParabolicSARIndicator({ start: 0.02, increment: 0.02, maximum: 0.20 }));
+                break;
+            case 'supertrend':
+                this.addOverlayIndicator(new SuperTrendIndicator({
+                    period: 10,
+                    multiplier: 3,
+                    changeATR: true,
+                    showSignals: true,
+                    highlighting: true,
+                }));
+                break;
+            case 'alphatrend':
+                this.addOverlayIndicator(new AlphaTrendIndicator({
+                    multiplier: 1,
+                    commonPeriod: 14,
+                    showSignals: true,
+                    noVolumeData: false,
+                }));
+                break;
+            case 'halftrend':
+                this.addOverlayIndicator(new HalfTrendIndicator({
+                    amplitude: 2,
+                    channelDeviation: 2,
+                    showArrows: true,
+                    showChannels: true,
+                    showLabels: true,
+                }));
                 break;
             case 'volume':
                 this.addOverlayIndicator(new VolumeIndicator());
@@ -2001,7 +2127,7 @@ export class ChartWidget implements Disposable {
                 break;
             case 'chart-patterns':
                 this.addOverlayIndicator(new ChartPatternsIndicator({
-                    period: 7,
+                    period: 15,
                     showDoubleTop: true,
                     showDoubleBottom: true,
                     showBullPennant: true,

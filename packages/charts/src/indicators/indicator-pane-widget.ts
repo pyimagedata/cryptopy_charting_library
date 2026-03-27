@@ -8,6 +8,8 @@
 import { PriceScale } from '../model/price-scale';
 import { TimeScale } from '../model/time-scale';
 import { PanelIndicator, IndicatorDataPoint } from './indicator';
+import { PaneWidget } from '../gui/pane-widget';
+import { Drawing } from '../drawings';
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -84,6 +86,8 @@ export class IndicatorPaneWidget implements Disposable {
 
     private _crosshairX: number | null = null;
     private _crosshairY: number | null = null;
+    private _lastValueLabel: { price: number; text: string; color: string } | null = null;
+    private _chartData: readonly any[] = [];
 
 
     constructor(
@@ -210,6 +214,31 @@ export class IndicatorPaneWidget implements Disposable {
         this._updatePriceRange();
         this._renderChart();
         this._renderPriceAxis();
+    }
+
+    setChartData(data: readonly any[]): void {
+        this._chartData = data;
+    }
+
+    renderDrawings(
+        drawings: Drawing[],
+        timeToPixel: (time: number) => number | null,
+        priceToPixel: (price: number) => number | null,
+        hoveredForAddTextId: string | null = null
+    ): void {
+        if (!this._ctx || !this._canvas || drawings.length === 0) return;
+
+        (PaneWidget.prototype as any).renderDrawings.call(
+            {
+                _ctx: this._ctx,
+                _canvas: this._canvas,
+                _model: { serieses: [{ data: this._chartData }] },
+            },
+            drawings,
+            timeToPixel,
+            priceToPixel,
+            hoveredForAddTextId
+        );
     }
 
     private _renderChart(): void {
@@ -493,6 +522,102 @@ export class IndicatorPaneWidget implements Disposable {
 
         for (const mark of marks) {
             this._priceAxisCtx.fillText(mark.label, width - 8, mark.coord);
+        }
+
+        this._updateLastValueLabel();
+
+        if (this._lastValueLabel) {
+            const y = this._priceScale.priceToCoordinate(this._lastValueLabel.price);
+            this._drawAxisLabel(y, this._lastValueLabel.text, this._lastValueLabel.color, true);
+        }
+
+        if (this._crosshairY !== null) {
+            const value = this._priceScale.coordinateToPrice(this._crosshairY as any);
+            const text = this._priceScale.formatPrice(value);
+            this._drawAxisLabel(this._crosshairY, text, '#2962ff', false);
+        }
+    }
+
+    private _updateLastValueLabel(): void {
+        this._lastValueLabel = null;
+        if (this._indicators.length === 0) return;
+
+        const indicator = this._indicators[0];
+        const data = indicator.data;
+        if (data.length === 0) return;
+
+        for (let i = data.length - 1; i >= 0; i--) {
+            const point = data[i];
+            const price = this._resolveLabelValue(point);
+            if (price === null) {
+                continue;
+            }
+
+            const text = this._priceScale.formatPrice(price);
+            const color = this._resolveLabelColor(indicator);
+            this._lastValueLabel = { price, text, color };
+            return;
+        }
+    }
+
+    private _resolveLabelValue(point: IndicatorDataPoint | undefined): number | null {
+        if (!point) return null;
+
+        if (point.values && point.values.length > 0 && !isNaN(point.values[0])) {
+            return point.values[0];
+        }
+
+        if (!isNaN(point.value)) {
+            return point.value;
+        }
+
+        return null;
+    }
+
+    private _resolveLabelColor(indicator: PanelIndicator): string {
+        if ('getLineColors' in indicator && typeof (indicator as any).getLineColors === 'function') {
+            const colors = (indicator as any).getLineColors();
+            if (Array.isArray(colors) && colors.length > 0 && colors[0]) {
+                return colors[0];
+            }
+        }
+
+        return indicator.options.color;
+    }
+
+    private _drawAxisLabel(y: number, text: string, color: string, isLastValue: boolean): void {
+        if (!this._priceAxisCtx || !this._element) return;
+        const ctx = this._priceAxisCtx;
+        const width = this._options.priceScaleWidth;
+        const height = this._height;
+
+        if (y < -20 || y > height + 20) return;
+
+        const padding = 8;
+        ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        const textWidth = ctx.measureText(text).width;
+        const boxHeight = 20;
+        const boxWidth = textWidth + (padding * 2);
+        const boxY = y - (boxHeight / 2);
+        const boxX = width - boxWidth;
+
+        ctx.fillStyle = color;
+        ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, boxX + (boxWidth / 2), y);
+
+        if (isLastValue) {
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 2]);
+            ctx.moveTo(0, y);
+            ctx.lineTo(boxX, y);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
     }
 

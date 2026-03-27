@@ -68,6 +68,7 @@ export class DrawingManager {
     // References to scales for coordinate conversion
     private _timeScale: TimeScale | null = null;
     private _priceScale: PriceScale | null = null;
+    private _activePaneId: string | null = null;
 
     // Events
     private readonly _drawingsChanged = new Delegate<void>();
@@ -162,6 +163,14 @@ export class DrawingManager {
     setScales(timeScale: TimeScale, priceScale: PriceScale): void {
         this._timeScale = timeScale;
         this._priceScale = priceScale;
+    }
+
+    setActivePaneId(paneId: string | null): void {
+        this._activePaneId = paneId;
+    }
+
+    get activePaneId(): string | null {
+        return this._activePaneId;
     }
 
     /** Set drawing mode */
@@ -372,6 +381,7 @@ export class DrawingManager {
         }
 
         if (drawing) {
+            drawing.paneId = this._activePaneId;
             drawing.addPoint(time, price);
             this._drawings.set(drawing.id, drawing);
 
@@ -622,8 +632,12 @@ export class DrawingManager {
     }
 
     /** Select a drawing at the given coordinates */
-    selectDrawingAt(x: number, y: number): Drawing | null {
+    selectDrawingAt(x: number, y: number, paneId: string | null = null): Drawing | null {
         for (const drawing of this._drawings.values()) {
+            if ((drawing.paneId ?? null) !== paneId) {
+                continue;
+            }
+
             // Don't select the drawing we're currently creating
             if (drawing === this._activeDrawing && drawing.state === 'creating') {
                 continue;
@@ -1110,7 +1124,10 @@ export class DrawingManager {
         for (const drawing of this._drawings.values()) {
             // Only save complete drawings (not in-progress ones)
             if (drawing.state === 'creating') continue;
-            serialized.push(drawing.toJSON());
+            serialized.push({
+                ...drawing.toJSON(),
+                paneId: drawing.paneId ?? null,
+            });
         }
 
         return serialized;
@@ -1270,6 +1287,7 @@ export class DrawingManager {
             }
 
             if (drawing) {
+                drawing.paneId = item.paneId ?? null;
                 this._drawings.set(drawing.id, drawing);
             }
         }
@@ -1280,6 +1298,10 @@ export class DrawingManager {
     /** Check if there are any drawings */
     hasDrawings(): boolean {
         return this._drawings.size > 0;
+    }
+
+    getDrawingsForPane(paneId: string | null): Drawing[] {
+        return this.drawings.filter((drawing) => (drawing.paneId ?? null) === paneId);
     }
 
     /**

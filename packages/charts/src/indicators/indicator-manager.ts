@@ -14,9 +14,12 @@ import { BBIndicator } from './bb-indicator';
 import { MACDIndicator } from './macd-indicator';
 import { StochIndicator } from './stoch-indicator';
 import { ParabolicSARIndicator } from './parabolic-sar-indicator';
+import { SuperTrendIndicator } from './supertrend-indicator';
+import { AlphaTrendIndicator } from './alpha-trend-indicator';
 import { VolumeIndicator } from './volume-indicator';
 import { HMAIndicator } from './hma-indicator';
 import { StochRSIIndicator } from './stoch-rsi-indicator';
+import { HalfTrendIndicator } from './halftrend-indicator';
 import { TdojiOscillatorIndicator } from './tdoji-oscillator-indicator';
 import { TdojiSRIndicator } from './tdoji-sr-indicator';
 import { TdojiMomIndicator } from './tdoji-mom-indicator';
@@ -229,9 +232,12 @@ export class IndicatorManager {
             else if (indicator instanceof MACDIndicator) typeId = 'MACD';
             else if (indicator instanceof StochIndicator) typeId = 'Stochastic';
             else if (indicator instanceof ParabolicSARIndicator) typeId = 'SAR';
+            else if (indicator instanceof SuperTrendIndicator) typeId = 'SuperTrend';
+            else if (indicator instanceof AlphaTrendIndicator) typeId = 'AlphaTrend';
             else if (indicator instanceof VolumeIndicator) typeId = 'Volume';
             else if (indicator instanceof HMAIndicator) typeId = 'HMA';
             else if (indicator instanceof StochRSIIndicator) typeId = 'StochasticRSI';
+            else if (indicator instanceof HalfTrendIndicator) typeId = 'HalfTrend';
             else if (indicator instanceof TdojiOscillatorIndicator) typeId = 'TdojiOscillator';
             else if (indicator instanceof TdojiSRIndicator) typeId = 'TdojiSR';
             else if (indicator instanceof TdojiMomIndicator) typeId = 'TdojiMom';
@@ -301,6 +307,12 @@ export class IndicatorManager {
             case 'SAR':
                 indicator = new ParabolicSARIndicator(item.options as any);
                 break;
+            case 'SuperTrend':
+                indicator = new SuperTrendIndicator(item.options as any);
+                break;
+            case 'AlphaTrend':
+                indicator = new AlphaTrendIndicator(item.options as any);
+                break;
             case 'Volume':
                 indicator = new VolumeIndicator(item.options as any);
                 break;
@@ -309,6 +321,9 @@ export class IndicatorManager {
                 break;
             case 'StochasticRSI':
                 indicator = new StochRSIIndicator(item.options as any);
+                break;
+            case 'HalfTrend':
+                indicator = new HalfTrendIndicator(item.options as any);
                 break;
             case 'TdojiOscillator':
                 indicator = new TdojiOscillatorIndicator(item.options as any);

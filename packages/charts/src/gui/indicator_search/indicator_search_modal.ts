@@ -71,6 +71,30 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         type: 'overlay'
     },
     {
+        id: 'halftrend',
+        name: 'HalfTrend',
+        shortName: 'HT',
+        description: 'Trend reversal overlay with ATR channels and buy/sell signals',
+        category: 'standard',
+        type: 'overlay'
+    },
+    {
+        id: 'supertrend',
+        name: 'SuperTrend',
+        shortName: 'ST',
+        description: 'ATR tabanli trend takip overlay indikatori',
+        category: 'standard',
+        type: 'overlay'
+    },
+    {
+        id: 'alphatrend',
+        name: 'AlphaTrend',
+        shortName: 'AT',
+        description: 'ATR ve RSI/MFI tabanli trend overlay indikatori',
+        category: 'standard',
+        type: 'overlay'
+    },
+    {
         id: 'volume',
         name: 'Volume',
         shortName: 'Vol',
@@ -446,7 +470,7 @@ export class IndicatorSearchModal {
         indicators.forEach(ind => {
             const row = document.createElement('div');
             row.style.cssText = `
-                padding: 12px 24px;
+                padding: 10px 24px;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
@@ -462,8 +486,8 @@ export class IndicatorSearchModal {
                 ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2962ff" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/></svg>`
                 : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff6d00" stroke-width="2"><rect x="3" y="10" width="4" height="10"/><rect x="10" y="6" width="4" height="14"/><rect x="17" y="2" width="4" height="18"/></svg>`;
             icon.style.cssText = `
-                width: 36px;
-                height: 36px;
+                width: 34px;
+                height: 34px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -475,10 +499,20 @@ export class IndicatorSearchModal {
 
             // Text content
             const textContainer = document.createElement('div');
-            textContainer.style.cssText = `flex: 1; min-width: 0;`;
+            textContainer.style.cssText = `
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                align-items: center;
+            `;
 
             const nameRow = document.createElement('div');
-            nameRow.style.cssText = `display: flex; align-items: center; gap: 8px;`;
+            nameRow.style.cssText = `
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                min-width: 0;
+            `;
 
             const name = document.createElement('div');
             name.textContent = ind.name;
@@ -486,6 +520,9 @@ export class IndicatorSearchModal {
                 font-size: 14px;
                 font-weight: 500;
                 color: #131722;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             `;
             nameRow.appendChild(name);
 
@@ -502,18 +539,6 @@ export class IndicatorSearchModal {
             nameRow.appendChild(badge);
 
             textContainer.appendChild(nameRow);
-
-            const desc = document.createElement('div');
-            desc.textContent = ind.description;
-            desc.style.cssText = `
-                font-size: 12px;
-                color: #787b86;
-                margin-top: 2px;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            `;
-            textContainer.appendChild(desc);
 
             row.appendChild(textContainer);
 

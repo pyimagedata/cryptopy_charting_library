@@ -125,6 +125,8 @@ export class PaneWidget implements Disposable {
     private readonly _seriesRenderers: Map<Series, CandlestickRenderer | LineRenderer | AreaRenderer> = new Map();
     private readonly _overlayRenderer: OverlayIndicatorRenderer;
     private _heatmapRenderer: OrderbookHeatmapRenderer | null = null;
+    private _crosshairX: number | null = null;
+    private _crosshairY: number | null = null;
 
 
     // Callback for overlay indicator actions (toggle, settings, remove)
@@ -151,6 +153,11 @@ export class PaneWidget implements Disposable {
 
     get canvas(): HTMLCanvasElement | null {
         return this._canvas;
+    }
+
+    setCrosshair(x: number | null, y: number | null): void {
+        this._crosshairX = x;
+        this._crosshairY = y;
     }
 
     /**
@@ -282,8 +289,7 @@ export class PaneWidget implements Disposable {
         }
 
         // Draw crosshair
-        const crosshair = this._model.crosshairPosition;
-        if (crosshair && crosshair.visible) {
+        if (this._crosshairX !== null) {
             const ctx = scope.context;
             const opts = this._model.options.crosshair;
             const hRatio = scope.horizontalPixelRatio;
@@ -296,7 +302,7 @@ export class PaneWidget implements Disposable {
                 ctx.beginPath();
                 ctx.strokeStyle = opts.vertLine.color;
                 ctx.lineWidth = Math.max(1, Math.floor(opts.vertLine.width * hRatio));
-                const x = Math.round(crosshair.x * hRatio) + 0.5;
+                const x = Math.round(this._crosshairX * hRatio) + 0.5;
 
                 if (opts.vertLine.style === 'dashed') {
                     ctx.setLineDash([4 * hRatio, 4 * hRatio]);
@@ -308,11 +314,11 @@ export class PaneWidget implements Disposable {
             }
 
             // Horizontal line
-            if (opts.horzLine.visible) {
+            if (opts.horzLine.visible && this._crosshairY !== null) {
                 ctx.beginPath();
                 ctx.strokeStyle = opts.horzLine.color;
                 ctx.lineWidth = Math.max(1, Math.floor(opts.horzLine.width * vRatio));
-                const y = Math.round(crosshair.y * vRatio) + 0.5;
+                const y = Math.round(this._crosshairY * vRatio) + 0.5;
 
                 if (opts.horzLine.style === 'dashed') {
                     ctx.setLineDash([4 * hRatio, 4 * hRatio]);
