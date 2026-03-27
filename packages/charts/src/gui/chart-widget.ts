@@ -14,7 +14,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -2144,6 +2144,26 @@ export class ChartWidget implements Disposable {
                     showAscendingTriangle: true,
                     showPrediction: true,
                     showHistory: false,
+                }));
+                break;
+            case 'zigzag-trendline':
+                this.addOverlayIndicator(new ZigZagTrendlineIndicator({
+                    period: 15,
+                    pivotCount: 2,
+                    showHistory: false,
+                }));
+                break;
+            case 'trendline-breakout':
+                this.addOverlayIndicator(new TrendlineBreakoutIndicator({
+                    period: 20,
+                    useLength8: true,
+                    useLength10: true,
+                    useLength15: true,
+                    useLength30: true,
+                    volumeSpikeMultiplier: 1,
+                    showHistory: false,
+                    showBullBreakout: true,
+                    showBearBreakdown: true,
                 }));
                 break;
 

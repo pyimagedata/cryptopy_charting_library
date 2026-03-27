@@ -174,6 +174,22 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         category: 'pattern',
         type: 'overlay'
     },
+    {
+        id: 'zigzag-trendline',
+        name: 'Trendline',
+        shortName: 'TL',
+        description: 'ZigZag pivotlarindan otomatik trendline cizer',
+        category: 'pattern',
+        type: 'overlay'
+    },
+    {
+        id: 'trendline-breakout',
+        name: 'Trendline Breakout',
+        shortName: 'TL BO',
+        description: 'Alcalan veya yukselen zigzag trendline kirilimlarini tespit eder',
+        category: 'pattern',
+        type: 'overlay'
+    },
 ];
 
 export class IndicatorSearchModal {

@@ -16,6 +16,7 @@ import { StochIndicator } from './stoch-indicator';
 import { ParabolicSARIndicator } from './parabolic-sar-indicator';
 import { SuperTrendIndicator } from './supertrend-indicator';
 import { AlphaTrendIndicator } from './alpha-trend-indicator';
+import { ZigZagTrendlineIndicator } from './zigzag-trendline-indicator';
 import { VolumeIndicator } from './volume-indicator';
 import { HMAIndicator } from './hma-indicator';
 import { StochRSIIndicator } from './stoch-rsi-indicator';
@@ -27,6 +28,7 @@ import { ZigZagIndicator } from './zigzag-indicator';
 import { ABCDPatternIndicator } from './abcd-pattern-indicator';
 import { HarmonicPatternIndicator } from './harmonic-pattern-indicator';
 import { ChartPatternsIndicator } from './chart-patterns-indicator';
+import { TrendlineBreakoutIndicator } from './trendline-breakout-indicator';
 
 
 
@@ -234,6 +236,7 @@ export class IndicatorManager {
             else if (indicator instanceof ParabolicSARIndicator) typeId = 'SAR';
             else if (indicator instanceof SuperTrendIndicator) typeId = 'SuperTrend';
             else if (indicator instanceof AlphaTrendIndicator) typeId = 'AlphaTrend';
+            else if (indicator instanceof ZigZagTrendlineIndicator) typeId = 'ZigZagTrendline';
             else if (indicator instanceof VolumeIndicator) typeId = 'Volume';
             else if (indicator instanceof HMAIndicator) typeId = 'HMA';
             else if (indicator instanceof StochRSIIndicator) typeId = 'StochasticRSI';
@@ -245,6 +248,7 @@ export class IndicatorManager {
             else if (indicator instanceof ABCDPatternIndicator) typeId = 'ABCDPattern';
             else if (indicator instanceof HarmonicPatternIndicator) typeId = 'HarmonicPattern';
             else if (indicator instanceof ChartPatternsIndicator) typeId = 'ChartPatterns';
+            else if (indicator instanceof TrendlineBreakoutIndicator) typeId = 'TrendlineBreakout';
 
 
 
@@ -313,6 +317,9 @@ export class IndicatorManager {
             case 'AlphaTrend':
                 indicator = new AlphaTrendIndicator(item.options as any);
                 break;
+            case 'ZigZagTrendline':
+                indicator = new ZigZagTrendlineIndicator(item.options as any);
+                break;
             case 'Volume':
                 indicator = new VolumeIndicator(item.options as any);
                 break;
@@ -345,6 +352,9 @@ export class IndicatorManager {
                 break;
             case 'ChartPatterns':
                 indicator = new ChartPatternsIndicator(item.options as any);
+                break;
+            case 'TrendlineBreakout':
+                indicator = new TrendlineBreakoutIndicator(item.options as any);
                 break;
 
 
