@@ -441,6 +441,15 @@ export class IndicatorPaneWidget implements Disposable {
         // Define standard MACD/Multi-line colors if not provided
         const lineColors = (indicator as any).getLineColors?.() || [options.color, '#ff6d00', '#2196f3'];
 
+        if (typeof (indicator as any).getLineFills === 'function' && typeof (indicator as any).getLineFillColor === 'function') {
+            const fills = (indicator as any).getLineFills() as Array<{ from: number; to: number }>;
+            if (Array.isArray(fills)) {
+                for (const fill of fills) {
+                    this._drawLineFill(ctx, indicator, data, startIndex, endIndex, fill.from, fill.to);
+                }
+            }
+        }
+
         for (let lineIdx = 0; lineIdx < lineCount; lineIdx++) {
             ctx.lineWidth = options.lineWidth;
             ctx.lineCap = 'round';
@@ -472,6 +481,59 @@ export class IndicatorPaneWidget implements Disposable {
                 previousY = y;
                 previousColor = color;
             }
+        }
+    }
+
+    private _drawLineFill(
+        ctx: CanvasRenderingContext2D,
+        indicator: PanelIndicator,
+        data: readonly IndicatorDataPoint[],
+        startIndex: number,
+        endIndex: number,
+        fromLineIndex: number,
+        toLineIndex: number
+    ): void {
+        let previousX: number | null = null;
+        let previousFromY: number | null = null;
+        let previousToY: number | null = null;
+
+        for (let i = startIndex; i <= endIndex; i++) {
+            const point = data[i];
+            const values = point?.values;
+            if (!values) {
+                previousX = null;
+                previousFromY = null;
+                previousToY = null;
+                continue;
+            }
+
+            const fromValue = values[fromLineIndex];
+            const toValue = values[toLineIndex];
+            if (fromValue === undefined || toValue === undefined || isNaN(fromValue) || isNaN(toValue)) {
+                previousX = null;
+                previousFromY = null;
+                previousToY = null;
+                continue;
+            }
+
+            const x = this._timeScale.indexToCoordinate(i as any);
+            const fromY = this._priceScale.priceToCoordinate(fromValue);
+            const toY = this._priceScale.priceToCoordinate(toValue);
+
+            if (previousX !== null && previousFromY !== null && previousToY !== null) {
+                ctx.beginPath();
+                ctx.moveTo(previousX, previousFromY);
+                ctx.lineTo(x, fromY);
+                ctx.lineTo(x, toY);
+                ctx.lineTo(previousX, previousToY);
+                ctx.closePath();
+                ctx.fillStyle = (indicator as any).getLineFillColor(fromLineIndex, toLineIndex, i, point);
+                ctx.fill();
+            }
+
+            previousX = x;
+            previousFromY = fromY;
+            previousToY = toY;
         }
     }
 

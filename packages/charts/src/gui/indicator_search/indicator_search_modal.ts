@@ -127,6 +127,14 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         type: 'panel'
     },
     {
+        id: 'thunderbirdx',
+        name: 'Thunderbirdx',
+        shortName: 'TBX',
+        description: 'Sinc momentum, MA and convergence-divergence histogram oscillator',
+        category: 'custom',
+        type: 'panel'
+    },
+    {
         id: 'tdoji-sr',
         name: 'TDOJI-SR',
         shortName: 'SR',

@@ -22,6 +22,7 @@ import { HMAIndicator } from './hma-indicator';
 import { StochRSIIndicator } from './stoch-rsi-indicator';
 import { HalfTrendIndicator } from './halftrend-indicator';
 import { TdojiOscillatorIndicator } from './tdoji-oscillator-indicator';
+import { ThunderbirdxIndicator } from './thunderbirdx-indicator';
 import { TdojiSRIndicator } from './tdoji-sr-indicator';
 import { TdojiMomIndicator } from './tdoji-mom-indicator';
 import { ZigZagIndicator } from './zigzag-indicator';
@@ -242,6 +243,7 @@ export class IndicatorManager {
             else if (indicator instanceof StochRSIIndicator) typeId = 'StochasticRSI';
             else if (indicator instanceof HalfTrendIndicator) typeId = 'HalfTrend';
             else if (indicator instanceof TdojiOscillatorIndicator) typeId = 'TdojiOscillator';
+            else if (indicator instanceof ThunderbirdxIndicator) typeId = 'Thunderbirdx';
             else if (indicator instanceof TdojiSRIndicator) typeId = 'TdojiSR';
             else if (indicator instanceof TdojiMomIndicator) typeId = 'TdojiMom';
             else if (indicator instanceof ZigZagIndicator) typeId = 'ZigZag';
@@ -334,6 +336,9 @@ export class IndicatorManager {
                 break;
             case 'TdojiOscillator':
                 indicator = new TdojiOscillatorIndicator(item.options as any);
+                break;
+            case 'Thunderbirdx':
+                indicator = new ThunderbirdxIndicator(item.options as any);
                 break;
             case 'TdojiSR':
                 indicator = new TdojiSRIndicator(item.options as any);

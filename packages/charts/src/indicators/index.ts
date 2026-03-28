@@ -40,6 +40,7 @@ export { HMAIndicator, HMAIndicatorOptions } from './hma-indicator';
 export { StochRSIIndicator, StochRSIIndicatorOptions } from './stoch-rsi-indicator';
 export { HalfTrendIndicator, HalfTrendIndicatorOptions } from './halftrend-indicator';
 export { TdojiOscillatorIndicator, TdojiOscillatorOptions } from './tdoji-oscillator-indicator';
+export { ThunderbirdxIndicator, ThunderbirdxIndicatorOptions } from './thunderbirdx-indicator';
 export { TdojiSRIndicator, TdojiSRIndicatorOptions } from './tdoji-sr-indicator';
 export { TdojiMomIndicator, TdojiMomIndicatorOptions } from './tdoji-mom-indicator';
 export { ZigZagIndicator, ZigZagIndicatorOptions } from './zigzag-indicator';
