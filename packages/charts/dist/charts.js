@@ -15764,8 +15764,9 @@ var LightweightCharts = (() => {
         } else {
           barIndex = this._model.timeScale.pointsCount - 1;
         }
-        const bar = mainSeries.data[barIndex];
-        const prevBar = barIndex > 0 ? mainSeries.data[barIndex - 1] : null;
+        const mainSeriesData = mainSeries instanceof HeikenAshiSeries ? mainSeries.haData : mainSeries.data;
+        const bar = mainSeriesData[barIndex];
+        const prevBar = barIndex > 0 ? mainSeriesData[barIndex - 1] : null;
         if (bar && "open" in bar) {
           const format = (v) => v.toLocaleString(void 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           const formatVol = (v) => {
@@ -15810,7 +15811,7 @@ var LightweightCharts = (() => {
           overlayIndicatorsHtml += `
                     <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: flex; align-items: center; font-size: 12px; height: 20px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
                         <span style="color: ${textColor}; font-weight: 500;">${name}</span>
-                        <span style="color: ${textColor}; margin-left: 6px;">${valueText}</span>
+                        <span class="overlay-indicator-value" data-index="${i}" style="color: ${textColor}; margin-left: 6px;">${valueText}</span>
                         <div class="overlay-btn-group" style="visibility: hidden; display: flex; align-items: center; gap: 4px; margin-left: 8px;">
                             <button class="overlay-btn overlay-toggle-btn" data-action="toggle" data-index="${i}" style="background: none; border: none; cursor: pointer; color: ${secondaryColor}; padding: 2px; display: flex; align-items: center;" title="Toggle visibility">${eyeIcon}</button>
                             <button class="overlay-btn overlay-settings-btn" data-action="settings" data-index="${i}" style="background: none; border: none; cursor: pointer; color: ${secondaryColor}; padding: 2px; display: flex; align-items: center;" title="Settings">${settingsIcon}</button>
@@ -15870,6 +15871,16 @@ var LightweightCharts = (() => {
         if (ohlcSpan) {
           ohlcSpan.innerHTML = ohlcText;
         }
+        const valueSpans = this._legendElement.querySelectorAll(".overlay-indicator-value");
+        valueSpans.forEach((span) => {
+          const index = Number(span.dataset.index ?? -1);
+          const indicator = overlayIndicators[index];
+          if (!indicator) {
+            return;
+          }
+          const lastValue = indicator.data.length > 0 ? indicator.data[indicator.data.length - 1]?.value : null;
+          span.textContent = lastValue !== null && !isNaN(lastValue) ? lastValue.toFixed(2) : "";
+        });
       }
     }
     _createElement(container) {
@@ -20410,6 +20421,219 @@ var LightweightCharts = (() => {
     return Math.hypot(px - cx, py - cy);
   }
 
+  // src/indicators/ichimoku-indicator.ts
+  var defaultIchimokuOptions = {
+    name: "Ichimoku Cloud",
+    conversionPeriods: 9,
+    basePeriods: 26,
+    laggingSpan2Periods: 52,
+    displacement: 26,
+    color: "#2962FF",
+    lineWidth: 1.5,
+    conversionColor: "#2962FF",
+    baseColor: "#B71C1C",
+    laggingColor: "#43A047",
+    leadingSpanAColor: "#A5D6A7",
+    leadingSpanBColor: "#EF9A9A",
+    cloudBullColor: "#43A047",
+    cloudBearColor: "#F44336",
+    cloudOpacity: 0.35
+  };
+  var IchimokuIndicator = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const mergedOptions = { ...defaultIchimokuOptions, ...options };
+      super(mergedOptions);
+      this._states = [];
+      this._ichimokuOptions = { ...defaultIchimokuOptions, ...this._options };
+    }
+    getSettingsConfig() {
+      return {
+        name: this.name,
+        tabs: [
+          createInputsTab([{
+            rows: [
+              numberRow2("conversionPeriods", "Conversion Line", 1, 200, 1),
+              numberRow2("basePeriods", "Base Line", 1, 200, 1),
+              numberRow2("laggingSpan2Periods", "Leading Span B", 1, 300, 1),
+              numberRow2("displacement", "Displacement", 1, 200, 1)
+            ]
+          }]),
+          createStyleTab2([{
+            rows: [
+              colorRow2("conversionColor", "Conversion Color"),
+              colorRow2("baseColor", "Base Color"),
+              colorRow2("laggingColor", "Lagging Color"),
+              colorRow2("leadingSpanAColor", "Leading A Color"),
+              colorRow2("leadingSpanBColor", "Leading B Color"),
+              colorRow2("cloudBullColor", "Bull Cloud"),
+              colorRow2("cloudBearColor", "Bear Cloud"),
+              numberRow2("cloudOpacity", "Cloud Opacity", 0, 1, 0.05),
+              lineWidthRow2("lineWidth")
+            ]
+          }]),
+          createVisibilityTab2()
+        ]
+      };
+    }
+    _getAllOptions() {
+      return { ...this._ichimokuOptions };
+    }
+    setSettingValue(key, value) {
+      const numericKeys = /* @__PURE__ */ new Set([
+        "conversionPeriods",
+        "basePeriods",
+        "laggingSpan2Periods",
+        "displacement",
+        "cloudOpacity",
+        "lineWidth"
+      ]);
+      const normalizedValue = numericKeys.has(key) ? Number(value) : value;
+      const needsRecalc = ["conversionPeriods", "basePeriods", "laggingSpan2Periods", "displacement"].includes(key);
+      Object.assign(this._ichimokuOptions, { [key]: normalizedValue });
+      Object.assign(this._options, { [key]: normalizedValue });
+      this._dataChanged.fire();
+      return needsRecalc;
+    }
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      this._data = [];
+      this._states = [];
+      const { conversionPeriods, basePeriods, laggingSpan2Periods } = this._ichimokuOptions;
+      const required = Math.max(conversionPeriods, basePeriods, laggingSpan2Periods);
+      if (sourceData.length < required) {
+        return;
+      }
+      for (let i = 0; i < sourceData.length; i++) {
+        const conversionLine = donchian(sourceData, i, conversionPeriods);
+        const baseLine = donchian(sourceData, i, basePeriods);
+        const leadLine1 = isNaN(conversionLine) || isNaN(baseLine) ? NaN : (conversionLine + baseLine) / 2;
+        const leadLine2 = donchian(sourceData, i, laggingSpan2Periods);
+        const laggingSpan = sourceData[i].close;
+        this._states.push({
+          index: i,
+          conversionLine,
+          baseLine,
+          laggingSpan,
+          leadLine1,
+          leadLine2
+        });
+        this._data.push({
+          time: sourceData[i].time,
+          value: conversionLine,
+          values: [conversionLine, baseLine, laggingSpan, leadLine1, leadLine2]
+        });
+      }
+    }
+    getDescription(index) {
+      const dataIndex = index !== void 0 && index >= 0 && index < this._states.length ? index : this._states.length - 1;
+      const state = this._states[dataIndex];
+      if (!state) {
+        return "Ichimoku: -";
+      }
+      const conv = isNaN(state.conversionLine) ? "-" : state.conversionLine.toFixed(2);
+      const base = isNaN(state.baseLine) ? "-" : state.baseLine.toFixed(2);
+      const a = isNaN(state.leadLine1) ? "-" : state.leadLine1.toFixed(2);
+      const b = isNaN(state.leadLine2) ? "-" : state.leadLine2.toFixed(2);
+      return `Ichimoku: ${conv} ${base} ${a} ${b}`;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr, visibleRange) {
+      if (this._states.length === 0) {
+        return;
+      }
+      const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from) - this._ichimokuOptions.displacement - 2) : 0;
+      const endIndex = visibleRange ? Math.min(this._states.length - 1, Math.ceil(visibleRange.to) + this._ichimokuOptions.displacement + 2) : this._states.length - 1;
+      const states = this._states.slice(startIndex, endIndex + 1);
+      if (states.length === 0) {
+        return;
+      }
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      this._drawCloud(ctx, states, timeScale, priceScale, hpr, vpr);
+      this._drawShiftedLine(ctx, states, timeScale, priceScale, hpr, vpr, (state) => state.conversionLine, 0, this._ichimokuOptions.conversionColor);
+      this._drawShiftedLine(ctx, states, timeScale, priceScale, hpr, vpr, (state) => state.baseLine, 0, this._ichimokuOptions.baseColor);
+      this._drawShiftedLine(ctx, states, timeScale, priceScale, hpr, vpr, (state) => state.laggingSpan, -this._ichimokuOptions.displacement + 1, this._ichimokuOptions.laggingColor);
+      this._drawShiftedLine(ctx, states, timeScale, priceScale, hpr, vpr, (state) => state.leadLine1, this._ichimokuOptions.displacement - 1, this._ichimokuOptions.leadingSpanAColor);
+      this._drawShiftedLine(ctx, states, timeScale, priceScale, hpr, vpr, (state) => state.leadLine2, this._ichimokuOptions.displacement - 1, this._ichimokuOptions.leadingSpanBColor);
+      ctx.restore();
+    }
+    _drawShiftedLine(ctx, states, timeScale, priceScale, hpr, vpr, accessor, shift, color) {
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = this._ichimokuOptions.lineWidth * hpr;
+      let started = false;
+      for (const state of states) {
+        const value = accessor(state);
+        if (!Number.isFinite(value)) {
+          started = false;
+          continue;
+        }
+        const x = timeScale.indexToCoordinate(state.index + shift) * hpr;
+        const y = priceScale.priceToCoordinate(value) * vpr;
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    }
+    _drawCloud(ctx, states, timeScale, priceScale, hpr, vpr) {
+      const shift = this._ichimokuOptions.displacement - 1;
+      for (let i = 1; i < states.length; i++) {
+        const prev = states[i - 1];
+        const curr = states[i];
+        if (![prev.leadLine1, prev.leadLine2, curr.leadLine1, curr.leadLine2].every(Number.isFinite)) {
+          continue;
+        }
+        const x1 = timeScale.indexToCoordinate(prev.index + shift) * hpr;
+        const x2 = timeScale.indexToCoordinate(curr.index + shift) * hpr;
+        const prevA = priceScale.priceToCoordinate(prev.leadLine1) * vpr;
+        const prevB = priceScale.priceToCoordinate(prev.leadLine2) * vpr;
+        const currA = priceScale.priceToCoordinate(curr.leadLine1) * vpr;
+        const currB = priceScale.priceToCoordinate(curr.leadLine2) * vpr;
+        ctx.beginPath();
+        ctx.moveTo(x1, prevA);
+        ctx.lineTo(x2, currA);
+        ctx.lineTo(x2, currB);
+        ctx.lineTo(x1, prevB);
+        ctx.closePath();
+        ctx.fillStyle = prev.leadLine1 > prev.leadLine2 ? withAlpha(this._ichimokuOptions.cloudBullColor, this._ichimokuOptions.cloudOpacity) : withAlpha(this._ichimokuOptions.cloudBearColor, this._ichimokuOptions.cloudOpacity);
+        ctx.fill();
+      }
+    }
+  };
+  function donchian(sourceData, index, length) {
+    if (index < length - 1) {
+      return NaN;
+    }
+    let lowest = Infinity;
+    let highest = -Infinity;
+    for (let i = index - length + 1; i <= index; i++) {
+      lowest = Math.min(lowest, sourceData[i].low);
+      highest = Math.max(highest, sourceData[i].high);
+    }
+    return (lowest + highest) / 2;
+  }
+  function withAlpha(color, alpha) {
+    const normalizedAlpha = Math.max(0, Math.min(1, alpha));
+    if (color.startsWith("#")) {
+      const hex = color.slice(1);
+      const value = hex.length === 3 ? hex.split("").map((char) => char + char).join("") : hex;
+      if (value.length === 6) {
+        const r = parseInt(value.slice(0, 2), 16);
+        const g = parseInt(value.slice(2, 4), 16);
+        const b = parseInt(value.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${normalizedAlpha})`;
+      }
+    }
+    if (color.startsWith("rgb(")) {
+      return color.replace("rgb(", "rgba(").replace(")", `, ${normalizedAlpha})`);
+    }
+    return color;
+  }
+
   // src/patterns/zigzag.ts
   function calculateZigZagPoints(sourceData, options) {
     const period = Math.max(2, Math.floor(options.period));
@@ -23474,7 +23698,7 @@ var LightweightCharts = (() => {
       return [{ from: 0, to: 1 }];
     }
     getLineFillColor(_from, _to, index) {
-      return this._fillColors[index] ?? withAlpha(this._tbxOptions.neutralFillColor, this._tbxOptions.fillOpacity);
+      return this._fillColors[index] ?? withAlpha2(this._tbxOptions.neutralFillColor, this._tbxOptions.fillOpacity);
     }
     getLevelLines() {
       return [{ y: 0, color: "rgba(255,255,255,0.25)" }];
@@ -23493,17 +23717,17 @@ var LightweightCharts = (() => {
   }
   function resolveFillColor(delta, ma, obvm, signal, options) {
     if ([delta, ma, obvm, signal].some((value) => isNaN(value))) {
-      return withAlpha(options.neutralFillColor, options.fillOpacity);
+      return withAlpha2(options.neutralFillColor, options.fillOpacity);
     }
     if (delta > ma && obvm > signal) {
-      return withAlpha(options.positiveFillColor, options.fillOpacity);
+      return withAlpha2(options.positiveFillColor, options.fillOpacity);
     }
     if (delta < ma && obvm < signal) {
-      return withAlpha(options.negativeFillColor, options.fillOpacity);
+      return withAlpha2(options.negativeFillColor, options.fillOpacity);
     }
-    return withAlpha(options.neutralFillColor, options.fillOpacity);
+    return withAlpha2(options.neutralFillColor, options.fillOpacity);
   }
-  function withAlpha(color, opacity) {
+  function withAlpha2(color, opacity) {
     const normalizedOpacity = Math.max(0, Math.min(100, opacity)) / 100;
     if (color.startsWith("#")) {
       const hex = color.slice(1);
@@ -25421,6 +25645,7 @@ ${note}`;
         else if (indicator instanceof ParabolicSARIndicator) typeId = "SAR";
         else if (indicator instanceof SuperTrendIndicator) typeId = "SuperTrend";
         else if (indicator instanceof AlphaTrendIndicator) typeId = "AlphaTrend";
+        else if (indicator instanceof IchimokuIndicator) typeId = "Ichimoku";
         else if (indicator instanceof ZigZagTrendlineIndicator) typeId = "ZigZagTrendline";
         else if (indicator instanceof VolumeIndicator) typeId = "Volume";
         else if (indicator instanceof HMAIndicator) typeId = "HMA";
@@ -25489,6 +25714,9 @@ ${note}`;
           break;
         case "AlphaTrend":
           indicator = new AlphaTrendIndicator(item.options);
+          break;
+        case "Ichimoku":
+          indicator = new IchimokuIndicator(item.options);
           break;
         case "ZigZagTrendline":
           indicator = new ZigZagTrendlineIndicator(item.options);
@@ -26352,6 +26580,14 @@ ${note}`;
       name: "AlphaTrend",
       shortName: "AT",
       description: "ATR ve RSI/MFI tabanli trend overlay indikatori",
+      category: "standard",
+      type: "overlay"
+    },
+    {
+      id: "ichimoku",
+      name: "Ichimoku Cloud",
+      shortName: "ICHI",
+      description: "Conversion, base, lagging spans and kumo cloud overlay",
       category: "standard",
       type: "overlay"
     },
@@ -33937,7 +34173,6 @@ ${note}`;
       this._indicatorSettingsModal = new IndicatorSettingsModal(this._container);
       this._indicatorSettingsModal.settingsChanged.subscribe(() => {
         if (this._editingIndicator) {
-          this._indicatorManager.recalculateIndicator(this._editingIndicator.id);
           this._updateMainLegend();
           this._scheduleDraw();
           this._chartStateManager?.saveState();
@@ -34022,8 +34257,15 @@ ${note}`;
       }
       this._drawingManager.setTimestamps(this._timestamps);
       if (data.length > 0 && "open" in data[0]) {
-        this._indicatorManager.setData(data);
+        const indicatorData = this._resolveIndicatorSourceData(series, data);
+        this._indicatorManager.setData(indicatorData);
       }
+    }
+    _resolveIndicatorSourceData(series, fallbackData) {
+      if (series instanceof HeikenAshiSeries) {
+        return series.haData;
+      }
+      return fallbackData;
     }
     timeScale() {
       return this._model.timeScale;
@@ -35012,7 +35254,8 @@ ${note}`;
         if (mainSeries) {
           const data = mainSeries.data;
           if (data.length > 0 && "open" in data[0]) {
-            this._indicatorManager.setData(data);
+            const indicatorData = this._resolveIndicatorSourceData(mainSeries, data);
+            this._indicatorManager.setData(indicatorData);
           }
         }
       }
@@ -35308,6 +35551,14 @@ ${note}`;
             commonPeriod: 14,
             showSignals: true,
             noVolumeData: false
+          }));
+          break;
+        case "ichimoku":
+          this.addOverlayIndicator(new IchimokuIndicator({
+            conversionPeriods: 9,
+            basePeriods: 26,
+            laggingSpan2Periods: 52,
+            displacement: 26
           }));
           break;
         case "halftrend":

@@ -16,6 +16,7 @@ import { StochIndicator } from './stoch-indicator';
 import { ParabolicSARIndicator } from './parabolic-sar-indicator';
 import { SuperTrendIndicator } from './supertrend-indicator';
 import { AlphaTrendIndicator } from './alpha-trend-indicator';
+import { IchimokuIndicator } from './ichimoku-indicator';
 import { ZigZagTrendlineIndicator } from './zigzag-trendline-indicator';
 import { VolumeIndicator } from './volume-indicator';
 import { HMAIndicator } from './hma-indicator';
@@ -237,6 +238,7 @@ export class IndicatorManager {
             else if (indicator instanceof ParabolicSARIndicator) typeId = 'SAR';
             else if (indicator instanceof SuperTrendIndicator) typeId = 'SuperTrend';
             else if (indicator instanceof AlphaTrendIndicator) typeId = 'AlphaTrend';
+            else if (indicator instanceof IchimokuIndicator) typeId = 'Ichimoku';
             else if (indicator instanceof ZigZagTrendlineIndicator) typeId = 'ZigZagTrendline';
             else if (indicator instanceof VolumeIndicator) typeId = 'Volume';
             else if (indicator instanceof HMAIndicator) typeId = 'HMA';
@@ -318,6 +320,9 @@ export class IndicatorManager {
                 break;
             case 'AlphaTrend':
                 indicator = new AlphaTrendIndicator(item.options as any);
+                break;
+            case 'Ichimoku':
+                indicator = new IchimokuIndicator(item.options as any);
                 break;
             case 'ZigZagTrendline':
                 indicator = new ZigZagTrendlineIndicator(item.options as any);

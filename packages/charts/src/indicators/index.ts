@@ -34,6 +34,7 @@ export { StochIndicator, StochIndicatorOptions } from './stoch-indicator';
 export { ParabolicSARIndicator, ParabolicSAROptions } from './parabolic-sar-indicator';
 export { SuperTrendIndicator, SuperTrendIndicatorOptions } from './supertrend-indicator';
 export { AlphaTrendIndicator, AlphaTrendIndicatorOptions } from './alpha-trend-indicator';
+export { IchimokuIndicator, IchimokuIndicatorOptions } from './ichimoku-indicator';
 export { ZigZagTrendlineIndicator, ZigZagTrendlineIndicatorOptions } from './zigzag-trendline-indicator';
 export { VolumeIndicator, VolumeIndicatorOptions } from './volume-indicator';
 export { HMAIndicator, HMAIndicatorOptions } from './hma-indicator';

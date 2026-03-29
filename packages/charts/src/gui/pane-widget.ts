@@ -3,6 +3,7 @@ import { Series, SeriesType } from '../model/series';
 import { CandlestickSeries } from '../model/candlestick-series';
 import { LineSeries } from '../model/line-series';
 import { AreaSeries } from '../model/area-series';
+import { HeikenAshiSeries } from '../series/heiken-ashi-series';
 import { CandlestickRenderer } from '../renderers/candlestick-renderer';
 import { LineRenderer } from '../renderers/line-renderer';
 import { AreaRenderer } from '../renderers/area-renderer';
@@ -855,8 +856,9 @@ export class PaneWidget implements Disposable {
                 barIndex = (this._model.timeScale.pointsCount - 1) as TimePointIndex;
             }
 
-            const bar = mainSeries.data[barIndex];
-            const prevBar = barIndex > 0 ? mainSeries.data[barIndex - 1] : null;
+            const mainSeriesData = mainSeries instanceof HeikenAshiSeries ? mainSeries.haData : mainSeries.data;
+            const bar = mainSeriesData[barIndex];
+            const prevBar = barIndex > 0 ? mainSeriesData[barIndex - 1] : null;
 
             if (bar && 'open' in bar) {
                 const format = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -918,7 +920,7 @@ export class PaneWidget implements Disposable {
                 overlayIndicatorsHtml += `
                     <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: flex; align-items: center; font-size: 12px; height: 20px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
                         <span style="color: ${textColor}; font-weight: 500;">${name}</span>
-                        <span style="color: ${textColor}; margin-left: 6px;">${valueText}</span>
+                        <span class="overlay-indicator-value" data-index="${i}" style="color: ${textColor}; margin-left: 6px;">${valueText}</span>
                         <div class="overlay-btn-group" style="visibility: hidden; display: flex; align-items: center; gap: 4px; margin-left: 8px;">
                             <button class="overlay-btn overlay-toggle-btn" data-action="toggle" data-index="${i}" style="background: none; border: none; cursor: pointer; color: ${secondaryColor}; padding: 2px; display: flex; align-items: center;" title="Toggle visibility">${eyeIcon}</button>
                             <button class="overlay-btn overlay-settings-btn" data-action="settings" data-index="${i}" style="background: none; border: none; cursor: pointer; color: ${secondaryColor}; padding: 2px; display: flex; align-items: center;" title="Settings">${settingsIcon}</button>
@@ -991,6 +993,18 @@ export class PaneWidget implements Disposable {
             if (ohlcSpan) {
                 ohlcSpan.innerHTML = ohlcText;
             }
+
+            const valueSpans = this._legendElement.querySelectorAll('.overlay-indicator-value');
+            valueSpans.forEach((span) => {
+                const index = Number((span as HTMLElement).dataset.index ?? -1);
+                const indicator = overlayIndicators[index];
+                if (!indicator) {
+                    return;
+                }
+
+                const lastValue = indicator.data.length > 0 ? indicator.data[indicator.data.length - 1]?.value : null;
+                (span as HTMLElement).textContent = lastValue !== null && !isNaN(lastValue) ? lastValue.toFixed(2) : '';
+            });
         }
     }
 

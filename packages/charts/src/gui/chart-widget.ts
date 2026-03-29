@@ -14,7 +14,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -245,11 +245,10 @@ export class ChartWidget implements Disposable {
         this._indicatorSettingsModal = new IndicatorSettingsModal(this._container);
         this._indicatorSettingsModal.settingsChanged.subscribe(() => {
             if (this._editingIndicator) {
-                // Modular modal already updated the indicator. 
-                // We just need to trigger a redraw and save state.
-
-                // Recalculate if it was an input change (modular modal handled setSettingValue)
-                this._indicatorManager.recalculateIndicator(this._editingIndicator.id);
+                // The modular modal already applies every changed setting through
+                // setSettingValue(...). Re-running a full recalculation here can
+                // reset live ZigZag-based pattern state and make the signal look
+                // inactive right after changing inputs.
 
                 this._updateMainLegend();
                 this._scheduleDraw();
@@ -408,8 +407,20 @@ export class ChartWidget implements Disposable {
 
         // Update indicators with new data (only for BarData, not LineData)
         if (data.length > 0 && 'open' in data[0]) {
-            this._indicatorManager.setData(data as BarData[]);
+            const indicatorData = this._resolveIndicatorSourceData(series, data as BarData[]);
+            this._indicatorManager.setData(indicatorData);
         }
+    }
+
+    private _resolveIndicatorSourceData(
+        series: CandlestickSeries | LineSeries | AreaSeries | HeikenAshiSeries,
+        fallbackData: BarData[]
+    ): BarData[] {
+        if (series instanceof HeikenAshiSeries) {
+            return series.haData;
+        }
+
+        return fallbackData;
     }
 
     timeScale() {
@@ -1686,7 +1697,8 @@ export class ChartWidget implements Disposable {
                 // Only update indicators if data is BarData (has open/high/low/close)
                 // Indicators typically need OHLC data. Check first element.
                 if (data.length > 0 && 'open' in (data[0] as any)) {
-                    this._indicatorManager.setData(data as any);
+                    const indicatorData = this._resolveIndicatorSourceData(mainSeries as any, data as BarData[]);
+                    this._indicatorManager.setData(indicatorData);
                 }
             }
         }
@@ -2075,6 +2087,14 @@ export class ChartWidget implements Disposable {
                     commonPeriod: 14,
                     showSignals: true,
                     noVolumeData: false,
+                }));
+                break;
+            case 'ichimoku':
+                this.addOverlayIndicator(new IchimokuIndicator({
+                    conversionPeriods: 9,
+                    basePeriods: 26,
+                    laggingSpan2Periods: 52,
+                    displacement: 26,
                 }));
                 break;
             case 'halftrend':

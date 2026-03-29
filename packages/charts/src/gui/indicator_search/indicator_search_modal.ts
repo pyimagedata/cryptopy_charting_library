@@ -95,6 +95,14 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         type: 'overlay'
     },
     {
+        id: 'ichimoku',
+        name: 'Ichimoku Cloud',
+        shortName: 'ICHI',
+        description: 'Conversion, base, lagging spans and kumo cloud overlay',
+        category: 'standard',
+        type: 'overlay'
+    },
+    {
         id: 'volume',
         name: 'Volume',
         shortName: 'Vol',
