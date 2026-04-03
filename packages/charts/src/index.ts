@@ -19,6 +19,7 @@ export { GridRenderer } from './renderers/grid-renderer';
 
 // GUI Widgets
 export { ChartWidget, createChart } from './gui/chart-widget';
+export { MultiChartLayout, MultiChartLayoutOptions, MultiChartLayoutType, MultiChartSlotOptions, createMultiChartLayout } from './gui/multi-chart-layout';
 export { PaneWidget } from './gui/pane-widget';
 export { PriceAxisWidget } from './gui/price-axis-widget';
 export { TimeAxisWidget } from './gui/time-axis-widget';

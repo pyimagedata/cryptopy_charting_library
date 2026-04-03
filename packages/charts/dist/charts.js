@@ -45,6 +45,7 @@ var LightweightCharts = (() => {
     IndicatorType: () => IndicatorType,
     LineRenderer: () => LineRenderer,
     LineSeries: () => LineSeries,
+    MultiChartLayout: () => MultiChartLayout,
     OkxFuturesProvider: () => OkxFuturesProvider,
     OkxSpotProvider: () => OkxSpotProvider,
     OverlayIndicator: () => OverlayIndicator,
@@ -68,6 +69,7 @@ var LightweightCharts = (() => {
     clamp: () => clamp,
     coordinate: () => coordinate,
     createChart: () => createChart,
+    createMultiChartLayout: () => createMultiChartLayout,
     detectABCDPattern: () => detectABCDPattern,
     detectABCDPatterns: () => detectABCDPatterns,
     detectBatPatterns: () => detectBatPatterns,
@@ -1137,6 +1139,7 @@ var LightweightCharts = (() => {
     /** Get human-readable exchange name */
     get exchangeDisplayName() {
       const names = {
+        "BIST": "BIST",
         "BINANCE": "Binance",
         "BINANCE-FUTURES": "Binance",
         "BYBIT": "Bybit",
@@ -1148,6 +1151,9 @@ var LightweightCharts = (() => {
     }
     /** Get market type display name */
     get marketTypeDisplayName() {
+      if (this._exchange === "BIST") {
+        return "Hisse";
+      }
       return this._marketType === "futures" ? "Perpetual Contract" : "Spot";
     }
     _updateWatermarkText() {
@@ -16646,23 +16652,29 @@ var LightweightCharts = (() => {
         symbolEl.textContent = symbol;
       }
     }
-    setTimeframe(timeframe) {
+    setTimeframe(timeframe, emit = true) {
       if (this._activeTimeframe === timeframe) return;
       this._activeTimeframe = timeframe;
       this._updateTimeframeButtons();
-      this._timeframeChanged.fire(timeframe);
+      if (emit) {
+        this._timeframeChanged.fire(timeframe);
+      }
     }
-    setChartType(type) {
+    setChartType(type, emit = true) {
       if (this._activeChartType === type) return;
       this._activeChartType = type;
       this._updateChartTypeButtons();
-      this._chartTypeChanged.fire(type);
+      if (emit) {
+        this._chartTypeChanged.fire(type);
+      }
     }
-    setPriceScaleMode(mode) {
+    setPriceScaleMode(mode, emit = true) {
       if (this._activePriceScaleMode === mode) return;
       this._activePriceScaleMode = mode;
       this._updatePriceScaleButtons();
-      this._priceScaleModeChanged.fire(mode);
+      if (emit) {
+        this._priceScaleModeChanged.fire(mode);
+      }
     }
     // --- Private methods ---
     _createElement(container) {
@@ -20634,6 +20646,295 @@ var LightweightCharts = (() => {
     return color;
   }
 
+  // src/indicators/fixed-range-volume-profile-indicator.ts
+  var defaultOptions = {
+    name: "Fixed Range Volume Profile",
+    style: "line" /* Line */,
+    color: "#3b82f6",
+    lineWidth: 2,
+    rangeBars: 200,
+    rows: 32,
+    valueAreaPercent: 70,
+    profileWidthPercent: 35,
+    showPOC: true,
+    showValueArea: true,
+    profileColor: "#3b82f6",
+    valueAreaColor: "#10b981",
+    pocColor: "#ef4444",
+    valueAreaLineColor: "#f59e0b"
+  };
+  var FixedRangeVolumeProfileIndicator = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const merged = { ...defaultOptions, ...options };
+      super(merged);
+      this._profile = null;
+      this._optionsEx = { ...defaultOptions, ...this._options };
+    }
+    _getAllOptions() {
+      return { ...this._optionsEx };
+    }
+    getSettingsConfig() {
+      return {
+        name: this.name,
+        tabs: [
+          createInputsTab([{
+            rows: [
+              numberRow2("rangeBars", "Range Bars", 20, 2e3, 1),
+              numberRow2("rows", "Rows", 8, 120, 1),
+              numberRow2("valueAreaPercent", "Value Area %", 50, 99, 1),
+              numberRow2("profileWidthPercent", "Profile Width %", 10, 80, 1),
+              checkboxRow2("showPOC", "Show POC", this._optionsEx.showPOC),
+              checkboxRow2("showValueArea", "Show Value Area", this._optionsEx.showValueArea)
+            ]
+          }]),
+          createStyleTab2([{
+            rows: [
+              colorRow2("profileColor", "Profile Color", this._optionsEx.profileColor),
+              colorRow2("valueAreaColor", "Value Area Color", this._optionsEx.valueAreaColor),
+              colorRow2("pocColor", "POC Color", this._optionsEx.pocColor),
+              colorRow2("valueAreaLineColor", "VAH / VAL Color", this._optionsEx.valueAreaLineColor),
+              lineWidthRow2("lineWidth", "Line Width")
+            ]
+          }]),
+          createVisibilityTab2()
+        ]
+      };
+    }
+    setSettingValue(key, value) {
+      const numericKeys = /* @__PURE__ */ new Set(["rangeBars", "rows", "valueAreaPercent", "profileWidthPercent", "lineWidth"]);
+      const normalizedValue = numericKeys.has(key) ? Number(value) : value;
+      const needsRecalc = ["rangeBars", "rows", "valueAreaPercent", "profileWidthPercent"].includes(key);
+      Object.assign(this._optionsEx, { [key]: normalizedValue });
+      Object.assign(this._options, { [key]: normalizedValue });
+      if (needsRecalc && this._sourceData.length > 0) {
+        this.calculate(this._sourceData);
+      }
+      this._dataChanged.fire();
+      return needsRecalc;
+    }
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      this._data = [];
+      this._profile = null;
+      if (sourceData.length < 5) {
+        return;
+      }
+      const endIndex = sourceData.length - 1;
+      const rangeBars = Math.max(20, Math.floor(this._optionsEx.rangeBars));
+      const startIndex = Math.max(0, endIndex - rangeBars + 1);
+      const window2 = sourceData.slice(startIndex, endIndex + 1);
+      const lowest = Math.min(...window2.map((bar) => bar.low));
+      const highest = Math.max(...window2.map((bar) => bar.high));
+      const rows = Math.max(8, Math.floor(this._optionsEx.rows));
+      const priceRange = highest - lowest;
+      if (!Number.isFinite(lowest) || !Number.isFinite(highest) || priceRange <= 0) {
+        return;
+      }
+      const step = priceRange / rows;
+      const bins = Array.from({ length: rows }, (_, idx) => ({
+        low: lowest + idx * step,
+        high: lowest + (idx + 1) * step,
+        volume: 0
+      }));
+      let totalVolume = 0;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const bar = sourceData[i];
+        const volume = Math.max(0, bar.volume || 0);
+        totalVolume += volume;
+        const high = clamp2(bar.high, lowest, highest);
+        const low = clamp2(bar.low, lowest, highest);
+        const startBin = clampInt(Math.floor((low - lowest) / step), 0, rows - 1);
+        const endBin = clampInt(Math.floor((high - lowest) / step - 1e-8), 0, rows - 1);
+        const touched = Math.max(1, endBin - startBin + 1);
+        const allocated = volume / touched;
+        for (let binIndex = startBin; binIndex <= endBin; binIndex++) {
+          bins[binIndex].volume += allocated;
+        }
+      }
+      const maxVolume = bins.reduce((acc, bin) => Math.max(acc, bin.volume), 0);
+      const pocIndex = bins.reduce((best, bin, idx) => bin.volume > bins[best].volume ? idx : best, 0);
+      const { vahIndex, valIndex } = computeValueArea(bins, pocIndex, this._optionsEx.valueAreaPercent / 100);
+      this._profile = {
+        startIndex,
+        endIndex,
+        lowest,
+        highest,
+        bins,
+        maxVolume,
+        totalVolume,
+        pocIndex,
+        pocPrice: average(bins[pocIndex].low, bins[pocIndex].high),
+        vahPrice: average(bins[vahIndex].low, bins[vahIndex].high),
+        valPrice: average(bins[valIndex].low, bins[valIndex].high)
+      };
+      this._data = [
+        { time: sourceData[startIndex].time, value: lowest },
+        { time: sourceData[endIndex].time, value: highest }
+      ];
+    }
+    getRange() {
+      if (this._sourceData.length === 0) {
+        return { min: 0, max: 100 };
+      }
+      let min = Infinity;
+      let max = -Infinity;
+      for (const bar of this._sourceData) {
+        min = Math.min(min, bar.low);
+        max = Math.max(max, bar.high);
+      }
+      return { min, max };
+    }
+    getDescription() {
+      if (!this._profile) {
+        return `FRVP (${this._optionsEx.rangeBars})`;
+      }
+      return `FRVP ${formatVolume2(this._profile.totalVolume)} POC ${this._profile.pocPrice.toFixed(2)}`;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr) {
+      if (!this._profile || this._profile.maxVolume <= 0) {
+        return;
+      }
+      ctx.save();
+      const profileWidthBars = Math.max(
+        4,
+        (this._profile.endIndex - this._profile.startIndex + 1) * this._optionsEx.profileWidthPercent / 100
+      );
+      const rightX = timeScale.indexToCoordinate(this._profile.endIndex) * hpr;
+      for (let i = 0; i < this._profile.bins.length; i++) {
+        const bin = this._profile.bins[i];
+        const ratio = bin.volume / this._profile.maxVolume;
+        const widthBars = profileWidthBars * ratio;
+        const leftX = timeScale.indexToCoordinate(this._profile.endIndex - widthBars) * hpr;
+        const yTop = priceScale.priceToCoordinate(bin.high) * vpr;
+        const yBottom = priceScale.priceToCoordinate(bin.low) * vpr;
+        const top = Math.min(yTop, yBottom);
+        const height = Math.max(1, Math.abs(yBottom - yTop));
+        const inValueArea = i >= Math.min(this._profile.pocIndex, findBinIndex(this._profile.bins, this._profile.valPrice)) && i <= Math.max(this._profile.pocIndex, findBinIndex(this._profile.bins, this._profile.vahPrice));
+        const fillColor = inValueArea && this._optionsEx.showValueArea ? this._optionsEx.valueAreaColor : this._optionsEx.profileColor;
+        ctx.fillStyle = withAlpha2(fillColor, 0.18 + ratio * 0.5);
+        ctx.fillRect(Math.min(leftX, rightX), top, Math.max(1, Math.abs(rightX - leftX)), height);
+      }
+      if (this._optionsEx.showPOC) {
+        drawHorizontalLevel(
+          ctx,
+          timeScale,
+          priceScale,
+          this._profile.startIndex,
+          this._profile.endIndex,
+          this._profile.pocPrice,
+          this._optionsEx.pocColor,
+          this._optionsEx.lineWidth,
+          [],
+          hpr,
+          vpr
+        );
+      }
+      if (this._optionsEx.showValueArea) {
+        drawHorizontalLevel(
+          ctx,
+          timeScale,
+          priceScale,
+          this._profile.startIndex,
+          this._profile.endIndex,
+          this._profile.vahPrice,
+          this._optionsEx.valueAreaLineColor,
+          1,
+          [5 * hpr, 4 * hpr],
+          hpr,
+          vpr
+        );
+        drawHorizontalLevel(
+          ctx,
+          timeScale,
+          priceScale,
+          this._profile.startIndex,
+          this._profile.endIndex,
+          this._profile.valPrice,
+          this._optionsEx.valueAreaLineColor,
+          1,
+          [5 * hpr, 4 * hpr],
+          hpr,
+          vpr
+        );
+      }
+      ctx.restore();
+    }
+    hitTest(x, y, timeScale, priceScale) {
+      if (!this._profile) {
+        return false;
+      }
+      const left = timeScale.indexToCoordinate(this._profile.startIndex);
+      const right = timeScale.indexToCoordinate(this._profile.endIndex);
+      const top = priceScale.priceToCoordinate(this._profile.highest);
+      const bottom = priceScale.priceToCoordinate(this._profile.lowest);
+      return x >= Math.min(left, right) && x <= Math.max(left, right) && y >= Math.min(top, bottom) && y <= Math.max(top, bottom);
+    }
+  };
+  function computeValueArea(bins, pocIndex, percent) {
+    const targetVolume = bins.reduce((sum, bin) => sum + bin.volume, 0) * percent;
+    let cumulative = bins[pocIndex]?.volume || 0;
+    let low = pocIndex;
+    let high = pocIndex;
+    while (cumulative < targetVolume && (low > 0 || high < bins.length - 1)) {
+      const nextLow = low > 0 ? bins[low - 1].volume : -1;
+      const nextHigh = high < bins.length - 1 ? bins[high + 1].volume : -1;
+      if (nextHigh >= nextLow) {
+        high = Math.min(bins.length - 1, high + 1);
+        cumulative += bins[high].volume;
+      } else {
+        low = Math.max(0, low - 1);
+        cumulative += bins[low].volume;
+      }
+    }
+    return { vahIndex: high, valIndex: low };
+  }
+  function drawHorizontalLevel(ctx, timeScale, priceScale, startIndex, endIndex, price, color, width, dash, hpr, vpr) {
+    const x1 = timeScale.indexToCoordinate(startIndex) * hpr;
+    const x2 = timeScale.indexToCoordinate(endIndex) * hpr;
+    const y = priceScale.priceToCoordinate(price) * vpr;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width * hpr;
+    ctx.setLineDash(dash);
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  function average(a, b) {
+    return (a + b) / 2;
+  }
+  function clamp2(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+  function clampInt(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+  function withAlpha2(color, alpha) {
+    const hex = color.replace("#", "").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
+      return color;
+    }
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+  function formatVolume2(value) {
+    if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+    if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+    if (value >= 1e3) return `${(value / 1e3).toFixed(2)}K`;
+    return value.toFixed(0);
+  }
+  function findBinIndex(bins, price) {
+    for (let i = 0; i < bins.length; i++) {
+      if (price >= bins[i].low && price <= bins[i].high) {
+        return i;
+      }
+    }
+    return 0;
+  }
+
   // src/patterns/zigzag.ts
   function calculateZigZagPoints(sourceData, options) {
     const period = Math.max(2, Math.floor(options.period));
@@ -23698,7 +23999,7 @@ var LightweightCharts = (() => {
       return [{ from: 0, to: 1 }];
     }
     getLineFillColor(_from, _to, index) {
-      return this._fillColors[index] ?? withAlpha2(this._tbxOptions.neutralFillColor, this._tbxOptions.fillOpacity);
+      return this._fillColors[index] ?? withAlpha3(this._tbxOptions.neutralFillColor, this._tbxOptions.fillOpacity);
     }
     getLevelLines() {
       return [{ y: 0, color: "rgba(255,255,255,0.25)" }];
@@ -23717,17 +24018,17 @@ var LightweightCharts = (() => {
   }
   function resolveFillColor(delta, ma, obvm, signal, options) {
     if ([delta, ma, obvm, signal].some((value) => isNaN(value))) {
-      return withAlpha2(options.neutralFillColor, options.fillOpacity);
+      return withAlpha3(options.neutralFillColor, options.fillOpacity);
     }
     if (delta > ma && obvm > signal) {
-      return withAlpha2(options.positiveFillColor, options.fillOpacity);
+      return withAlpha3(options.positiveFillColor, options.fillOpacity);
     }
     if (delta < ma && obvm < signal) {
-      return withAlpha2(options.negativeFillColor, options.fillOpacity);
+      return withAlpha3(options.negativeFillColor, options.fillOpacity);
     }
-    return withAlpha2(options.neutralFillColor, options.fillOpacity);
+    return withAlpha3(options.neutralFillColor, options.fillOpacity);
   }
-  function withAlpha2(color, opacity) {
+  function withAlpha3(color, opacity) {
     const normalizedOpacity = Math.max(0, Math.min(100, opacity)) / 100;
     if (color.startsWith("#")) {
       const hex = color.slice(1);
@@ -25646,6 +25947,7 @@ ${note}`;
         else if (indicator instanceof SuperTrendIndicator) typeId = "SuperTrend";
         else if (indicator instanceof AlphaTrendIndicator) typeId = "AlphaTrend";
         else if (indicator instanceof IchimokuIndicator) typeId = "Ichimoku";
+        else if (indicator instanceof FixedRangeVolumeProfileIndicator) typeId = "FixedRangeVolumeProfile";
         else if (indicator instanceof ZigZagTrendlineIndicator) typeId = "ZigZagTrendline";
         else if (indicator instanceof VolumeIndicator) typeId = "Volume";
         else if (indicator instanceof HMAIndicator) typeId = "HMA";
@@ -25717,6 +26019,9 @@ ${note}`;
           break;
         case "Ichimoku":
           indicator = new IchimokuIndicator(item.options);
+          break;
+        case "FixedRangeVolumeProfile":
+          indicator = new FixedRangeVolumeProfileIndicator(item.options);
           break;
         case "ZigZagTrendline":
           indicator = new ZigZagTrendlineIndicator(item.options);
@@ -26588,6 +26893,14 @@ ${note}`;
       name: "Ichimoku Cloud",
       shortName: "ICHI",
       description: "Conversion, base, lagging spans and kumo cloud overlay",
+      category: "standard",
+      type: "overlay"
+    },
+    {
+      id: "fixed-range-volume-profile",
+      name: "Fixed Range Volume Profile",
+      shortName: "FRVP",
+      description: "Se\xE7ilen sabit bar aral\u0131\u011F\u0131 i\xE7in fiyat seviyelerine g\xF6re hacim da\u011F\u0131l\u0131m\u0131 g\xF6sterir",
       category: "standard",
       type: "overlay"
     },
@@ -30300,6 +30613,498 @@ ${note}`;
     return new GenericSettingsModal(container);
   }
 
+  // src/gui/chart-settings-modal.ts
+  var SIDEBAR_TABS = [
+    { id: "symbol", label: "Sembol", icon: "\u25EB" },
+    { id: "status-line", label: "Durum sat\u0131r\u0131", icon: "\u2263" },
+    { id: "scales", label: "\xD6l\xE7ekler ve \xE7izgiler", icon: "\u2195" },
+    { id: "canvas", label: "Tuval", icon: "\u270E" },
+    { id: "trading", label: "\u0130\u015Flem", icon: "\u2248" },
+    { id: "alerts", label: "Uyar\u0131lar", icon: "\u25F7" },
+    { id: "events", label: "Etkinlikler", icon: "\u25EB" }
+  ];
+  var ChartSettingsModal = class {
+    constructor(container) {
+      this._tabButtons = /* @__PURE__ */ new Map();
+      this._theme = "dark";
+      this._activeTab = "symbol";
+      this._renderContent = null;
+      this._pendingApply = null;
+      this._overlay = document.createElement("div");
+      this._overlay.style.cssText = `
+            position: absolute;
+            inset: 0;
+            z-index: 120;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.22);
+            backdrop-filter: blur(8px);
+        `;
+      this._panel = document.createElement("div");
+      this._panel.style.cssText = `
+            width: min(900px, calc(100% - 32px));
+            min-height: min(640px, calc(100% - 32px));
+            display: grid;
+            grid-template-columns: 236px 1fr;
+            grid-template-rows: 88px 1fr 64px;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        `;
+      const header = document.createElement("div");
+      header.style.cssText = `
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 28px;
+            border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+        `;
+      this._title = document.createElement("div");
+      this._title.textContent = "Ayarlar";
+      this._title.style.cssText = `
+            font-size: 22px;
+            font-weight: 650;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        `;
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.textContent = "\xD7";
+      closeButton.style.cssText = `
+            width: 38px;
+            height: 38px;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: inherit;
+            font-size: 28px;
+            line-height: 1;
+            cursor: pointer;
+        `;
+      closeButton.addEventListener("click", () => this.hide());
+      header.appendChild(this._title);
+      header.appendChild(closeButton);
+      this._sidebar = document.createElement("div");
+      this._sidebar.style.cssText = `
+            border-right: 1px solid rgba(15, 23, 42, 0.08);
+            padding: 10px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        `;
+      for (const tab of SIDEBAR_TABS) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.style.cssText = `
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                height: 54px;
+                padding: 0 20px;
+                border: none;
+                background: transparent;
+                color: inherit;
+                text-align: left;
+                border-radius: 0;
+                cursor: pointer;
+            `;
+        const icon = document.createElement("span");
+        icon.textContent = tab.icon;
+        icon.style.cssText = `
+                width: 20px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 17px;
+                opacity: 0.9;
+            `;
+        const label = document.createElement("span");
+        label.textContent = tab.label;
+        label.style.cssText = `
+                font-size: 15px;
+                font-weight: 500;
+                line-height: 1.2;
+            `;
+        button.appendChild(icon);
+        button.appendChild(label);
+        button.addEventListener("click", () => {
+          this._activeTab = tab.id;
+          this._updateSidebarState();
+          this._renderContent?.();
+        });
+        this._sidebar.appendChild(button);
+        this._tabButtons.set(tab.id, button);
+      }
+      this._content = document.createElement("div");
+      this._content.style.cssText = `
+            padding: 28px 32px;
+            overflow: auto;
+        `;
+      this._footer = document.createElement("div");
+      this._footer.style.cssText = `
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 24px;
+            border-top: 1px solid rgba(15, 23, 42, 0.08);
+        `;
+      this._templateSelect = document.createElement("select");
+      this._templateSelect.style.cssText = this._selectStyle();
+      this._templateSelect.innerHTML = `
+            <option>\u015Eablon</option>
+        `;
+      const footerActions = document.createElement("div");
+      footerActions.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        `;
+      this._cancelButton = document.createElement("button");
+      this._cancelButton.type = "button";
+      this._cancelButton.textContent = "\u0130ptal";
+      this._cancelButton.style.cssText = this._actionButtonStyle(false);
+      this._cancelButton.addEventListener("click", () => this.hide());
+      this._okButton = document.createElement("button");
+      this._okButton.type = "button";
+      this._okButton.textContent = "Tamam";
+      this._okButton.style.cssText = this._actionButtonStyle(true);
+      this._okButton.addEventListener("click", () => {
+        this._pendingApply?.();
+        this.hide();
+      });
+      footerActions.appendChild(this._cancelButton);
+      footerActions.appendChild(this._okButton);
+      this._footer.appendChild(this._templateSelect);
+      this._footer.appendChild(footerActions);
+      this._panel.appendChild(header);
+      this._panel.appendChild(this._sidebar);
+      this._panel.appendChild(this._content);
+      this._panel.appendChild(this._footer);
+      this._overlay.appendChild(this._panel);
+      container.appendChild(this._overlay);
+      this._overlay.addEventListener("click", (event) => {
+        if (event.target === this._overlay) {
+          this.hide();
+        }
+      });
+      this.setTheme("dark");
+      this._updateSidebarState();
+    }
+    setTheme(theme) {
+      this._theme = theme;
+      const isDark = theme === "dark";
+      this._panel.style.background = isDark ? "#111827" : "#ffffff";
+      this._panel.style.borderColor = isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)";
+      this._panel.style.color = isDark ? "#f3f4f6" : "#111827";
+      this._sidebar.style.borderRightColor = isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)";
+      this._footer.style.borderTopColor = isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)";
+      this._panel.firstElementChild.style.borderBottomColor = isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.08)";
+      this._templateSelect.style.cssText = this._selectStyle();
+      this._cancelButton.style.cssText = this._actionButtonStyle(false);
+      this._okButton.style.cssText = this._actionButtonStyle(true);
+      this._updateSidebarState();
+    }
+    showCandlestick(settings, onApply) {
+      const draft = { ...settings };
+      this._activeTab = "symbol";
+      this._pendingApply = () => onApply({ ...draft });
+      this._renderContent = () => {
+        if (this._activeTab !== "symbol") {
+          this._renderPlaceholder();
+          return;
+        }
+        this._content.innerHTML = "";
+        this._content.appendChild(this._createSectionTitle("MUMLAR"));
+        this._content.appendChild(this._createBodyRow("G\xF6vde", true, draft.upColor, draft.downColor, (up, down) => {
+          draft.upColor = up;
+          draft.downColor = down;
+        }));
+        this._content.appendChild(this._createBodyRow("Kenarl\u0131k", draft.borderVisible, draft.borderUpColor, draft.borderDownColor, (up, down) => {
+          draft.borderUpColor = up;
+          draft.borderDownColor = down;
+        }, (visible) => {
+          draft.borderVisible = visible;
+        }));
+        this._content.appendChild(this._createBodyRow("Fitil", draft.wickVisible, draft.wickUpColor, draft.wickDownColor, (up, down) => {
+          draft.wickUpColor = up;
+          draft.wickDownColor = down;
+        }, (visible) => {
+          draft.wickVisible = visible;
+        }));
+        this._content.appendChild(this._createSectionTitle("VER\u0130"));
+        this._content.appendChild(this._createSelectRow("Hassasiyet", ["Varsay\u0131lan"], "Varsay\u0131lan"));
+        this._content.appendChild(this._createSelectRow("Saat dilimi", ["(UTC+3) \u0130stanbul"], "(UTC+3) \u0130stanbul"));
+      };
+      this._updateSidebarState();
+      this._renderContent();
+      this.show();
+    }
+    showHeikenAshi(settings, onApply) {
+      const draft = { ...settings };
+      this._activeTab = "symbol";
+      this._pendingApply = () => onApply({ ...draft });
+      this._renderContent = () => {
+        if (this._activeTab !== "symbol") {
+          this._renderPlaceholder();
+          return;
+        }
+        this._content.innerHTML = "";
+        this._content.appendChild(this._createSectionTitle("HEIKEN ASHI"));
+        this._content.appendChild(this._createBodyRow("G\xF6vde", true, draft.upColor, draft.downColor, (up, down) => {
+          draft.upColor = up;
+          draft.downColor = down;
+        }));
+        this._content.appendChild(this._createBodyRow("Kenarl\u0131k", draft.borderVisible, draft.upColor, draft.downColor, (up, down) => {
+          draft.upColor = up;
+          draft.downColor = down;
+        }, (visible) => {
+          draft.borderVisible = visible;
+        }));
+        this._content.appendChild(this._createBodyRow("Fitil", draft.wickVisible, draft.upColor, draft.downColor, (up, down) => {
+          draft.upColor = up;
+          draft.downColor = down;
+        }, (visible) => {
+          draft.wickVisible = visible;
+        }));
+        this._content.appendChild(this._createSectionTitle("VER\u0130"));
+        this._content.appendChild(this._createSelectRow("Hassasiyet", ["Varsay\u0131lan"], "Varsay\u0131lan"));
+        this._content.appendChild(this._createSelectRow("Saat dilimi", ["(UTC+3) \u0130stanbul"], "(UTC+3) \u0130stanbul"));
+      };
+      this._updateSidebarState();
+      this._renderContent();
+      this.show();
+    }
+    showUnsupported(message) {
+      this._activeTab = "symbol";
+      this._pendingApply = null;
+      this._renderContent = () => {
+        this._content.innerHTML = "";
+        const empty = document.createElement("div");
+        empty.textContent = message;
+        empty.style.cssText = `
+                font-size: 15px;
+                line-height: 1.6;
+                opacity: 0.78;
+                max-width: 480px;
+            `;
+        this._content.appendChild(empty);
+      };
+      this._updateSidebarState();
+      this._renderContent();
+      this.show();
+    }
+    show() {
+      this._overlay.style.display = "flex";
+    }
+    hide() {
+      this._overlay.style.display = "none";
+    }
+    dispose() {
+      this._overlay.remove();
+    }
+    _renderPlaceholder() {
+      this._content.innerHTML = "";
+      const title = document.createElement("div");
+      title.textContent = this._activeTab === "symbol" ? "SEMBOL" : "YAKINDA";
+      title.style.cssText = `
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            opacity: 0.44;
+            margin-bottom: 18px;
+        `;
+      const text = document.createElement("div");
+      text.textContent = "Bu bolum henuz bagli degil. Ilk asamada mum gorunumu ayarlari aktif.";
+      text.style.cssText = `
+            font-size: 15px;
+            line-height: 1.7;
+            max-width: 480px;
+            opacity: 0.82;
+        `;
+      this._content.appendChild(title);
+      this._content.appendChild(text);
+    }
+    _updateSidebarState() {
+      const isDark = this._theme === "dark";
+      for (const [id, button] of this._tabButtons.entries()) {
+        const active = id === this._activeTab;
+        button.style.background = active ? isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(15, 23, 42, 0.05)" : "transparent";
+        button.style.color = isDark ? "#f3f4f6" : "#111827";
+      }
+    }
+    _createSectionTitle(text) {
+      const title = document.createElement("div");
+      title.textContent = text;
+      title.style.cssText = `
+            margin-bottom: 14px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            opacity: 0.44;
+        `;
+      return title;
+    }
+    _createBodyRow(labelText, checked, upColor, downColor, onColorChange, onVisibilityChange) {
+      const row = document.createElement("div");
+      row.style.cssText = `
+            display: grid;
+            grid-template-columns: 150px 56px 56px;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        `;
+      const left = document.createElement("div");
+      left.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        `;
+      const checkbox = document.createElement("button");
+      checkbox.type = "button";
+      checkbox.style.cssText = `
+            width: 26px;
+            height: 26px;
+            border-radius: 7px;
+            border: 1px solid rgba(15, 23, 42, 0.14);
+            background: ${checked ? "#3b3f46" : "transparent"};
+            color: ${checked ? "#ffffff" : "transparent"};
+            font-size: 16px;
+            line-height: 1;
+            cursor: ${onVisibilityChange ? "pointer" : "default"};
+        `;
+      checkbox.textContent = "\u2713";
+      if (onVisibilityChange) {
+        checkbox.addEventListener("click", () => {
+          checked = !checked;
+          checkbox.style.background = checked ? "#3b3f46" : "transparent";
+          checkbox.style.color = checked ? "#ffffff" : "transparent";
+          onVisibilityChange(checked);
+        });
+      }
+      const label = document.createElement("div");
+      label.textContent = labelText;
+      label.style.cssText = `
+            font-size: 16px;
+            line-height: 1.2;
+        `;
+      left.appendChild(checkbox);
+      left.appendChild(label);
+      row.appendChild(left);
+      row.appendChild(this._createColorChip(upColor, (next) => {
+        upColor = next;
+        onColorChange(upColor, downColor);
+      }));
+      row.appendChild(this._createColorChip(downColor, (next) => {
+        downColor = next;
+        onColorChange(upColor, downColor);
+      }));
+      return row;
+    }
+    _createColorChip(value, onChange) {
+      const wrap = document.createElement("label");
+      wrap.style.cssText = `
+            position: relative;
+            width: 56px;
+            height: 48px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            border: 1px solid rgba(15, 23, 42, 0.14);
+            background: #ffffff;
+            cursor: pointer;
+            box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+        `;
+      const swatch = document.createElement("span");
+      swatch.style.cssText = `
+            width: 32px;
+            height: 32px;
+            border-radius: 7px;
+            background: ${value};
+            display: block;
+        `;
+      const input = document.createElement("input");
+      input.type = "color";
+      input.value = value;
+      input.style.cssText = `
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        `;
+      input.addEventListener("input", () => {
+        swatch.style.background = input.value;
+        onChange(input.value);
+      });
+      wrap.appendChild(swatch);
+      wrap.appendChild(input);
+      return wrap;
+    }
+    _createSelectRow(labelText, options, value) {
+      const row = document.createElement("div");
+      row.style.cssText = `
+            display: grid;
+            grid-template-columns: 150px minmax(0, 260px);
+            align-items: center;
+            gap: 18px;
+            margin-top: 12px;
+        `;
+      const label = document.createElement("div");
+      label.textContent = labelText;
+      label.style.cssText = `
+            font-size: 16px;
+            line-height: 1.2;
+        `;
+      const select = document.createElement("select");
+      select.style.cssText = this._selectStyle();
+      for (const optionText of options) {
+        const option = document.createElement("option");
+        option.textContent = optionText;
+        option.value = optionText;
+        select.appendChild(option);
+      }
+      select.value = value;
+      row.appendChild(label);
+      row.appendChild(select);
+      return row;
+    }
+    _selectStyle() {
+      const isDark = this._theme === "dark";
+      return `
+            min-width: 180px;
+            height: 40px;
+            padding: 0 14px;
+            border-radius: 10px;
+            border: 1px solid ${isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(15, 23, 42, 0.16)"};
+            background: ${isDark ? "#111827" : "#ffffff"};
+            color: ${isDark ? "#f3f4f6" : "#111827"};
+            font-size: 14px;
+            outline: none;
+        `;
+    }
+    _actionButtonStyle(primary) {
+      const isDark = this._theme === "dark";
+      return `
+            min-width: 106px;
+            height: 42px;
+            padding: 0 18px;
+            border-radius: 12px;
+            border: ${primary ? "none" : `1px solid ${isDark ? "rgba(255, 255, 255, 0.16)" : "#111827"}`};
+            background: ${primary ? "#111111" : "transparent"};
+            color: ${primary ? "#ffffff" : isDark ? "#f3f4f6" : "#111827"};
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+        `;
+    }
+  };
+
   // src/state/chart-state-manager.ts
   var LocalStorageAdapter = class {
     constructor(prefix = "chart_") {
@@ -33380,7 +34185,7 @@ ${note}`;
   };
 
   // src/renderers/orderbook-heatmap-renderer.ts
-  var defaultOptions = {
+  var defaultOptions2 = {
     enabled: true,
     bidColor: "#00d4aa",
     // Cyan
@@ -33417,7 +34222,7 @@ ${note}`;
       this._bidAgeBuffer = null;
       this._askAgeBuffer = null;
       this._bufferSize = 0;
-      this._options = { ...defaultOptions, ...options };
+      this._options = { ...defaultOptions2, ...options };
     }
     get enabled() {
       return this._options.enabled;
@@ -33889,10 +34694,6 @@ ${note}`;
   }
 
   // src/gui/chart_widget/context-actions.ts
-  function handleContextSettings() {
-    console.log("\u{1F4CB} Settings clicked - Modal will be implemented");
-    alert("Settings feature coming soon!");
-  }
   function handleContextCopyPrice(model) {
     const priceScale = model.rightPriceScale;
     const priceRange = priceScale.priceRange;
@@ -34075,6 +34876,7 @@ ${note}`;
       // Indicator search modal
       this._indicatorSearchModal = null;
       this._indicatorSettingsModal = null;
+      this._chartSettingsModal = null;
       this._editingIndicator = null;
       // State persistence
       this._chartStateManager = null;
@@ -34088,6 +34890,8 @@ ${note}`;
       // Technical Rating Badge
       this._technicalRatingBadge = null;
       this._currentTheme = "light";
+      this._candlestickStyleOverrides = {};
+      this._heikenAshiStyleOverrides = {};
       // Orderbook Heatmap
       this._dataProvider = null;
       this._heatmapRenderer = null;
@@ -34140,12 +34944,15 @@ ${note}`;
         this._container = container;
       }
       this._model = new ChartModel(options);
+      this._showToolbar = options.showToolbar !== false;
+      this._showDrawingToolbar = options.showDrawingToolbar !== false;
       const initialSymbol = options.symbol || "BTCUSDT";
       const initialTimeframe = options.timeframe || "1h";
       const initialExchange = options.exchange || "BINANCE";
       this._currentExchange = initialExchange;
       this._model.setSymbol(initialSymbol);
       this._model.setTimeframe(initialTimeframe);
+      this._model.setExchange(initialExchange);
       this._indicatorManager = new IndicatorManager();
       this._indicatorManager.onPaneAdded = this._onIndicatorPaneAdded.bind(this);
       this._indicatorManager.onPaneRemoved = this._onIndicatorPaneRemoved.bind(this);
@@ -34165,6 +34972,10 @@ ${note}`;
       this._model.invalidated.subscribe(this._onInvalidated.bind(this));
       this._createLayout();
       this._setupEventListeners();
+      if (this._element) {
+        this._chartSettingsModal = new ChartSettingsModal(this._element);
+        this._chartSettingsModal.setTheme(this._currentTheme);
+      }
       this._chartStateManager.setSymbol(initialSymbol);
       this._indicatorSearchModal = new IndicatorSearchModal(this._container);
       this._indicatorSearchModal.indicatorSelected.subscribe((indicatorId) => {
@@ -34230,6 +35041,74 @@ ${note}`;
     }
     get timeframeChanged() {
       return this._timeframeChanged;
+    }
+    get chartType() {
+      return this._activeChartType;
+    }
+    get priceScaleMode() {
+      return this._model.rightPriceScale.mode === 1 /* Logarithmic */ ? "logarithmic" : "normal";
+    }
+    get symbol() {
+      return this._model.symbol;
+    }
+    get timeframe() {
+      return this._model.timeframe;
+    }
+    setSymbol(symbol) {
+      const symbolInfo = typeof symbol === "string" ? {
+        symbol,
+        full_name: symbol,
+        description: symbol,
+        exchange: this._currentExchange || this._model.exchange || "BINANCE",
+        type: "crypto"
+      } : symbol;
+      this._onSymbolChange(symbolInfo);
+    }
+    setTimeframe(timeframe) {
+      if (this._toolbarWidget) {
+        this._toolbarWidget.setTimeframe(timeframe, false);
+      }
+      this._onTimeframeChange(timeframe);
+    }
+    setChartType(type) {
+      if (this._toolbarWidget) {
+        this._toolbarWidget.setChartType(type);
+        return;
+      }
+      this._onChartTypeChange(type);
+    }
+    setPriceScaleMode(mode) {
+      if (this._toolbarWidget) {
+        this._toolbarWidget.setPriceScaleMode(mode);
+        return;
+      }
+      this._onPriceScaleModeChange(mode);
+    }
+    setDomEnabled(enabled) {
+      if (!this._heatmapRenderer) {
+        return;
+      }
+      this._heatmapRenderer.enabled = enabled;
+      if (enabled) {
+        this._dataProvider?.subscribeOrderbook(this._currentSymbol, this._onOrderbookUpdate);
+      } else if (this._dataProvider instanceof BinanceSpotProvider) {
+        this._dataProvider.unsubscribeOrderbook(this._currentSymbol);
+      } else {
+        this._dataProvider?.unsubscribeOrderbook?.(this._currentSymbol);
+      }
+      this._scheduleDraw();
+    }
+    showSymbolSearch() {
+      this._symbolSearch?.show();
+    }
+    showIndicatorSearch() {
+      this._indicatorSearchModal?.show();
+    }
+    setLanguage(locale) {
+      this._onLanguageChange(locale);
+    }
+    openSettings() {
+      this._openChartSettings();
     }
     resize(width, height) {
       this._width = width;
@@ -34313,6 +35192,9 @@ ${note}`;
       }
       if (this._drawingSettingsModal) {
         this._drawingSettingsModal.setTheme(theme);
+      }
+      if (this._chartSettingsModal) {
+        this._chartSettingsModal.setTheme(theme);
       }
       if (this._drawingToolbarWidget) {
         this._drawingToolbarWidget.setTheme(theme);
@@ -34496,7 +35378,7 @@ ${note}`;
       this._loadingOverlay = document.createElement("div");
       this._loadingOverlay.style.cssText = `
             position: absolute;
-            top: 38px;
+            top: ${this._showToolbar ? 38 : 0}px;
             left: 0;
             right: 0;
             bottom: 0;
@@ -34571,7 +35453,9 @@ ${note}`;
       document.head.appendChild(spinnerStyle);
       this._container.appendChild(this._element);
       this._technicalRatingBadge = new TechnicalRatingBadge(this._chartRow);
-      this._createTopToolbar();
+      if (this._showToolbar) {
+        this._createTopToolbar();
+      }
       this._symbolSearch = new SymbolSearch();
       this._symbolSearch.symbolSelected.subscribe((symbol) => {
         this._onSymbolChange(symbol);
@@ -34603,7 +35487,9 @@ ${note}`;
         backgroundColor: this._model.options.layout.backgroundColor,
         textColor: this._model.options.layout.textColor
       });
-      this._createDrawingToolbar();
+      if (this._showDrawingToolbar) {
+        this._createDrawingToolbar();
+      }
       this._floatingAttributeBar = new BaseAttributeBar(this._element);
       this._floatingAttributeBar.deleteClicked.subscribe(() => {
         this._drawingManager.deleteSelected();
@@ -34640,10 +35526,10 @@ ${note}`;
       this._updateLayout();
     }
     _updateLayout() {
-      const toolbarHeight = this._toolbarWidget?.height ?? 38;
+      const toolbarHeight = this._toolbarWidget?.height ?? 0;
       const timeAxisHeight = this._timeAxisWidget?.height ?? 28;
       const priceAxisWidth = this._priceAxisWidget?.width ?? 80;
-      const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 48;
+      const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 0;
       let indicatorPanesHeight = 0;
       for (const pane of this._indicatorPanes.values()) {
         indicatorPanesHeight += pane.height;
@@ -34702,7 +35588,8 @@ ${note}`;
             upColor: "#26a69a",
             downColor: "#ef5350",
             borderVisible: false,
-            wickVisible: true
+            wickVisible: true,
+            ...this._heikenAshiStyleOverrides
           });
           break;
         case "candles":
@@ -34711,7 +35598,8 @@ ${note}`;
             upColor: "#26a69a",
             downColor: "#ef5350",
             borderVisible: false,
-            wickVisible: true
+            wickVisible: true,
+            ...this._candlestickStyleOverrides
           });
           break;
       }
@@ -35377,7 +36265,46 @@ ${note}`;
     }
     // --- Context Menu Actions ---
     _onContextSettings() {
-      handleContextSettings();
+      this._openChartSettings();
+    }
+    _openChartSettings() {
+      const series = this._model.serieses[0];
+      if (!series || !this._chartSettingsModal) {
+        return;
+      }
+      if (series instanceof CandlestickSeries) {
+        const options = series.candleOptions;
+        this._chartSettingsModal.showCandlestick({
+          upColor: options.upColor,
+          downColor: options.downColor,
+          wickUpColor: options.wickUpColor,
+          wickDownColor: options.wickDownColor,
+          borderUpColor: options.borderUpColor,
+          borderDownColor: options.borderDownColor,
+          wickVisible: options.wickVisible,
+          borderVisible: options.borderVisible
+        }, (next) => {
+          this._candlestickStyleOverrides = { ...next };
+          series.applyOptions(next);
+          this._scheduleDraw();
+        });
+        return;
+      }
+      if (series instanceof HeikenAshiSeries) {
+        const options = series.haOptions;
+        this._chartSettingsModal.showHeikenAshi({
+          upColor: options.upColor,
+          downColor: options.downColor,
+          wickVisible: options.wickVisible,
+          borderVisible: options.borderVisible
+        }, (next) => {
+          this._heikenAshiStyleOverrides = { ...next };
+          series.applyOptions(next);
+          this._scheduleDraw();
+        });
+        return;
+      }
+      this._chartSettingsModal.showUnsupported("Bu ayar su anda sadece mum ve Heiken Ashi grafiklerinde kullanilabilir.");
     }
     _onContextCopyPrice() {
       handleContextCopyPrice(this._model);
@@ -35561,6 +36488,16 @@ ${note}`;
             displacement: 26
           }));
           break;
+        case "fixed-range-volume-profile":
+          this.addOverlayIndicator(new FixedRangeVolumeProfileIndicator({
+            rangeBars: 200,
+            rows: 32,
+            valueAreaPercent: 70,
+            profileWidthPercent: 35,
+            showPOC: true,
+            showValueArea: true
+          }));
+          break;
         case "halftrend":
           this.addOverlayIndicator(new HalfTrendIndicator({
             amplitude: 2,
@@ -35704,6 +36641,7 @@ ${note}`;
       this._drawingToolbarWidget?.dispose();
       this._symbolSearch?.dispose();
       this._indicatorSearchModal?.dispose();
+      this._chartSettingsModal?.dispose();
       this._paneWidget?.dispose();
       this._priceAxisWidget?.dispose();
       this._timeAxisWidget?.dispose();
@@ -35765,8 +36703,12 @@ ${note}`;
       }
       this._contextMenu = null;
       this._createContextMenu();
-      this._createDrawingToolbar();
-      this._createTopToolbar();
+      if (this._showDrawingToolbar) {
+        this._createDrawingToolbar();
+      }
+      if (this._showToolbar) {
+        this._createTopToolbar();
+      }
       if (this._symbolSearch) {
         const oldSearch = this._symbolSearch;
         this._symbolSearch = new SymbolSearch();
@@ -35826,6 +36768,9 @@ ${note}`;
       });
     }
     _createDrawingToolbar() {
+      if (!this._showDrawingToolbar) {
+        return;
+      }
       if (this._drawingToolbarWidget) {
         this._drawingToolbarWidget.dispose();
       }
@@ -35933,6 +36878,320 @@ ${note}`;
   };
   function createChart(container, options) {
     return new ChartWidget(container, options);
+  }
+
+  // src/gui/multi-chart-layout.ts
+  var defaultSlotOptions = {
+    symbol: "BTCUSDT",
+    timeframe: "1h",
+    exchange: "BINANCE"
+  };
+  var defaultOptions3 = {
+    layout: "2x2",
+    syncSymbol: false,
+    syncTimeframe: false,
+    activeIndex: 0,
+    gap: 8
+  };
+  var LAYOUT_PRESETS = {
+    "1x1": { count: 1, columns: "minmax(0, 1fr)", rows: "minmax(0, 1fr)", positions: [{ col: 1, row: 1 }] },
+    "2x1": {
+      count: 2,
+      columns: "minmax(0, 1fr)",
+      rows: "minmax(0, 1fr) minmax(0, 1fr)",
+      positions: [{ col: 1, row: 1 }, { col: 1, row: 2 }]
+    },
+    "1x2": {
+      count: 2,
+      columns: "minmax(0, 1fr) minmax(0, 1fr)",
+      rows: "minmax(0, 1fr)",
+      positions: [{ col: 1, row: 1 }, { col: 2, row: 1 }]
+    },
+    "1x3": {
+      count: 3,
+      columns: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)",
+      rows: "minmax(0, 1fr)",
+      positions: [{ col: 1, row: 1 }, { col: 2, row: 1 }, { col: 3, row: 1 }]
+    },
+    "2x2": {
+      count: 4,
+      columns: "minmax(0, 1fr) minmax(0, 1fr)",
+      rows: "minmax(0, 1fr) minmax(0, 1fr)",
+      positions: [{ col: 1, row: 1 }, { col: 2, row: 1 }, { col: 1, row: 2 }, { col: 2, row: 2 }]
+    }
+  };
+  var MultiChartLayout = class {
+    constructor(container, options = {}) {
+      this._toolbarWidget = null;
+      this._charts = [];
+      this._slots = [];
+      this._activeIndex = 0;
+      this._syncing = false;
+      this._theme = "dark";
+      this._domEnabled = false;
+      this._activeChartChanged = new Delegate();
+      this._symbolChanged = new Delegate();
+      this._timeframeChanged = new Delegate();
+      this._container = typeof container === "string" ? document.querySelector(container) : container;
+      if (!this._container) {
+        throw new Error("MultiChartLayout container not found");
+      }
+      this._options = { ...defaultOptions3, ...options };
+      this._layout = this._options.layout || defaultOptions3.layout;
+      this._activeIndex = this._options.activeIndex ?? defaultOptions3.activeIndex;
+      this._element = document.createElement("div");
+      this._element.className = "tv-multi-chart-layout-shell";
+      this._element.style.cssText = `
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            background: #131722;
+        `;
+      this._grid = document.createElement("div");
+      this._grid.className = "tv-multi-chart-layout-grid";
+      this._grid.style.cssText = `
+            flex: 1 1 auto;
+            width: 100%;
+            min-width: 0;
+            min-height: 0;
+            display: grid;
+            background: #0f172a;
+        `;
+      this._container.appendChild(this._element);
+      this._element.appendChild(this._grid);
+      this._buildLayout(this._options.charts || []);
+      this._createToolbar();
+      this.setActiveChart(Math.min(this._activeIndex, this._charts.length - 1));
+    }
+    get charts() {
+      return this._charts;
+    }
+    get activeChart() {
+      return this._charts[this._activeIndex] ?? null;
+    }
+    get activeChartChanged() {
+      return this._activeChartChanged;
+    }
+    get symbolChanged() {
+      return this._symbolChanged;
+    }
+    get timeframeChanged() {
+      return this._timeframeChanged;
+    }
+    getChart(index) {
+      return this._charts[index] ?? null;
+    }
+    setLayout(layout) {
+      if (this._layout === layout) {
+        return;
+      }
+      const currentSlots = this._charts.map((chart) => ({
+        symbol: chart.symbol,
+        timeframe: chart.timeframe,
+        exchange: chart.model.exchange,
+        locale: this._options.locale
+      }));
+      this._layout = layout;
+      this._buildLayout(currentSlots);
+      this._createToolbar();
+      this.setActiveChart(Math.min(this._activeIndex, this._charts.length - 1));
+    }
+    setActiveChart(index) {
+      if (index < 0 || index >= this._slots.length) {
+        return;
+      }
+      this._activeIndex = index;
+      this._slots.forEach((slot, slotIndex) => {
+        slot.style.borderColor = slotIndex === index ? "#2962ff" : "rgba(148, 163, 184, 0.16)";
+        slot.style.boxShadow = slotIndex === index ? "inset 0 0 0 1px rgba(41, 98, 255, 0.3)" : "none";
+      });
+      this._syncToolbarStateFromActiveChart();
+      this._activeChartChanged.fire(index);
+    }
+    setSync(options) {
+      this._options = { ...this._options, ...options };
+    }
+    destroy() {
+      for (const chart of this._charts) {
+        chart.dispose();
+      }
+      this._charts = [];
+      this._slots = [];
+      this._toolbarWidget?.dispose();
+      this._toolbarWidget = null;
+      this._element.remove();
+      this._activeChartChanged.destroy();
+      this._symbolChanged.destroy();
+      this._timeframeChanged.destroy();
+    }
+    _createToolbar() {
+      this._toolbarWidget?.dispose();
+      const activeChart = this.activeChart;
+      this._toolbarWidget = new ToolbarWidget(this._element, {
+        symbol: activeChart?.symbol || defaultSlotOptions.symbol,
+        timeframe: activeChart?.timeframe || defaultSlotOptions.timeframe,
+        chartType: activeChart?.chartType || "candles",
+        locale: this._options.locale || "en",
+        priceScaleMode: activeChart?.priceScaleMode || "normal"
+      });
+      this._toolbarWidget.setTheme(this._theme);
+      this._toolbarWidget.symbolClicked.subscribe(() => {
+        this.activeChart?.showSymbolSearch();
+      });
+      this._toolbarWidget.indicatorsClicked.subscribe(() => {
+        this.activeChart?.showIndicatorSearch();
+      });
+      this._toolbarWidget.timeframeChanged.subscribe((timeframe) => {
+        this.activeChart?.setTimeframe(timeframe);
+      });
+      this._toolbarWidget.chartTypeChanged.subscribe((chartType) => {
+        this.activeChart?.setChartType(chartType);
+      });
+      this._toolbarWidget.priceScaleModeChanged.subscribe((mode) => {
+        this.activeChart?.setPriceScaleMode(mode);
+      });
+      this._toolbarWidget.themeToggled.subscribe((theme) => {
+        this._theme = theme;
+        for (const chart of this._charts) {
+          chart.setTheme(theme);
+        }
+      });
+      this._toolbarWidget.languageChanged.subscribe((locale) => {
+        this._options = { ...this._options, locale };
+        for (const chart of this._charts) {
+          chart.setLanguage(locale);
+        }
+        this._createToolbar();
+        this._syncToolbarStateFromActiveChart();
+      });
+      this._toolbarWidget.domToggled.subscribe((enabled) => {
+        this._domEnabled = enabled;
+        for (const chart of this._charts) {
+          chart.setDomEnabled(enabled);
+        }
+      });
+    }
+    _buildLayout(slotOptions) {
+      for (const chart of this._charts) {
+        chart.dispose();
+      }
+      this._charts = [];
+      this._slots = [];
+      this._grid.innerHTML = "";
+      const preset = this._applyGridPreset();
+      for (let i = 0; i < preset.count; i++) {
+        const slot = document.createElement("div");
+        slot.className = "tv-multi-chart-slot";
+        slot.style.cssText = `
+                position: relative;
+                min-width: 0;
+                min-height: 0;
+                overflow: hidden;
+                border: 1px solid rgba(148, 163, 184, 0.16);
+                border-radius: 10px;
+                background: #131722;
+            `;
+        slot.style.gridColumn = `${preset.positions[i].col}`;
+        slot.style.gridRow = `${preset.positions[i].row}`;
+        slot.addEventListener("pointerdown", () => {
+          this.setActiveChart(i);
+        });
+        this._grid.appendChild(slot);
+        this._slots.push(slot);
+        const options = {
+          ...defaultSlotOptions,
+          locale: this._options.locale || "en",
+          ...slotOptions[i] || {},
+          showToolbar: false,
+          showDrawingToolbar: true
+        };
+        const chart = new ChartWidget(slot, options);
+        chart.addCandlestickSeries({
+          upColor: "#26a69a",
+          downColor: "#ef5350",
+          borderVisible: false,
+          wickVisible: true
+        });
+        chart.setTheme(this._theme);
+        chart.setDomEnabled(this._domEnabled);
+        chart.symbolChanged.subscribe((payload) => this._handleSymbolChanged(i, payload));
+        chart.timeframeChanged.subscribe((timeframe) => this._handleTimeframeChanged(i, timeframe));
+        this._charts.push(chart);
+      }
+    }
+    _applyGridPreset() {
+      const preset = LAYOUT_PRESETS[this._layout];
+      this._grid.style.gridTemplateColumns = preset.columns;
+      this._grid.style.gridTemplateRows = preset.rows;
+      this._grid.style.gridAutoFlow = "row";
+      this._grid.style.gap = `${this._options.gap ?? defaultOptions3.gap}px`;
+      return preset;
+    }
+    _syncToolbarStateFromActiveChart() {
+      if (!this._toolbarWidget || !this.activeChart) {
+        return;
+      }
+      this._toolbarWidget.setSymbol(this.activeChart.symbol);
+      this._toolbarWidget.setTimeframe(this.activeChart.timeframe, false);
+      this._toolbarWidget.setChartType(this.activeChart.chartType, false);
+      this._toolbarWidget.setPriceScaleMode(this.activeChart.priceScaleMode, false);
+    }
+    _handleSymbolChanged(index, payload) {
+      this._symbolChanged.fire({ index, symbol: payload });
+      if (index === this._activeIndex) {
+        this._syncToolbarStateFromActiveChart();
+      }
+      if (this._syncing || !this._options.syncSymbol) {
+        return;
+      }
+      this._syncing = true;
+      try {
+        for (let i = 0; i < this._charts.length; i++) {
+          if (i === index) {
+            continue;
+          }
+          const nextSymbol = typeof payload === "string" ? payload : payload.symbol;
+          const nextExchange = typeof payload === "string" ? void 0 : payload.exchange;
+          const target = this._charts[i];
+          if (target.symbol === nextSymbol && (!nextExchange || target.model.exchange === nextExchange)) {
+            continue;
+          }
+          target.setSymbol(typeof payload === "string" ? nextSymbol : payload);
+        }
+      } finally {
+        this._syncing = false;
+      }
+    }
+    _handleTimeframeChanged(index, timeframe) {
+      this._timeframeChanged.fire({ index, timeframe });
+      if (index === this._activeIndex) {
+        this._syncToolbarStateFromActiveChart();
+      }
+      if (this._syncing || !this._options.syncTimeframe) {
+        return;
+      }
+      this._syncing = true;
+      try {
+        for (let i = 0; i < this._charts.length; i++) {
+          if (i === index) {
+            continue;
+          }
+          const target = this._charts[i];
+          if (target.timeframe === timeframe) {
+            continue;
+          }
+          target.setTimeframe(timeframe);
+        }
+      } finally {
+        this._syncing = false;
+      }
+    }
+  };
+  function createMultiChartLayout(container, options = {}) {
+    return new MultiChartLayout(container, options);
   }
 
   // src/helpers/assertions.ts

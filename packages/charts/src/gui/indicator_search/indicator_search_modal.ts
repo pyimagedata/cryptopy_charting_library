@@ -103,6 +103,14 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         type: 'overlay'
     },
     {
+        id: 'fixed-range-volume-profile',
+        name: 'Fixed Range Volume Profile',
+        shortName: 'FRVP',
+        description: 'Seçilen sabit bar aralığı için fiyat seviyelerine göre hacim dağılımı gösterir',
+        category: 'standard',
+        type: 'overlay'
+    },
+    {
         id: 'volume',
         name: 'Volume',
         shortName: 'Vol',

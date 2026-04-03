@@ -221,6 +221,131 @@
             font-weight: 700;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
         }
+
+        .toolbar-layout-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            margin-left: 8px;
+        }
+
+        .toolbar-settings-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            margin-left: 8px;
+            border-radius: 7px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.03);
+            color: #d1d4dc;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+
+        .toolbar-settings-button:hover {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: rgba(255, 255, 255, 0.14);
+        }
+
+        .toolbar-settings-button svg {
+            width: 18px;
+            height: 18px;
+            display: block;
+        }
+
+        .toolbar-layout-trigger {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-width: 38px;
+            height: 30px;
+            padding: 0 8px;
+            border-radius: 7px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            background: rgba(255, 255, 255, 0.03);
+            color: #d1d4dc;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+        }
+
+        .toolbar-layout-trigger:hover,
+        .toolbar-layout-trigger.open {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: rgba(255, 255, 255, 0.14);
+        }
+
+        .toolbar-layout-trigger__icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+        }
+
+        .toolbar-layout-trigger svg {
+            display: block;
+        }
+
+        .toolbar-layout-menu {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            z-index: 80;
+            display: none;
+            width: max-content;
+            padding: 6px;
+            border-radius: 10px;
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            box-shadow:
+                0 10px 22px rgba(15, 23, 42, 0.1),
+                0 2px 8px rgba(15, 23, 42, 0.06);
+        }
+
+        .toolbar-layout-menu.open {
+            display: block;
+        }
+
+        .toolbar-layout-grid {
+            display: grid;
+            grid-template-columns: repeat(4, max-content);
+            gap: 3px;
+            justify-content: start;
+        }
+
+        .toolbar-layout-option {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            background: transparent;
+            color: #1f2937;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .toolbar-layout-option:hover {
+            background: rgba(15, 23, 42, 0.03);
+        }
+
+        .toolbar-layout-option.active {
+            background: rgba(15, 23, 42, 0.04);
+            color: #111827;
+            border-color: rgba(15, 23, 42, 0.1);
+            box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.03);
+        }
+
+        .toolbar-layout-option svg {
+            width: 18px;
+            height: 18px;
+            display: block;
+        }
 </style>
 </head>
 <body>
@@ -280,15 +405,78 @@
 
     <script src="packages/charts/dist/charts.js"></script>
     <script>
+        const DEMO_LAYOUT_STORAGE_KEY = 'charting-demo-layout-state-v1';
+        const ALLOWED_LAYOUT_MODES = new Set(['single', '2x1', '1x2', '1x3', '2x2']);
+        const ALLOWED_CHART_TYPES = new Set(['candles', 'line', 'area', 'heiken-ashi']);
+        const ALLOWED_PRICE_SCALES = new Set(['normal', 'logarithmic']);
+
+        function normalizeLayoutMode(mode) {
+            return ALLOWED_LAYOUT_MODES.has(mode) ? mode : 'single';
+        }
+
+        function normalizeChartType(type) {
+            return ALLOWED_CHART_TYPES.has(type) ? type : 'candles';
+        }
+
+        function normalizePriceScaleMode(mode) {
+            return ALLOWED_PRICE_SCALES.has(mode) ? mode : 'normal';
+        }
+
+        function normalizeSlotState(slot, fallback = {}) {
+            return {
+                symbol: typeof slot?.symbol === 'string' && slot.symbol ? slot.symbol : (fallback.symbol || 'BTCUSDT'),
+                interval: typeof slot?.interval === 'string' && slot.interval ? slot.interval : (fallback.interval || fallback.timeframe || '1h'),
+                timeframe: typeof slot?.timeframe === 'string' && slot.timeframe ? slot.timeframe : (slot?.interval || fallback.timeframe || fallback.interval || '1h'),
+                exchange: typeof slot?.exchange === 'string' && slot.exchange ? slot.exchange : (fallback.exchange || 'BINANCE'),
+                chartType: normalizeChartType(slot?.chartType),
+                priceScaleMode: normalizePriceScaleMode(slot?.priceScaleMode),
+            };
+        }
+
+        function loadPersistedDemoState() {
+            try {
+                const raw = localStorage.getItem(DEMO_LAYOUT_STORAGE_KEY);
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== 'object') return null;
+                return parsed;
+            } catch (error) {
+                console.warn('Kayitli layout durumu okunamadi:', error);
+                return null;
+            }
+        }
+
+        const persistedDemoState = loadPersistedDemoState();
+        const persistedSingleState = persistedDemoState?.single || {};
+        const persistedMultiState = persistedDemoState?.multi || {};
+
         // Default parameters
-        let currentSymbol = 'BTCUSDT';
-        let currentInterval = '1h';
-        let currentExchange = 'BINANCE'; // BINANCE, BINANCE-FUTURES, BYBIT, BYBIT-FUTURES
+        let currentSymbol = typeof persistedSingleState.symbol === 'string' && persistedSingleState.symbol
+            ? persistedSingleState.symbol
+            : 'BTCUSDT';
+        let currentInterval = typeof persistedSingleState.interval === 'string' && persistedSingleState.interval
+            ? persistedSingleState.interval
+            : '1h';
+        let currentExchange = typeof persistedSingleState.exchange === 'string' && persistedSingleState.exchange
+            ? persistedSingleState.exchange
+            : 'BINANCE'; // BINANCE, BINANCE-FUTURES, BYBIT, BYBIT-FUTURES
+        let singleChartType = normalizeChartType(persistedSingleState.chartType);
+        let singlePriceScaleMode = normalizePriceScaleMode(persistedSingleState.priceScaleMode);
         const LIMIT = 1000;
 
         // Initialize chart variables
         let chart;
         let currentSeries;
+        let multiChartLayout = null;
+        let currentLayoutMode = normalizeLayoutMode(persistedDemoState?.layoutMode);
+        let currentMultiChartActiveIndex = Number.isInteger(persistedMultiState.activeIndex) ? persistedMultiState.activeIndex : 0;
+        let multiChartMeta = Array.isArray(persistedMultiState.slots)
+            ? persistedMultiState.slots.map((slot, index) => normalizeSlotState(slot, {
+                symbol: index === 0 ? currentSymbol : index === 1 ? 'ETHUSDT' : index === 2 ? 'SOLUSDT' : 'BNBUSDT',
+                interval: currentInterval,
+                exchange: currentExchange,
+            }))
+            : [];
         let fullData = [];
         let replayActive = false;
         let replaySelecting = false;
@@ -307,6 +495,74 @@
         let replayPickerLine;
         let replayToolbarButton = null;
         let replayToolbarObserver = null;
+        let layoutToolbarButton = null;
+        let layoutToolbarObserver = null;
+        let layoutToolbarDismissBound = false;
+        let settingsToolbarButton = null;
+        let replayControlsInitialized = false;
+        const multiChartSubscribedWidgets = new WeakSet();
+
+        function getSingleChartStateSnapshot() {
+            return {
+                symbol: currentSymbol,
+                interval: currentInterval,
+                exchange: currentExchange,
+                chartType: normalizeChartType(chart?.chartType || singleChartType),
+                priceScaleMode: normalizePriceScaleMode(chart?.priceScaleMode || singlePriceScaleMode),
+            };
+        }
+
+        function getMultiChartSlotsSnapshot() {
+            if (multiChartLayout) {
+                return multiChartLayout.charts.map((widget, index) => normalizeSlotState({
+                    symbol: widget.symbol,
+                    interval: widget.timeframe,
+                    timeframe: widget.timeframe,
+                    exchange: widget.model.exchange,
+                    chartType: widget.chartType,
+                    priceScaleMode: widget.priceScaleMode,
+                }, {
+                    symbol: index === 0 ? currentSymbol : 'BTCUSDT',
+                    interval: currentInterval,
+                    exchange: currentExchange,
+                }));
+            }
+
+            if (multiChartMeta.length > 0) {
+                return multiChartMeta.map((slot, index) => normalizeSlotState(slot, {
+                    symbol: index === 0 ? currentSymbol : 'BTCUSDT',
+                    interval: currentInterval,
+                    exchange: currentExchange,
+                }));
+            }
+
+            return [];
+        }
+
+        function saveDemoLayoutState() {
+            try {
+                const singleState = getSingleChartStateSnapshot();
+                const multiSlots = getMultiChartSlotsSnapshot();
+
+                singleChartType = singleState.chartType;
+                singlePriceScaleMode = singleState.priceScaleMode;
+
+                if (multiSlots.length > 0) {
+                    multiChartMeta = multiSlots.map((slot) => ({ ...slot }));
+                }
+
+                localStorage.setItem(DEMO_LAYOUT_STORAGE_KEY, JSON.stringify({
+                    layoutMode: currentLayoutMode,
+                    single: singleState,
+                    multi: {
+                        activeIndex: currentMultiChartActiveIndex,
+                        slots: multiSlots,
+                    },
+                }));
+            } catch (error) {
+                console.warn('Layout durumu kaydedilemedi:', error);
+            }
+        }
         
         // ========================================================================
         // Binance Data Fetcher
@@ -477,6 +733,10 @@
 
         function getPrimarySeries() {
             return chart?.model?.serieses?.[0] ?? null;
+        }
+
+        function getPrimarySeriesForWidget(widget) {
+            return widget?.model?.serieses?.[0] ?? null;
         }
 
         function closeRealtimeFeed() {
@@ -790,6 +1050,221 @@
             ensureReplayToolbarButton();
         }
 
+        function getActiveToolbarChart() {
+            if (currentLayoutMode !== 'single' && multiChartLayout) {
+                return multiChartLayout.activeChart;
+            }
+
+            return chart;
+        }
+
+        function createSettingsTriggerSvg() {
+            return `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M18 14a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-1 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"></path>
+                    <path fill-rule="evenodd" d="M8.5 5h11l5 9-5 9h-11l-5-9 5-9Zm-3.86 9L9.1 6h9.82l4.45 8-4.45 8H9.1l-4.45-8Z"></path>
+                </svg>
+            `;
+        }
+
+        function ensureSettingsToolbarButton() {
+            const toolbars = Array.from(document.querySelectorAll('#chart .chart-toolbar'));
+            const toolbar = toolbars[toolbars.length - 1];
+            if (!toolbar) return;
+
+            const existing = toolbar.querySelector('.toolbar-settings-button');
+            if (existing) {
+                settingsToolbarButton = existing;
+                return;
+            }
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'toolbar-settings-button';
+            button.title = 'Ayarlar';
+            button.innerHTML = createSettingsTriggerSvg();
+            button.addEventListener('click', () => {
+                getActiveToolbarChart()?.openSettings();
+            });
+
+            const layoutWrap = toolbar.querySelector('.toolbar-layout-wrap');
+            if (layoutWrap) {
+                toolbar.insertBefore(button, layoutWrap);
+            } else {
+                toolbar.appendChild(button);
+            }
+
+            settingsToolbarButton = button;
+        }
+
+        function getLayoutVisualMode(mode) {
+            return mode === 'single' ? '1x1' : mode;
+        }
+
+        function createLayoutTriggerSvg() {
+            return `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 21 19" width="21" height="19" aria-hidden="true">
+                    <path fill="currentColor" d="M2.5 1C1.67 1 1 1.67 1 2.5v12c0 .83.67 1.5 1.5 1.5h14c.83 0 1.5-.67 1.5-1.5v-12c0-.83-.67-1.5-1.5-1.5h-14ZM0 2.5A2.5 2.5 0 0 1 2.5 0h14A2.5 2.5 0 0 1 19 2.5v12a2.5 2.5 0 0 1-2.5 2.5h-14A2.5 2.5 0 0 1 0 14.5v-12Z"></path>
+                </svg>
+            `;
+        }
+
+        function createLayoutIconSvg(mode) {
+            const visualMode = getLayoutVisualMode(mode);
+
+            switch (visualMode) {
+                case '2x1':
+                    return `
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 21 19" width="21" height="19" aria-hidden="true">
+                            <path fill="currentColor" fill-rule="evenodd" d="M1 2.5C1 1.67 1.67 1 2.5 1h14c.83 0 1.5.67 1.5 1.5V8H1V2.5ZM1 9v5.5c0 .83.67 1.5 1.5 1.5h14c.83 0 1.5-.67 1.5-1.5V9H1Zm1.5-9A2.5 2.5 0 0 0 0 2.5v12A2.5 2.5 0 0 0 2.5 17h14a2.5 2.5 0 0 0 2.5-2.5v-12A2.5 2.5 0 0 0 16.5 0h-14Z"></path>
+                        </svg>
+                    `;
+                case '1x2':
+                    return `
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 21 19" width="21" height="19" aria-hidden="true">
+                            <path fill="currentColor" fill-rule="evenodd" d="M1 2.5C1 1.67 1.67 1 2.5 1H9v15H2.5A1.5 1.5 0 0 1 1 14.5v-12ZM10 16h6.5c.83 0 1.5-.67 1.5-1.5v-12c0-.83-.67-1.5-1.5-1.5H10v15ZM2.5 0A2.5 2.5 0 0 0 0 2.5v12A2.5 2.5 0 0 0 2.5 17h14a2.5 2.5 0 0 0 2.5-2.5v-12A2.5 2.5 0 0 0 16.5 0h-14Z"></path>
+                        </svg>
+                    `;
+                case '2x2':
+                    return `
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 21 19" width="21" height="19" aria-hidden="true">
+                            <path fill="currentColor" fill-rule="evenodd" d="M1 2.5C1 1.67 1.67 1 2.5 1H9v7H1V2.5ZM1 9v5.5c0 .83.67 1.5 1.5 1.5H9V9H1Zm9 7h6.5c.83 0 1.5-.67 1.5-1.5V9h-8v7Zm8-8V2.5c0-.83-.67-1.5-1.5-1.5H10v7h8ZM2.5 0A2.5 2.5 0 0 0 0 2.5v12A2.5 2.5 0 0 0 2.5 17h14a2.5 2.5 0 0 0 2.5-2.5v-12A2.5 2.5 0 0 0 16.5 0h-14Z"></path>
+                        </svg>
+                    `;
+                case '1x3':
+                    return `
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 21 19" width="21" height="19" aria-hidden="true">
+                            <path fill="currentColor" fill-rule="evenodd" d="M1 2.5C1 1.67 1.67 1 2.5 1H6v15H2.5A1.5 1.5 0 0 1 1 14.5v-12ZM7 16h5V1H7v15Zm6-15v15h3.5c.83 0 1.5-.67 1.5-1.5v-12c0-.83-.67-1.5-1.5-1.5H13ZM2.5 0A2.5 2.5 0 0 0 0 2.5v12A2.5 2.5 0 0 0 2.5 17h14a2.5 2.5 0 0 0 2.5-2.5v-12A2.5 2.5 0 0 0 16.5 0h-14Z"></path>
+                        </svg>
+                    `;
+                default:
+                    return `
+                        <svg viewBox="0 0 28 28" fill="none" aria-hidden="true">
+                            <rect x="4.5" y="4.5" width="19" height="19" rx="3" stroke="currentColor" stroke-width="1.8"/>
+                            <rect x="9" y="9" width="10" height="10" rx="1.8" stroke="currentColor" stroke-width="1.6"/>
+                        </svg>
+                    `;
+            }
+        }
+
+        function closeLayoutToolbarMenu() {
+            const menu = document.querySelector('#chart .toolbar-layout-menu');
+            menu?.classList.remove('open');
+            layoutToolbarButton?.classList.remove('open');
+        }
+
+        function updateLayoutToolbarButton() {
+            if (!layoutToolbarButton) return;
+
+            const options = document.querySelectorAll('#chart .toolbar-layout-option');
+            options.forEach((option) => {
+                option.classList.toggle('active', option.getAttribute('data-layout') === currentLayoutMode);
+            });
+        }
+
+        function ensureLayoutToolbarSelect() {
+            const toolbars = Array.from(document.querySelectorAll('#chart .chart-toolbar'));
+            const toolbar = toolbars[toolbars.length - 1];
+            if (!toolbar) return;
+
+            const existing = toolbar.querySelector('.toolbar-layout-trigger');
+            if (existing) {
+                layoutToolbarButton = existing;
+                updateLayoutToolbarButton();
+                return;
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'toolbar-layout-wrap';
+
+            const trigger = document.createElement('button');
+            trigger.type = 'button';
+            trigger.className = 'toolbar-layout-trigger';
+            trigger.title = 'Layout sec';
+            trigger.innerHTML = `
+                <span class="toolbar-layout-trigger__icon">${createLayoutTriggerSvg()}</span>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                    <path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            `;
+
+            const menu = document.createElement('div');
+            menu.className = 'toolbar-layout-menu';
+
+            const layoutOptions = [
+                'single',
+                '2x1',
+                '1x2',
+                '1x3',
+                '2x2',
+            ];
+
+            const grid = document.createElement('div');
+            grid.className = 'toolbar-layout-grid';
+
+            layoutOptions.forEach((layout) => {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'toolbar-layout-option';
+                option.setAttribute('data-layout', layout);
+                option.innerHTML = createLayoutIconSvg(layout);
+                option.addEventListener('click', async (event) => {
+                    event.stopPropagation();
+                    closeLayoutToolbarMenu();
+                    await switchLayoutMode(layout);
+                });
+                grid.appendChild(option);
+            });
+
+            menu.appendChild(grid);
+
+            trigger.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const isOpen = menu.classList.contains('open');
+                closeLayoutToolbarMenu();
+                if (!isOpen) {
+                    menu.classList.add('open');
+                    trigger.classList.add('open');
+                }
+            });
+
+            wrapper.appendChild(trigger);
+            wrapper.appendChild(menu);
+            toolbar.appendChild(wrapper);
+            layoutToolbarButton = trigger;
+            updateLayoutToolbarButton();
+        }
+
+        function observeToolbarForLayoutSelector() {
+            layoutToolbarButton = null;
+            settingsToolbarButton = null;
+            if (layoutToolbarObserver) {
+                layoutToolbarObserver.disconnect();
+                layoutToolbarObserver = null;
+            }
+            if (!layoutToolbarDismissBound) {
+                document.addEventListener('click', () => {
+                    closeLayoutToolbarMenu();
+                });
+                layoutToolbarDismissBound = true;
+            }
+
+            const injectToolbarControls = () => {
+                ensureSettingsToolbarButton();
+                ensureLayoutToolbarSelect();
+            };
+
+            requestAnimationFrame(injectToolbarControls);
+
+            const chartRoot = document.getElementById('chart');
+            if (!chartRoot) return;
+
+            layoutToolbarObserver = new MutationObserver(() => {
+                requestAnimationFrame(injectToolbarControls);
+            });
+            layoutToolbarObserver.observe(chartRoot, { childList: true, subtree: true });
+        }
+
         function initReplayControls() {
             replayPanel = document.getElementById('replay-panel');
             replayStopButton = document.getElementById('replay-stop');
@@ -802,6 +1277,12 @@
             replayStatus = document.getElementById('replay-status');
             replayIntervalLabel = document.getElementById('replay-interval');
             replayPickerLine = document.getElementById('replay-picker-line');
+
+            if (replayControlsInitialized) {
+                updateReplayControls();
+                return;
+            }
+            replayControlsInitialized = true;
 
             replayStopButton.addEventListener('click', () => {
                 void exitReplayMode();
@@ -836,6 +1317,283 @@
             });
 
             updateReplayControls();
+        }
+
+        async function loadChartWidgetData(widget, symbol, interval, exchange, slotIndex = 0) {
+            if (!widget) return;
+
+            widget.setLoading(true, `Loading ${symbol} from ${exchange}...`);
+            try {
+                const data = await fetchData(symbol, interval, exchange);
+                if (!data.length) return;
+
+                const series = getPrimarySeriesForWidget(widget);
+                if (!series) return;
+
+                widget.setData(series, data);
+                const currentSlot = multiChartMeta[slotIndex] || {};
+                multiChartMeta[slotIndex] = normalizeSlotState({
+                    ...currentSlot,
+                    symbol,
+                    interval,
+                    timeframe: interval,
+                    exchange,
+                    chartType: widget.chartType,
+                    priceScaleMode: widget.priceScaleMode,
+                }, currentSlot);
+                saveDemoLayoutState();
+            } finally {
+                widget.setLoading(false);
+            }
+        }
+
+        function attachMultiChartSubscriptions(widget, slotIndex) {
+            if (!widget || multiChartSubscribedWidgets.has(widget)) {
+                return;
+            }
+            multiChartSubscribedWidgets.add(widget);
+
+            widget.symbolChanged.subscribe(async (symbolInfo) => {
+                const symbol = typeof symbolInfo === 'object' ? symbolInfo.symbol : symbolInfo;
+                const exchange = typeof symbolInfo === 'object' && symbolInfo.exchange
+                    ? symbolInfo.exchange
+                    : (multiChartMeta[slotIndex]?.exchange || currentExchange);
+                const interval = multiChartMeta[slotIndex]?.interval || currentInterval;
+
+                await loadChartWidgetData(widget, symbol, interval, exchange, slotIndex);
+            });
+
+            widget.timeframeChanged.subscribe(async (newInterval) => {
+                let interval = String(newInterval).toLowerCase();
+                if (interval === 'd') interval = '1d';
+                if (interval === 'w') interval = '1w';
+
+                const meta = multiChartMeta[slotIndex] || {
+                    symbol: currentSymbol,
+                    interval: currentInterval,
+                    exchange: currentExchange,
+                };
+
+                await loadChartWidgetData(widget, meta.symbol, interval, meta.exchange, slotIndex);
+            });
+        }
+
+        function getLayoutSlots(mode) {
+            const defaults = [
+                { symbol: currentSymbol, interval: currentInterval, exchange: currentExchange, chartType: singleChartType, priceScaleMode: singlePriceScaleMode },
+                { symbol: currentSymbol, interval: currentInterval, exchange: currentExchange, chartType: singleChartType, priceScaleMode: singlePriceScaleMode },
+                { symbol: currentSymbol, interval: currentInterval, exchange: currentExchange, chartType: singleChartType, priceScaleMode: singlePriceScaleMode },
+                { symbol: currentSymbol, interval: currentInterval, exchange: currentExchange, chartType: singleChartType, priceScaleMode: singlePriceScaleMode },
+            ];
+            const slots = defaults.map((fallback, index) => normalizeSlotState(multiChartMeta[index], fallback));
+
+            switch (mode) {
+                case '2x1':
+                case '1x2':
+                    return slots.slice(0, 2).map((slot) => ({
+                        ...slot,
+                        timeframe: slot.interval,
+                    }));
+                case '1x3':
+                    return slots.slice(0, 3).map((slot) => ({
+                        ...slot,
+                        timeframe: slot.interval,
+                    }));
+                case '2x2':
+                    return slots.slice(0, 4).map((slot) => ({
+                        ...slot,
+                        timeframe: slot.interval,
+                    }));
+                default:
+                    return [{
+                        ...slots[0],
+                        timeframe: slots[0].interval,
+                    }];
+            }
+        }
+
+        async function destroyCurrentView() {
+            saveDemoLayoutState();
+            clearReplayTimer();
+            replayActive = false;
+            replaySelecting = false;
+            replayIndex = -1;
+            setReplayPickerVisible(false);
+            closeRealtimeFeed();
+
+            if (replayToolbarObserver) {
+                replayToolbarObserver.disconnect();
+                replayToolbarObserver = null;
+            }
+            if (layoutToolbarObserver) {
+                layoutToolbarObserver.disconnect();
+                layoutToolbarObserver = null;
+            }
+
+            layoutToolbarButton = null;
+            settingsToolbarButton = null;
+
+            if (multiChartLayout) {
+                multiChartLayout.destroy();
+                multiChartLayout = null;
+            }
+
+            if (chart) {
+                chart.dispose();
+                chart = null;
+                currentSeries = null;
+            }
+
+            const chartContainer = document.getElementById('chart');
+            if (chartContainer) {
+                chartContainer.innerHTML = '';
+            }
+        }
+
+        async function initMultiChart(mode) {
+            await destroyCurrentView();
+            currentLayoutMode = mode;
+
+            replayPanel.classList.add('hidden');
+
+            const slots = getLayoutSlots(mode);
+            multiChartMeta = slots.map((slot) => ({ ...slot, interval: slot.timeframe }));
+            multiChartLayout = LightweightCharts.createMultiChartLayout('#chart', {
+                layout: mode,
+                syncSymbol: false,
+                syncTimeframe: false,
+                activeIndex: Math.min(currentMultiChartActiveIndex, Math.max(0, slots.length - 1)),
+                charts: slots.map((slot) => ({
+                    locale: 'tr',
+                    symbol: slot.symbol,
+                    timeframe: slot.timeframe,
+                    exchange: slot.exchange,
+                    layout: {
+                        backgroundColor: '#1a1a2e',
+                        textColor: '#d1d4dc',
+                    },
+                    grid: {
+                        vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                        horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                    }
+                })),
+            });
+
+            for (let i = 0; i < slots.length; i++) {
+                const widget = multiChartLayout.getChart(i);
+                if (!widget) continue;
+                widget.setChartType(normalizeChartType(slots[i].chartType));
+                widget.setPriceScaleMode(normalizePriceScaleMode(slots[i].priceScaleMode));
+                attachMultiChartSubscriptions(widget, i);
+                await loadChartWidgetData(widget, slots[i].symbol, slots[i].timeframe, slots[i].exchange, i);
+            }
+
+            multiChartLayout.activeChartChanged.subscribe((index) => {
+                currentMultiChartActiveIndex = index;
+                saveDemoLayoutState();
+            });
+
+            currentMultiChartActiveIndex = Math.min(currentMultiChartActiveIndex, Math.max(0, slots.length - 1));
+
+            observeToolbarForLayoutSelector();
+            saveDemoLayoutState();
+        }
+
+        async function initSingleChart() {
+            await destroyCurrentView();
+            currentLayoutMode = 'single';
+
+            // Create full screen chart
+            chart = LightweightCharts.createChart('#chart', {
+                 locale: 'tr', // 'en' or 'tr'
+                 layout: {
+                     backgroundColor: '#1a1a2e',
+                     textColor: '#d1d4dc',
+                 },
+                 grid: {
+                     vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                     horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                 }
+            });
+
+            // Add candlestick series
+            currentSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderVisible: false,
+                wickVisible: true
+            });
+
+            chart.setChartType(singleChartType);
+            chart.setPriceScaleMode(singlePriceScaleMode);
+
+            observeToolbarForReplayButton();
+            observeToolbarForLayoutSelector();
+            attachReplaySelectionEvents();
+            updateReplayControls();
+
+            chart.symbolChanged.subscribe(async (symbolInfo) => {
+                if (typeof symbolInfo === 'object' && symbolInfo.exchange) {
+                    currentSymbol = symbolInfo.symbol;
+                    currentExchange = symbolInfo.exchange;
+                    console.log(`🔄 Symbol changed to: ${currentSymbol} @ ${currentExchange}`);
+                } else {
+                    currentSymbol = symbolInfo;
+                }
+                await updateChartData(currentSymbol, currentInterval, currentExchange);
+                saveDemoLayoutState();
+            });
+
+            chart.timeframeChanged.subscribe(async (newInterval) => {
+                let interval = newInterval.toLowerCase();
+                if (interval === 'd') interval = '1d';
+                if (interval === 'w') interval = '1w';
+
+                currentInterval = interval;
+                await updateChartData(currentSymbol, currentInterval, currentExchange);
+                saveDemoLayoutState();
+            });
+
+            await updateChartData(currentSymbol, currentInterval, currentExchange);
+            saveDemoLayoutState();
+        }
+
+        async function switchLayoutMode(mode) {
+            closeLayoutToolbarMenu();
+
+            if (mode === currentLayoutMode) {
+                updateLayoutToolbarButton();
+                return;
+            }
+
+            if (mode === 'single') {
+                await initSingleChart();
+                updateLayoutToolbarButton();
+                return;
+            }
+
+            if (currentLayoutMode === 'single') {
+                const baseState = normalizeSlotState({
+                    symbol: currentSymbol,
+                    interval: currentInterval,
+                    timeframe: currentInterval,
+                    exchange: currentExchange,
+                    chartType: chart?.chartType || singleChartType,
+                    priceScaleMode: chart?.priceScaleMode || singlePriceScaleMode,
+                }, {
+                    symbol: currentSymbol,
+                    interval: currentInterval,
+                    exchange: currentExchange,
+                    chartType: singleChartType,
+                    priceScaleMode: singlePriceScaleMode,
+                });
+
+                multiChartMeta = Array.from({ length: 4 }, () => ({ ...baseState }));
+                currentMultiChartActiveIndex = 0;
+            }
+
+            await initMultiChart(mode);
+            updateLayoutToolbarButton();
         }
 
         function subscribeToWebSocket(symbol, interval, exchange) {
@@ -1066,6 +1824,7 @@
                         
                         // Subscribe to WebSocket for real-time updates
                         subscribeToWebSocket(symbol, interval, exchange);
+                        saveDemoLayoutState();
                     }
                 } else {
                     alert(`${symbol} verisi ${exchange}'dan çekilemedi.`);
@@ -1077,59 +1836,17 @@
 
         async function initChart() {
             initReplayControls();
+            if (currentLayoutMode === 'single') {
+                await initSingleChart();
+                return;
+            }
 
-            // Create full screen chart
-            chart = LightweightCharts.createChart('#chart', {
-                 locale: 'tr', // 'en' or 'tr'
-                 layout: {
-                     backgroundColor: '#1a1a2e',
-                     textColor: '#d1d4dc',
-                 },
-                 grid: {
-                     vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
-                     horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
-                 }
-            });
-
-            // Add candlestick series
-            currentSeries = chart.addCandlestickSeries({
-                upColor: '#26a69a',
-                downColor: '#ef5350',
-                borderVisible: false,
-                wickVisible: true
-            });
-            observeToolbarForReplayButton();
-            attachReplaySelectionEvents();
-            updateReplayControls();
-
-            // Listen for symbol changes (now includes exchange info)
-            chart.symbolChanged.subscribe(async (symbolInfo) => {
-                // symbolInfo can be string (old) or object (new with exchange)
-                if (typeof symbolInfo === 'object' && symbolInfo.exchange) {
-                    currentSymbol = symbolInfo.symbol;
-                    currentExchange = symbolInfo.exchange;
-                    console.log(`🔄 Symbol changed to: ${currentSymbol} @ ${currentExchange}`);
-                } else {
-                    currentSymbol = symbolInfo;
-                    // Keep current exchange if it's just a symbol string
-                }
-                await updateChartData(currentSymbol, currentInterval, currentExchange);
-            });
-
-            // Listen for timeframe changes
-            chart.timeframeChanged.subscribe(async (newInterval) => {
-                let interval = newInterval.toLowerCase();
-                if (interval === 'd') interval = '1d';
-                if (interval === 'w') interval = '1w';
-                
-                currentInterval = interval;
-                await updateChartData(currentSymbol, currentInterval, currentExchange);
-            });
-            
-            // Initial load
-            await updateChartData(currentSymbol, currentInterval, currentExchange);
+            await initMultiChart(currentLayoutMode);
         }
 
+        window.addEventListener('beforeunload', () => {
+            saveDemoLayoutState();
+        });
         document.addEventListener('DOMContentLoaded', initChart);
     </script>
 </body>

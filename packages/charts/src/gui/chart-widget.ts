@@ -14,13 +14,14 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
 import { DrawingManager, DrawingMode } from '../drawings';
 import { FloatingAttributeBar } from './attribute_bar';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
+import { ChartSettingsModal } from './chart-settings-modal';
 import { ChartStateManager } from '../state';
 import { AddTextTooltipHelper } from './tooltips';
 import { TechnicalRatingBadge } from './technical-rating-badge';
@@ -52,7 +53,6 @@ import {
     handlePriceAxisDoubleClick as handlePriceAxisDoubleClickEvent
 } from './chart_widget';
 import {
-    handleContextSettings,
     handleContextCopyPrice,
     handleContextScreenshot,
     handleContextFullscreen,
@@ -63,6 +63,15 @@ import {
 /** Disposable interface for cleanup */
 interface Disposable {
     dispose(): void;
+}
+
+export interface ChartWidgetOptions extends Omit<Partial<ChartModelOptions>, 'locale'> {
+    symbol?: string;
+    timeframe?: string;
+    exchange?: string;
+    locale?: ChartModelOptions['locale'];
+    showToolbar?: boolean;
+    showDrawingToolbar?: boolean;
 }
 
 /**
@@ -130,6 +139,7 @@ export class ChartWidget implements Disposable {
     // Indicator search modal
     private _indicatorSearchModal: IndicatorSearchModal | null = null;
     private _indicatorSettingsModal: IndicatorSettingsModal | null = null;
+    private _chartSettingsModal: ChartSettingsModal | null = null;
     private _editingIndicator: PanelIndicator | null = null;
 
     // State persistence
@@ -148,6 +158,8 @@ export class ChartWidget implements Disposable {
     // Technical Rating Badge
     private _technicalRatingBadge: TechnicalRatingBadge | null = null;
     private _currentTheme: ThemeType = 'light';
+    private _candlestickStyleOverrides: Partial<CandlestickSeriesOptions> = {};
+    private _heikenAshiStyleOverrides: Partial<HeikenAshiSeriesOptions> = {};
 
     // Orderbook Heatmap
     private _dataProvider: OrderbookProvider | null = null;
@@ -160,10 +172,12 @@ export class ChartWidget implements Disposable {
 
     // Auto-resize
     private _resizeObserver: ResizeObserver | null = null;
+    private readonly _showToolbar: boolean;
+    private readonly _showDrawingToolbar: boolean;
 
 
 
-    constructor(container: HTMLElement | string, options: Partial<ChartModelOptions> & { symbol?: string, timeframe?: string, exchange?: string, locale?: string } = {}) {
+    constructor(container: HTMLElement | string, options: ChartWidgetOptions = {}) {
         // Check localStorage for theme preference
         try {
             const savedTheme = localStorage.getItem('tv-chart-theme');
@@ -190,6 +204,8 @@ export class ChartWidget implements Disposable {
 
         // Create model
         this._model = new ChartModel(options);
+        this._showToolbar = options.showToolbar !== false;
+        this._showDrawingToolbar = options.showDrawingToolbar !== false;
 
         const initialSymbol = options.symbol || 'BTCUSDT';
         const initialTimeframe = options.timeframe || '1h';
@@ -199,6 +215,7 @@ export class ChartWidget implements Disposable {
         // Set initial symbol/timeframe in model
         this._model.setSymbol(initialSymbol);
         this._model.setTimeframe(initialTimeframe);
+        this._model.setExchange(initialExchange);
 
         // Initialize indicator manager
         this._indicatorManager = new IndicatorManager();
@@ -231,6 +248,10 @@ export class ChartWidget implements Disposable {
         // Build UI
         this._createLayout();
         this._setupEventListeners();
+        if (this._element) {
+            this._chartSettingsModal = new ChartSettingsModal(this._element);
+            this._chartSettingsModal.setTheme(this._currentTheme);
+        }
 
         // Now that UI is created, load saved state for symbol
         this._chartStateManager.setSymbol(initialSymbol);
@@ -370,6 +391,95 @@ export class ChartWidget implements Disposable {
         return this._timeframeChanged;
     }
 
+    get chartType(): ChartType {
+        return this._activeChartType;
+    }
+
+    get priceScaleMode(): 'normal' | 'logarithmic' {
+        return this._model.rightPriceScale.mode === PriceScaleMode.Logarithmic ? 'logarithmic' : 'normal';
+    }
+
+    get symbol(): string {
+        return this._model.symbol;
+    }
+
+    get timeframe(): string {
+        return this._model.timeframe;
+    }
+
+    setSymbol(symbol: string | SymbolInfo): void {
+        const symbolInfo: SymbolInfo = typeof symbol === 'string'
+            ? {
+                symbol,
+                full_name: symbol,
+                description: symbol,
+                exchange: this._currentExchange || this._model.exchange || 'BINANCE',
+                type: 'crypto',
+            }
+            : symbol;
+
+        this._onSymbolChange(symbolInfo);
+    }
+
+    setTimeframe(timeframe: string): void {
+        if (this._toolbarWidget) {
+            this._toolbarWidget.setTimeframe(timeframe, false);
+        }
+
+        this._onTimeframeChange(timeframe);
+    }
+
+    setChartType(type: ChartType): void {
+        if (this._toolbarWidget) {
+            this._toolbarWidget.setChartType(type);
+            return;
+        }
+
+        this._onChartTypeChange(type);
+    }
+
+    setPriceScaleMode(mode: 'normal' | 'logarithmic'): void {
+        if (this._toolbarWidget) {
+            this._toolbarWidget.setPriceScaleMode(mode);
+            return;
+        }
+
+        this._onPriceScaleModeChange(mode);
+    }
+
+    setDomEnabled(enabled: boolean): void {
+        if (!this._heatmapRenderer) {
+            return;
+        }
+
+        this._heatmapRenderer.enabled = enabled;
+        if (enabled) {
+            this._dataProvider?.subscribeOrderbook(this._currentSymbol, this._onOrderbookUpdate);
+        } else if (this._dataProvider instanceof BinanceSpotProvider) {
+            this._dataProvider.unsubscribeOrderbook(this._currentSymbol);
+        } else {
+            (this._dataProvider as any)?.unsubscribeOrderbook?.(this._currentSymbol);
+        }
+
+        this._scheduleDraw();
+    }
+
+    showSymbolSearch(): void {
+        this._symbolSearch?.show();
+    }
+
+    showIndicatorSearch(): void {
+        this._indicatorSearchModal?.show();
+    }
+
+    setLanguage(locale: string): void {
+        this._onLanguageChange(locale);
+    }
+
+    openSettings(): void {
+        this._openChartSettings();
+    }
+
     resize(width: number, height: number): void {
         this._width = width;
         this._height = height;
@@ -482,6 +592,10 @@ export class ChartWidget implements Disposable {
         // Update drawing settings modal if open
         if (this._drawingSettingsModal) {
             this._drawingSettingsModal.setTheme(theme);
+        }
+
+        if (this._chartSettingsModal) {
+            this._chartSettingsModal.setTheme(theme);
         }
 
         // Update drawing toolbar
@@ -713,7 +827,7 @@ export class ChartWidget implements Disposable {
         this._loadingOverlay = document.createElement('div');
         this._loadingOverlay.style.cssText = `
             position: absolute;
-            top: 38px;
+            top: ${this._showToolbar ? 38 : 0}px;
             left: 0;
             right: 0;
             bottom: 0;
@@ -806,7 +920,9 @@ export class ChartWidget implements Disposable {
         this._technicalRatingBadge = new TechnicalRatingBadge(this._chartRow);
 
         // Create toolbar first (inserts at top)
-        this._createTopToolbar();
+        if (this._showToolbar) {
+            this._createTopToolbar();
+        }
 
         // Initialize Symbol Search Modal
         this._symbolSearch = new SymbolSearch();
@@ -848,7 +964,9 @@ export class ChartWidget implements Disposable {
 
         // Create drawing toolbar (left side)
         // Initialize Drawing Toolbar
-        this._createDrawingToolbar();
+        if (this._showDrawingToolbar) {
+            this._createDrawingToolbar();
+        }
 
         // Create floating attribute bar (shown when drawing is selected)
         this._floatingAttributeBar = new FloatingAttributeBar(this._element);
@@ -890,10 +1008,10 @@ export class ChartWidget implements Disposable {
     }
 
     private _updateLayout(): void {
-        const toolbarHeight = this._toolbarWidget?.height ?? 38;
+        const toolbarHeight = this._toolbarWidget?.height ?? 0;
         const timeAxisHeight = this._timeAxisWidget?.height ?? 28;
         const priceAxisWidth = this._priceAxisWidget?.width ?? 80;
-        const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 48;
+        const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 0;
 
         // Calculate total indicator pane heights
         let indicatorPanesHeight = 0;
@@ -973,7 +1091,8 @@ export class ChartWidget implements Disposable {
                     upColor: '#26a69a',
                     downColor: '#ef5350',
                     borderVisible: false,
-                    wickVisible: true
+                    wickVisible: true,
+                    ...this._heikenAshiStyleOverrides
                 });
                 break;
             case 'candles':
@@ -982,7 +1101,8 @@ export class ChartWidget implements Disposable {
                     upColor: '#26a69a',
                     downColor: '#ef5350',
                     borderVisible: false,
-                    wickVisible: true
+                    wickVisible: true,
+                    ...this._candlestickStyleOverrides
                 });
                 break;
         }
@@ -1865,7 +1985,50 @@ export class ChartWidget implements Disposable {
     // --- Context Menu Actions ---
 
     private _onContextSettings(): void {
-        handleContextSettings();
+        this._openChartSettings();
+    }
+
+    private _openChartSettings(): void {
+        const series = this._model.serieses[0];
+        if (!series || !this._chartSettingsModal) {
+            return;
+        }
+
+        if (series instanceof CandlestickSeries) {
+            const options = series.candleOptions;
+            this._chartSettingsModal.showCandlestick({
+                upColor: options.upColor,
+                downColor: options.downColor,
+                wickUpColor: options.wickUpColor,
+                wickDownColor: options.wickDownColor,
+                borderUpColor: options.borderUpColor,
+                borderDownColor: options.borderDownColor,
+                wickVisible: options.wickVisible,
+                borderVisible: options.borderVisible,
+            }, (next) => {
+                this._candlestickStyleOverrides = { ...next };
+                series.applyOptions(next);
+                this._scheduleDraw();
+            });
+            return;
+        }
+
+        if (series instanceof HeikenAshiSeries) {
+            const options = series.haOptions;
+            this._chartSettingsModal.showHeikenAshi({
+                upColor: options.upColor,
+                downColor: options.downColor,
+                wickVisible: options.wickVisible,
+                borderVisible: options.borderVisible,
+            }, (next) => {
+                this._heikenAshiStyleOverrides = { ...next };
+                series.applyOptions(next);
+                this._scheduleDraw();
+            });
+            return;
+        }
+
+        this._chartSettingsModal.showUnsupported('Bu ayar su anda sadece mum ve Heiken Ashi grafiklerinde kullanilabilir.');
     }
 
     private _onContextCopyPrice(): void {
@@ -2097,6 +2260,16 @@ export class ChartWidget implements Disposable {
                     displacement: 26,
                 }));
                 break;
+            case 'fixed-range-volume-profile':
+                this.addOverlayIndicator(new FixedRangeVolumeProfileIndicator({
+                    rangeBars: 200,
+                    rows: 32,
+                    valueAreaPercent: 70,
+                    profileWidthPercent: 35,
+                    showPOC: true,
+                    showValueArea: true,
+                }));
+                break;
             case 'halftrend':
                 this.addOverlayIndicator(new HalfTrendIndicator({
                     amplitude: 2,
@@ -2258,6 +2431,7 @@ export class ChartWidget implements Disposable {
         this._drawingToolbarWidget?.dispose();
         this._symbolSearch?.dispose();
         this._indicatorSearchModal?.dispose();
+        this._chartSettingsModal?.dispose();
         this._paneWidget?.dispose();
         this._priceAxisWidget?.dispose();
         this._timeAxisWidget?.dispose();
@@ -2329,10 +2503,14 @@ export class ChartWidget implements Disposable {
         this._createContextMenu();
 
         // Re-create drawing toolbar to update tooltips
-        this._createDrawingToolbar();
+        if (this._showDrawingToolbar) {
+            this._createDrawingToolbar();
+        }
 
         // Re-create top toolbar
-        this._createTopToolbar();
+        if (this._showToolbar) {
+            this._createTopToolbar();
+        }
 
         // Re-create symbol search modal
         if (this._symbolSearch) {
@@ -2419,6 +2597,10 @@ export class ChartWidget implements Disposable {
     }
 
     private _createDrawingToolbar(): void {
+        if (!this._showDrawingToolbar) {
+            return;
+        }
+
         if (this._drawingToolbarWidget) {
             this._drawingToolbarWidget.dispose();
         }
@@ -2539,7 +2721,7 @@ export class ChartWidget implements Disposable {
  */
 export function createChart(
     container: HTMLElement | string,
-    options?: Partial<ChartModelOptions> & { symbol?: string; timeframe?: string; exchange?: string; locale?: string }
+    options?: ChartWidgetOptions
 ): ChartWidget {
     return new ChartWidget(container, options);
 }

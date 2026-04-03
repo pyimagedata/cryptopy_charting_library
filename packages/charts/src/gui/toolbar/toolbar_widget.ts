@@ -141,25 +141,31 @@ export class ToolbarWidget {
         }
     }
 
-    setTimeframe(timeframe: string): void {
+    setTimeframe(timeframe: string, emit: boolean = true): void {
         if (this._activeTimeframe === timeframe) return;
         this._activeTimeframe = timeframe;
         this._updateTimeframeButtons();
-        this._timeframeChanged.fire(timeframe);
+        if (emit) {
+            this._timeframeChanged.fire(timeframe);
+        }
     }
 
-    setChartType(type: ChartType): void {
+    setChartType(type: ChartType, emit: boolean = true): void {
         if (this._activeChartType === type) return;
         this._activeChartType = type;
         this._updateChartTypeButtons();
-        this._chartTypeChanged.fire(type);
+        if (emit) {
+            this._chartTypeChanged.fire(type);
+        }
     }
 
-    setPriceScaleMode(mode: 'normal' | 'logarithmic'): void {
+    setPriceScaleMode(mode: 'normal' | 'logarithmic', emit: boolean = true): void {
         if (this._activePriceScaleMode === mode) return;
         this._activePriceScaleMode = mode;
         this._updatePriceScaleButtons();
-        this._priceScaleModeChanged.fire(mode);
+        if (emit) {
+            this._priceScaleModeChanged.fire(mode);
+        }
     }
 
     // --- Private methods ---

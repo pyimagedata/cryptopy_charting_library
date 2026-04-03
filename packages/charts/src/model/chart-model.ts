@@ -245,6 +245,7 @@ export class ChartModel {
     /** Get human-readable exchange name */
     get exchangeDisplayName(): string {
         const names: Record<string, string> = {
+            'BIST': 'BIST',
             'BINANCE': 'Binance',
             'BINANCE-FUTURES': 'Binance',
             'BYBIT': 'Bybit',
@@ -257,6 +258,9 @@ export class ChartModel {
 
     /** Get market type display name */
     get marketTypeDisplayName(): string {
+        if (this._exchange === 'BIST') {
+            return 'Hisse';
+        }
         return this._marketType === 'futures' ? 'Perpetual Contract' : 'Spot';
     }
 
