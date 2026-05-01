@@ -110,6 +110,40 @@ export function handleMouseDown(
         };
     }
 
+    // Drawing tools must own pane clicks before existing drawings are hit-tested.
+    // This lets new shapes start or finish even when the pointer is over another drawing.
+    if (ctx.drawingManager.mode !== 'none') {
+        // Apply magnet if enabled
+        let finalX = x;
+        let finalY = y;
+        let snappedPrice: number | undefined;
+
+        if (ctx.getBarData) {
+            const barData = ctx.getBarData();
+            const magnetResult = ctx.drawingManager.applyMagnet(x, y, barData);
+
+            // Always snap X to bar center when in drawing mode
+            if (magnetResult.snappedX !== undefined) {
+                finalX = magnetResult.snappedX;
+            }
+
+            if (ctx.drawingManager.magnetMode !== 'none' && magnetResult.snapped) {
+                finalY = magnetResult.y;
+                snappedPrice = magnetResult.snappedPrice;
+            }
+        }
+
+        if (ctx.drawingManager.activeDrawing) {
+            if (ctx.drawingManager.activeDrawing.type !== 'brush' &&
+                ctx.drawingManager.activeDrawing.type !== 'highlighter') {
+                ctx.drawingManager.finishDrawing(finalX, finalY, snappedPrice);
+            }
+        } else {
+            ctx.drawingManager.startDrawing(finalX, finalY, snappedPrice);
+        }
+        return {};
+    }
+
     if (!ctx.drawingManager.isLocked) {
         // Check if clicking on a control point of selected drawing
         const selected = ctx.drawingManager.selectedDrawing;
@@ -144,39 +178,6 @@ export function handleMouseDown(
                 dragStartY: y
             };
         }
-    }
-
-    // Check if we're in drawing mode
-    if (ctx.drawingManager.mode !== 'none') {
-        // Apply magnet if enabled
-        let finalX = x;
-        let finalY = y;
-        let snappedPrice: number | undefined;
-
-        if (ctx.getBarData) {
-            const barData = ctx.getBarData();
-            const magnetResult = ctx.drawingManager.applyMagnet(x, y, barData);
-
-            // Always snap X to bar center when in drawing mode
-            if (magnetResult.snappedX !== undefined) {
-                finalX = magnetResult.snappedX;
-            }
-
-            if (ctx.drawingManager.magnetMode !== 'none' && magnetResult.snapped) {
-                finalY = magnetResult.y;
-                snappedPrice = magnetResult.snappedPrice;
-            }
-        }
-
-        if (ctx.drawingManager.activeDrawing) {
-            if (ctx.drawingManager.activeDrawing.type !== 'brush' &&
-                ctx.drawingManager.activeDrawing.type !== 'highlighter') {
-                ctx.drawingManager.finishDrawing(finalX, finalY, snappedPrice);
-            }
-        } else {
-            ctx.drawingManager.startDrawing(finalX, finalY, snappedPrice);
-        }
-        return {};
     }
 
     // Normal panning mode

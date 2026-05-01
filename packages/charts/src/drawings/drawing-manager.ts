@@ -633,7 +633,11 @@ export class DrawingManager {
 
     /** Select a drawing at the given coordinates */
     selectDrawingAt(x: number, y: number, paneId: string | null = null): Drawing | null {
-        for (const drawing of this._drawings.values()) {
+        const drawings = Array.from(this._drawings.values());
+
+        for (let i = drawings.length - 1; i >= 0; i--) {
+            const drawing = drawings[i];
+
             if ((drawing.paneId ?? null) !== paneId) {
                 continue;
             }

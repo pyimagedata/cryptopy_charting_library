@@ -896,7 +896,7 @@ export class PaneWidget implements Disposable {
         let overlayIndicatorsHtml = '';
         const overlayIndicators = this._overlayRenderer.indicators;
         if (overlayIndicators.length > 0) {
-            overlayIndicatorsHtml = '<div style="margin-top: 32px; display: flex; flex-direction: column;">';
+            overlayIndicatorsHtml = '<div style="margin-top: 32px; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none;">';
             for (let i = 0; i < overlayIndicators.length; i++) {
                 const indicator = overlayIndicators[i];
                 const name = indicator.name || indicator.options.name || 'Indicator';
@@ -918,7 +918,7 @@ export class PaneWidget implements Disposable {
                 const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" d="M7.5 4a.5.5 0 0 0-.5.5V5h4v-.5a.5.5 0 0 0-.5-.5h-3ZM12 5h3v1h-1.05l-.85 7.67A1.5 1.5 0 0 1 11.6 15H6.4a1.5 1.5 0 0 1-1.5-1.33L4.05 6H3V5h3v-.5C6 3.67 6.67 3 7.5 3h3c.83 0 1.5.67 1.5 1.5V5ZM5.06 6l.84 7.56a.5.5 0 0 0 .5.44h5.2a.5.5 0 0 0 .5-.44L12.94 6H5.06Z"></path></svg>`;
 
                 overlayIndicatorsHtml += `
-                    <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: flex; align-items: center; font-size: 12px; height: 20px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
+                    <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: inline-flex; align-items: center; width: max-content; max-width: 100%; font-size: 12px; height: 20px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
                         <span style="color: ${textColor}; font-weight: 500;">${name}</span>
                         <span class="overlay-indicator-value" data-index="${i}" style="color: ${textColor}; margin-left: 6px;">${valueText}</span>
                         <div class="overlay-btn-group" style="visibility: hidden; display: flex; align-items: center; gap: 4px; margin-left: 8px;">
@@ -1037,6 +1037,7 @@ export class PaneWidget implements Disposable {
             z-index: 10;
             font-family: ${this._model.options.layout.fontFamily};
             user-select: none;
+            pointer-events: none;
         `;
         this._element.appendChild(this._legendElement);
 

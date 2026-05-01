@@ -14559,7 +14559,9 @@ var LightweightCharts = (() => {
     }
     /** Select a drawing at the given coordinates */
     selectDrawingAt(x, y, paneId = null) {
-      for (const drawing of this._drawings.values()) {
+      const drawings = Array.from(this._drawings.values());
+      for (let i = drawings.length - 1; i >= 0; i--) {
+        const drawing = drawings[i];
         if ((drawing.paneId ?? null) !== paneId) {
           continue;
         }
@@ -15803,7 +15805,7 @@ var LightweightCharts = (() => {
       let overlayIndicatorsHtml = "";
       const overlayIndicators = this._overlayRenderer.indicators;
       if (overlayIndicators.length > 0) {
-        overlayIndicatorsHtml = '<div style="margin-top: 32px; display: flex; flex-direction: column;">';
+        overlayIndicatorsHtml = '<div style="margin-top: 32px; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none;">';
         for (let i = 0; i < overlayIndicators.length; i++) {
           const indicator = overlayIndicators[i];
           const name = indicator.name || indicator.options.name || "Indicator";
@@ -15815,7 +15817,7 @@ var LightweightCharts = (() => {
           const settingsIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" fill-rule="evenodd" d="m3.1 9 2.28-5h7.24l2.28 5-2.28 5H5.38L3.1 9Zm1.63-6h8.54L16 9l-2.73 6H4.73L2 9l2.73-6Zm5.77 6a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm1 0a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z"></path></svg>`;
           const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" d="M7.5 4a.5.5 0 0 0-.5.5V5h4v-.5a.5.5 0 0 0-.5-.5h-3ZM12 5h3v1h-1.05l-.85 7.67A1.5 1.5 0 0 1 11.6 15H6.4a1.5 1.5 0 0 1-1.5-1.33L4.05 6H3V5h3v-.5C6 3.67 6.67 3 7.5 3h3c.83 0 1.5.67 1.5 1.5V5ZM5.06 6l.84 7.56a.5.5 0 0 0 .5.44h5.2a.5.5 0 0 0 .5-.44L12.94 6H5.06Z"></path></svg>`;
           overlayIndicatorsHtml += `
-                    <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: flex; align-items: center; font-size: 12px; height: 20px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
+                    <div class="overlay-indicator-row" data-indicator-index="${i}" style="display: inline-flex; align-items: center; width: max-content; max-width: 100%; font-size: 12px; height: 20px; opacity: ${opacity}; pointer-events: auto; cursor: default;">
                         <span style="color: ${textColor}; font-weight: 500;">${name}</span>
                         <span class="overlay-indicator-value" data-index="${i}" style="color: ${textColor}; margin-left: 6px;">${valueText}</span>
                         <div class="overlay-btn-group" style="visibility: hidden; display: flex; align-items: center; gap: 4px; margin-left: 8px;">
@@ -15913,6 +15915,7 @@ var LightweightCharts = (() => {
             z-index: 10;
             font-family: ${this._model.options.layout.fontFamily};
             user-select: none;
+            pointer-events: none;
         `;
       this._element.appendChild(this._legendElement);
       this._loadingElement = document.createElement("div");
@@ -34464,6 +34467,30 @@ ${note}`;
         lastMouseY: e.clientY
       };
     }
+    if (ctx.drawingManager.mode !== "none") {
+      let finalX = x;
+      let finalY = y;
+      let snappedPrice;
+      if (ctx.getBarData) {
+        const barData = ctx.getBarData();
+        const magnetResult = ctx.drawingManager.applyMagnet(x, y, barData);
+        if (magnetResult.snappedX !== void 0) {
+          finalX = magnetResult.snappedX;
+        }
+        if (ctx.drawingManager.magnetMode !== "none" && magnetResult.snapped) {
+          finalY = magnetResult.y;
+          snappedPrice = magnetResult.snappedPrice;
+        }
+      }
+      if (ctx.drawingManager.activeDrawing) {
+        if (ctx.drawingManager.activeDrawing.type !== "brush" && ctx.drawingManager.activeDrawing.type !== "highlighter") {
+          ctx.drawingManager.finishDrawing(finalX, finalY, snappedPrice);
+        }
+      } else {
+        ctx.drawingManager.startDrawing(finalX, finalY, snappedPrice);
+      }
+      return {};
+    }
     if (!ctx.drawingManager.isLocked) {
       const selected = ctx.drawingManager.selectedDrawing;
       if (selected && (selected.paneId ?? null) === ctx.paneId) {
@@ -34494,30 +34521,6 @@ ${note}`;
           dragStartY: y
         };
       }
-    }
-    if (ctx.drawingManager.mode !== "none") {
-      let finalX = x;
-      let finalY = y;
-      let snappedPrice;
-      if (ctx.getBarData) {
-        const barData = ctx.getBarData();
-        const magnetResult = ctx.drawingManager.applyMagnet(x, y, barData);
-        if (magnetResult.snappedX !== void 0) {
-          finalX = magnetResult.snappedX;
-        }
-        if (ctx.drawingManager.magnetMode !== "none" && magnetResult.snapped) {
-          finalY = magnetResult.y;
-          snappedPrice = magnetResult.snappedPrice;
-        }
-      }
-      if (ctx.drawingManager.activeDrawing) {
-        if (ctx.drawingManager.activeDrawing.type !== "brush" && ctx.drawingManager.activeDrawing.type !== "highlighter") {
-          ctx.drawingManager.finishDrawing(finalX, finalY, snappedPrice);
-        }
-      } else {
-        ctx.drawingManager.startDrawing(finalX, finalY, snappedPrice);
-      }
-      return {};
     }
     const result = {
       isDragging: true,
