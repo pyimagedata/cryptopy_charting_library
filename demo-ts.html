@@ -1152,7 +1152,7 @@
         }
 
         function closeLayoutToolbarMenu() {
-            const menu = document.querySelector('#chart .toolbar-layout-menu');
+            const menu = document.querySelector('.toolbar-layout-menu');
             menu?.classList.remove('open');
             layoutToolbarButton?.classList.remove('open');
         }
@@ -1192,6 +1192,12 @@
                 </svg>
             `;
 
+            // Clean up any existing menu from document.body to avoid duplicate element leaks
+            const existingMenu = document.body.querySelector('.toolbar-layout-menu');
+            if (existingMenu) {
+                existingMenu.remove();
+            }
+
             const menu = document.createElement('div');
             menu.className = 'toolbar-layout-menu';
 
@@ -1229,11 +1235,17 @@
                 if (!isOpen) {
                     menu.classList.add('open');
                     trigger.classList.add('open');
+
+                    // Position dynamically using viewport coordinates to bypass overflow clipping
+                    const rect = trigger.getBoundingClientRect();
+                    menu.style.position = 'fixed';
+                    menu.style.top = `${rect.bottom + 6}px`;
+                    menu.style.left = `${rect.right - 125}px`;
                 }
             });
 
             wrapper.appendChild(trigger);
-            wrapper.appendChild(menu);
+            document.body.appendChild(menu); // Append directly to document.body to avoid overflow:hidden clipping
             toolbar.appendChild(wrapper);
             layoutToolbarButton = trigger;
             updateLayoutToolbarButton();
