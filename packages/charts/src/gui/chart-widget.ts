@@ -1120,7 +1120,7 @@ export class ChartWidget implements Disposable {
 
         // Update indicator pane widths
         for (const pane of this._indicatorPanes.values()) {
-            pane.setWidth(this._width - drawingToolbarWidth);
+            pane.setWidth(this._width - drawingToolbarWidth, priceAxisWidth);
         }
 
         // Update CSS Custom Properties dynamically (for runtime changes)

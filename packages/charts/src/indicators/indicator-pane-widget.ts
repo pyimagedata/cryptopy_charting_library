@@ -166,8 +166,16 @@ export class IndicatorPaneWidget implements Disposable {
 
     // --- Size management ---
 
-    setWidth(width: number): void {
+    setWidth(width: number, priceScaleWidth?: number): void {
         this._width = width;
+        if (priceScaleWidth !== undefined && priceScaleWidth !== this._options.priceScaleWidth) {
+            this._options.priceScaleWidth = priceScaleWidth;
+            if (this._priceAxisCanvas) {
+                this._priceAxisCanvas.style.width = `${priceScaleWidth}px`;
+                const dpr = window.devicePixelRatio || 1;
+                this._priceAxisCanvas.width = priceScaleWidth * dpr;
+            }
+        }
         const chartWidth = width - this._options.priceScaleWidth;
 
         if (this._element) {
@@ -178,6 +186,10 @@ export class IndicatorPaneWidget implements Disposable {
             const dpr = window.devicePixelRatio || 1;
             this._canvas.style.width = `${chartWidth}px`;
             this._canvas.width = chartWidth * dpr;
+        }
+
+        if (this._legendContainer) {
+            this._legendContainer.style.right = `${this._options.priceScaleWidth + 10}px`;
         }
     }
 
