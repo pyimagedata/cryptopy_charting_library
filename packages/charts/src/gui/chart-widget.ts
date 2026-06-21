@@ -2657,7 +2657,6 @@ export class ChartWidget implements Disposable {
                 this.addOverlayIndicator(new DeMarkPivotIndicator({
                     timeframe: 'D',
                     showPivots: true,
-                    showEma: true,
                     showObv: false,
                 }));
                 break;

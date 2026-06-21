@@ -41,19 +41,12 @@ export interface DeMarkPivotIndicatorOptions extends IndicatorOptions {
     showMonthlyPivots: boolean;
     useClassicPrevOpen: boolean;
     showPivots: boolean;
-    showEma: boolean;
     showClose: boolean;
     showObv: boolean;
     obvDivider: number;
     rColor: string;
     ppColor: string;
     sColor: string;
-    ema21Color: string;
-    ema33Color: string;
-    ema55Color: string;
-    ema144Color: string;
-    ema233Color: string;
-    ema5Color: string;
     closeColor: string;
     obvColor: string;
     obvRefColor: string;
@@ -67,7 +60,6 @@ const defaultOptions: Partial<DeMarkPivotIndicatorOptions> = {
     showMonthlyPivots: false,
     useClassicPrevOpen: false,
     showPivots: true,
-    showEma: true,
     showClose: false,
     showObv: false,
     obvDivider: 250000000,
@@ -77,12 +69,6 @@ const defaultOptions: Partial<DeMarkPivotIndicatorOptions> = {
     rColor: '#ef5350',
     ppColor: '#f6c343',
     sColor: '#22c55e',
-    ema21Color: '#00bcd4',
-    ema33Color: '#2962ff',
-    ema55Color: '#8e24aa',
-    ema144Color: '#ff9800',
-    ema233Color: '#7f1d1d',
-    ema5Color: '#ffffff',
     closeColor: '#ffffff',
     obvColor: '#787b86',
     obvRefColor: '#d946ef',
@@ -95,12 +81,6 @@ const PIVOT_BASE_INDEX: Record<PivotTimeframe, number> = {
 };
 
 const VALUE_INDEX = {
-    ema21: 21,
-    ema33: 22,
-    ema55: 23,
-    ema144: 24,
-    ema233: 25,
-    ema5: 26,
     close: 27,
     obv: 28,
     ro1: 29,
@@ -247,12 +227,6 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
             }
         }
 
-        this._applyEma(sourceData, 21, VALUE_INDEX.ema21);
-        this._applyEma(sourceData, 33, VALUE_INDEX.ema33);
-        this._applyEma(sourceData, 55, VALUE_INDEX.ema55);
-        this._applyEma(sourceData, 144, VALUE_INDEX.ema144);
-        this._applyEma(sourceData, 233, VALUE_INDEX.ema233);
-        this._applyEma(sourceData, 5, VALUE_INDEX.ema5);
         this._applyClose(sourceData);
         this._applyObv(sourceData);
     }
@@ -270,18 +244,11 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
 
         if (this._pivotOptions.showPivots) {
             for (const timeframe of this.pivotTimeframes) {
-                this._drawPivotLevels(ctx, timeScale, priceScale, timeframe, startIndex, endIndex, hpr, vpr);
-            }
-        }
-
-        if (this._pivotOptions.showEma) {
-            this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema21, this._pivotOptions.ema21Color, startIndex, endIndex, hpr, vpr);
-            this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema33, this._pivotOptions.ema33Color, startIndex, endIndex, hpr, vpr);
-            this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema55, this._pivotOptions.ema55Color, startIndex, endIndex, hpr, vpr);
-            this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema144, this._pivotOptions.ema144Color, startIndex, endIndex, hpr, vpr, 1);
-            this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema233, this._pivotOptions.ema233Color, startIndex, endIndex, hpr, vpr, 1);
-            if (this._pivotOptions.showDailyPivots) {
-                this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema5, this._pivotOptions.ema5Color, startIndex, endIndex, hpr, vpr);
+                const latestStartIndex = this._getLatestPeriodStartIndex(timeframe);
+                const drawStartIndex = Math.max(startIndex, latestStartIndex);
+                if (drawStartIndex <= endIndex) {
+                    this._drawPivotLevels(ctx, timeScale, priceScale, timeframe, drawStartIndex, endIndex, hpr, vpr);
+                }
             }
         }
 
@@ -376,6 +343,22 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
         }
 
         return -1;
+    }
+
+    private _getLatestPeriodStartIndex(timeframe: PivotTimeframe): number {
+        if (this._data.length === 0) {
+            return 0;
+        }
+        const lastIndex = this._data.length - 1;
+        const lastTime = this._data[lastIndex].time;
+        const lastKey = getPeriodKey(lastTime, timeframe);
+
+        for (let i = lastIndex - 1; i >= 0; i--) {
+            if (getPeriodKey(this._data[i].time, timeframe) !== lastKey) {
+                return i + 1;
+            }
+        }
+        return 0;
     }
 
     private _buildPeriodBuckets(sourceData: BarData[], timeframe: PivotTimeframe): PeriodBucket[] {
@@ -488,26 +471,6 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
             r3: r1 + range,
             s3: s1 - range,
         };
-    }
-
-    private _applyEma(sourceData: BarData[], period: number, valueIndex: number): void {
-        if (sourceData.length < period) {
-            return;
-        }
-
-        let sum = 0;
-        for (let i = 0; i < period; i++) {
-            sum += sourceData[i].close;
-        }
-
-        let ema = sum / period;
-        this._data[period - 1].values![valueIndex] = ema;
-
-        const multiplier = 2 / (period + 1);
-        for (let i = period; i < sourceData.length; i++) {
-            ema = sourceData[i].close * multiplier + ema * (1 - multiplier);
-            this._data[i].values![valueIndex] = ema;
-        }
     }
 
     private _applyClose(sourceData: BarData[]): void {
