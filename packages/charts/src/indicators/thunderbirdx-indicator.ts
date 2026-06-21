@@ -168,7 +168,7 @@ export class ThunderbirdxIndicator extends PanelIndicator {
         }
     }
 
-    getRange(): IndicatorRange {
+    getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
         if (this._data.length === 0) {
             return { min: -1, max: 1 };
         }
@@ -176,12 +176,17 @@ export class ThunderbirdxIndicator extends PanelIndicator {
         let min = Infinity;
         let max = -Infinity;
 
-        for (let i = 0; i < this._data.length; i++) {
+        const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+        const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+
+        for (let i = startIndex; i <= endIndex; i++) {
             const point = this._data[i];
+            if (!point) continue;
+
             const values = point.values ?? [];
             const hist = this._histogram[i];
             for (const value of [hist, ...values]) {
-                if (value !== undefined && !isNaN(value)) {
+                if (value !== undefined && !isNaN(value) && isFinite(value)) {
                     min = Math.min(min, value);
                     max = Math.max(max, value);
                 }

@@ -128,7 +128,7 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
         }
     }
 
-    getRange(): IndicatorRange {
+    getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
         if (this._data.length === 0) {
             return { min: -1, max: 1 };
         }
@@ -136,16 +136,22 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
         let min = Infinity;
         let max = -Infinity;
 
-        for (const point of this._data) {
+        const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+        const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+
+        for (let i = startIndex; i <= endIndex; i++) {
+            const point = this._data[i];
+            if (!point) continue;
+
             const slope = point.values?.[0];
             const signal = point.values?.[1];
 
-            if (slope !== undefined && !isNaN(slope)) {
+            if (slope !== undefined && !isNaN(slope) && isFinite(slope)) {
                 min = Math.min(min, slope);
                 max = Math.max(max, slope);
             }
 
-            if (signal !== undefined && !isNaN(signal)) {
+            if (signal !== undefined && !isNaN(signal) && isFinite(signal)) {
                 min = Math.min(min, signal);
                 max = Math.max(max, signal);
             }

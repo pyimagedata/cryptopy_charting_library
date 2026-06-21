@@ -71,17 +71,27 @@ export class TdojiMomIndicator extends PanelIndicator {
         }
     }
 
-    getRange(): IndicatorRange {
+    getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
         if (this._data.length === 0) {
             return { min: -1, max: 1 };
         }
 
         let min = Infinity;
         let max = -Infinity;
-        for (const point of this._data) {
-            if (isNaN(point.value)) continue;
-            min = Math.min(min, point.value);
-            max = Math.max(max, point.value);
+
+        const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+        const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+
+        for (let i = startIndex; i <= endIndex; i++) {
+            const point = this._data[i];
+            if (point && !isNaN(point.value) && isFinite(point.value)) {
+                min = Math.min(min, point.value);
+                max = Math.max(max, point.value);
+            }
+        }
+
+        if (min === Infinity || max === -Infinity) {
+            return { min: -1, max: 1 };
         }
 
         const absMax = Math.max(Math.abs(min), Math.abs(max), 1e-6);

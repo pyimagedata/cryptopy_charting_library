@@ -225,7 +225,7 @@ export abstract class Indicator {
     /**
      * Get the value range for this indicator (used for panel indicators)
      */
-    abstract getRange(): IndicatorRange;
+    abstract getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange;
 
     /**
      * Get short description for legend
@@ -290,7 +290,7 @@ export abstract class OverlayIndicator extends Indicator {
     /**
      * Overlay indicators use the main price scale range
      */
-    getRange(): IndicatorRange {
+    getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
         if (this._data.length === 0) {
             return { min: 0, max: 100 };
         }
@@ -298,9 +298,19 @@ export abstract class OverlayIndicator extends Indicator {
         let min = Infinity;
         let max = -Infinity;
 
-        for (const point of this._data) {
-            if (point.value < min) min = point.value;
-            if (point.value > max) max = point.value;
+        const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+        const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+
+        for (let i = startIndex; i <= endIndex; i++) {
+            const point = this._data[i];
+            if (point && !isNaN(point.value) && isFinite(point.value)) {
+                if (point.value < min) min = point.value;
+                if (point.value > max) max = point.value;
+            }
+        }
+
+        if (min === Infinity || max === -Infinity) {
+            return { min: 0, max: 100 };
         }
 
         return { min, max };

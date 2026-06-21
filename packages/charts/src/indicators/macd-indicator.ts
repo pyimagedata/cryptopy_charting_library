@@ -128,19 +128,39 @@ export class MACDIndicator extends PanelIndicator {
         }
     }
 
-    getRange(): IndicatorRange {
+    getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
         if (this._data.length === 0) return { min: -1, max: 1 };
 
         let min = Infinity;
         let max = -Infinity;
 
-        for (const point of this._data) {
-            const hist = point.value;
-            const macd = point.values![0];
-            const signal = point.values![1];
+        const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+        const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
 
-            min = Math.min(min, hist, macd, signal);
-            max = Math.max(max, hist, macd, signal);
+        for (let i = startIndex; i <= endIndex; i++) {
+            const point = this._data[i];
+            if (!point) continue;
+
+            const hist = point.value;
+            const macd = point.values?.[0];
+            const signal = point.values?.[1];
+
+            if (hist !== undefined && !isNaN(hist) && isFinite(hist)) {
+                min = Math.min(min, hist);
+                max = Math.max(max, hist);
+            }
+            if (macd !== undefined && !isNaN(macd) && isFinite(macd)) {
+                min = Math.min(min, macd);
+                max = Math.max(max, macd);
+            }
+            if (signal !== undefined && !isNaN(signal) && isFinite(signal)) {
+                min = Math.min(min, signal);
+                max = Math.max(max, signal);
+            }
+        }
+
+        if (min === Infinity || max === -Infinity) {
+            return { min: -1, max: 1 };
         }
 
         return { min, max };

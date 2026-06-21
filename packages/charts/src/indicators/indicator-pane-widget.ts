@@ -690,8 +690,10 @@ export class IndicatorPaneWidget implements Disposable {
         let max = -Infinity;
         let hasFixedRange = false;
 
+        const visibleRange = this._timeScale.visibleRange();
+
         for (const indicator of this._indicators) {
-            const range = indicator.getRange();
+            const range = indicator.getRange(visibleRange);
 
             // Use fixed range if available (e.g., RSI 0-100)
             if (range.fixedMin !== undefined && range.fixedMax !== undefined) {
