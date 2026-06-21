@@ -32,6 +32,7 @@ import { ABCDPatternIndicator } from './abcd-pattern-indicator';
 import { HarmonicPatternIndicator } from './harmonic-pattern-indicator';
 import { ChartPatternsIndicator } from './chart-patterns-indicator';
 import { TrendlineBreakoutIndicator } from './trendline-breakout-indicator';
+import { DeMarkPivotIndicator } from './demark-pivot-indicator';
 
 
 
@@ -255,6 +256,7 @@ export class IndicatorManager {
             else if (indicator instanceof HarmonicPatternIndicator) typeId = 'HarmonicPattern';
             else if (indicator instanceof ChartPatternsIndicator) typeId = 'ChartPatterns';
             else if (indicator instanceof TrendlineBreakoutIndicator) typeId = 'TrendlineBreakout';
+            else if (indicator instanceof DeMarkPivotIndicator) typeId = 'DeMarkPivot';
 
 
 
@@ -370,6 +372,9 @@ export class IndicatorManager {
                 break;
             case 'TrendlineBreakout':
                 indicator = new TrendlineBreakoutIndicator(item.options as any);
+                break;
+            case 'DeMarkPivot':
+                indicator = new DeMarkPivotIndicator(item.options as any);
                 break;
 
 

@@ -384,9 +384,6 @@ export function handleMouseUp(
     e: MouseEvent,
     ctx: ChartWidgetContext
 ): Partial<ChartWidgetContext> {
-    if (!ctx.paneCanvas) return {};
-
-    const paneRect = ctx.paneCanvas.getBoundingClientRect();
     const result: Partial<ChartWidgetContext> = {};
 
     if (ctx.isDragging) {
@@ -403,12 +400,15 @@ export function handleMouseUp(
     }
 
     // Finish brush or highlighter drawing on mouse up
-    if (paneRect && ctx.drawingManager.activeDrawing &&
-        (ctx.drawingManager.activeDrawing.type === 'brush' ||
-            ctx.drawingManager.activeDrawing.type === 'highlighter')) {
-        const x = e.clientX - paneRect.left;
-        const y = e.clientY - paneRect.top;
-        ctx.drawingManager.finishDrawing(x, y);
+    if (ctx.paneCanvas) {
+        const paneRect = ctx.paneCanvas.getBoundingClientRect();
+        if (paneRect && ctx.drawingManager.activeDrawing &&
+            (ctx.drawingManager.activeDrawing.type === 'brush' ||
+                ctx.drawingManager.activeDrawing.type === 'highlighter')) {
+            const x = e.clientX - paneRect.left;
+            const y = e.clientY - paneRect.top;
+            ctx.drawingManager.finishDrawing(x, y);
+        }
     }
 
     return result;

@@ -14,7 +14,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -32,6 +32,7 @@ import {
     BybitFuturesProvider,
     OkxSpotProvider,
     OkxFuturesProvider,
+    CandleInterval,
     Orderbook
 } from '../data-providers';
 import { BistDataProvider } from '../data-providers/stocks/bist';
@@ -123,15 +124,18 @@ export class ChartWidget implements Disposable {
 
     private readonly _symbolChanged = new Delegate<string>();
     private readonly _timeframeChanged = new Delegate<string>();
+    private readonly _wiredIndicators = new WeakSet<Indicator>();
 
     // Context menu
     private _contextMenu: ContextMenu | null = null;
     private _mainLegendContainer: HTMLElement | null = null;
     private _brandingLogo: HTMLElement | null = null;
+    private _gainMetricsPanel: HTMLElement | null = null;
 
     // Indicator system
     private readonly _indicatorManager: IndicatorManager;
     private readonly _indicatorPanes: Map<string, IndicatorPaneWidget> = new Map();
+    private readonly _deMarkPivotFetchKeys: WeakMap<DeMarkPivotIndicator, Set<string>> = new WeakMap();
 
     // Loading overlay
     private _loadingOverlay: HTMLElement | null = null;
@@ -140,7 +144,7 @@ export class ChartWidget implements Disposable {
     private _indicatorSearchModal: IndicatorSearchModal | null = null;
     private _indicatorSettingsModal: IndicatorSettingsModal | null = null;
     private _chartSettingsModal: ChartSettingsModal | null = null;
-    private _editingIndicator: PanelIndicator | null = null;
+    private _editingIndicator: PanelIndicator | OverlayIndicator | null = null;
 
     // State persistence
     private _chartStateManager: ChartStateManager | null = null;
@@ -154,6 +158,11 @@ export class ChartWidget implements Disposable {
 
     // Mobile Zoom State
     private _lastTouchDistance: number = 0;
+    private _touchLongPressTimer: number | null = null;
+    private _touchLongPressStart: { clientX: number; clientY: number } | null = null;
+    private _touchLongPressTriggered: boolean = false;
+    private _priceAxisTouchStart: { x: number; y: number } | null = null;
+    private _priceAxisTouchActive: 'scaling' | 'panning' | null = null;
 
     // Technical Rating Badge
     private _technicalRatingBadge: TechnicalRatingBadge | null = null;
@@ -255,6 +264,7 @@ export class ChartWidget implements Disposable {
 
         // Now that UI is created, load saved state for symbol
         this._chartStateManager.setSymbol(initialSymbol);
+        this._wireExistingIndicators();
 
         // Initialize indicator search modal
         this._indicatorSearchModal = new IndicatorSearchModal(this._container);
@@ -702,7 +712,7 @@ export class ChartWidget implements Disposable {
             --tv-toolbar-height: 38px;
             --tv-drawing-toolbar-width: 48px;
             --tv-time-axis-height: 28px;
-            --tv-price-axis-width: 80px;
+            --tv-price-axis-width: 52px;
             --tv-content-padding: 12px;
         `;
 
@@ -816,9 +826,73 @@ export class ChartWidget implements Disposable {
             .tv-legend-btn svg {
                 fill: currentColor;
             }
+            .tv-gainmetrics-panel {
+                position: absolute;
+                right: calc(var(--tv-price-axis-width) + 12px);
+                bottom: calc(var(--tv-time-axis-height) + 12px);
+                z-index: 19;
+                min-width: 154px;
+                max-width: min(230px, calc(100% - var(--tv-price-axis-width) - var(--tv-drawing-toolbar-width) - 36px));
+                padding: 8px 9px;
+                border: 1px solid rgba(0, 188, 212, 0.35);
+                background: rgba(0, 6, 12, 0.72);
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+                color: #e5e7eb;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-size: 11px;
+                line-height: 1.28;
+                pointer-events: none;
+                backdrop-filter: blur(4px);
+            }
+            .tv-gainmetrics-title {
+                color: #22d3ee;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.02em;
+                margin-bottom: 4px;
+            }
+            .tv-gainmetrics-group + .tv-gainmetrics-group {
+                margin-top: 7px;
+                padding-top: 6px;
+                border-top: 1px solid rgba(34, 211, 238, 0.18);
+            }
+            .tv-gainmetrics-period {
+                color: #94a3b8;
+                font-weight: 800;
+                margin-bottom: 2px;
+            }
+            .tv-gainmetrics-line {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                white-space: nowrap;
+            }
+            .tv-gainmetrics-label {
+                font-weight: 800;
+            }
+            .tv-gainmetrics-value {
+                color: #f8fafc;
+                font-variant-numeric: tabular-nums;
+                font-weight: 700;
+            }
+            .tv-gainmetrics-resistance .tv-gainmetrics-label {
+                color: #22d3ee;
+            }
+            .tv-gainmetrics-pivot .tv-gainmetrics-label,
+            .tv-gainmetrics-pivot .tv-gainmetrics-value {
+                color: #facc15;
+            }
+            .tv-gainmetrics-support .tv-gainmetrics-label {
+                color: #f472b6;
+            }
         `;
         document.head.appendChild(legendStyle);
         this._element.appendChild(this._mainLegendContainer);
+
+        this._gainMetricsPanel = document.createElement('div');
+        this._gainMetricsPanel.className = 'tv-gainmetrics-panel';
+        this._gainMetricsPanel.style.display = 'none';
+        this._element.appendChild(this._gainMetricsPanel);
 
         this._element.appendChild(this._indicatorContainer);
         this._element.appendChild(this._timeAxisRow);
@@ -1010,7 +1084,8 @@ export class ChartWidget implements Disposable {
     private _updateLayout(): void {
         const toolbarHeight = this._toolbarWidget?.height ?? 0;
         const timeAxisHeight = this._timeAxisWidget?.height ?? 28;
-        const priceAxisWidth = this._priceAxisWidget?.width ?? 80;
+        this._priceAxisWidget?.updateWidth();
+        const priceAxisWidth = this._priceAxisWidget?.width ?? 52;
         const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 0;
 
         // Calculate total indicator pane heights
@@ -1227,8 +1302,8 @@ export class ChartWidget implements Disposable {
             // Touch events for mobile support
             paneCanvas.addEventListener('touchstart', this._onTouchStart.bind(this), { passive: false });
             paneCanvas.addEventListener('touchmove', this._onTouchMove.bind(this), { passive: false });
-            paneCanvas.addEventListener('touchend', this._onTouchEnd.bind(this));
-            paneCanvas.addEventListener('touchcancel', this._onTouchEnd.bind(this));
+            paneCanvas.addEventListener('touchend', this._onTouchEnd.bind(this), { passive: false });
+            paneCanvas.addEventListener('touchcancel', this._onTouchEnd.bind(this), { passive: false });
         }
 
         // Keyboard shortcuts for drawings (Delete/Backspace to delete selected)
@@ -1242,8 +1317,8 @@ export class ChartWidget implements Disposable {
             // Touch events for price axis scaling
             priceAxisElement.addEventListener('touchstart', this._onPriceAxisTouchStart.bind(this), { passive: false });
             priceAxisElement.addEventListener('touchmove', this._onPriceAxisTouchMove.bind(this), { passive: false });
-            priceAxisElement.addEventListener('touchend', this._onTouchEnd.bind(this));
-            priceAxisElement.addEventListener('touchcancel', this._onTouchEnd.bind(this));
+            priceAxisElement.addEventListener('touchend', this._onTouchEnd.bind(this), { passive: false });
+            priceAxisElement.addEventListener('touchcancel', this._onTouchEnd.bind(this), { passive: false });
         }
 
         // Custom context menu
@@ -1251,17 +1326,15 @@ export class ChartWidget implements Disposable {
             this._createContextMenu();
 
             this._element.addEventListener('contextmenu', (e) => {
+                const contextPoint = this._getMainPaneEmptyContextPoint(e.clientX, e.clientY, e.target);
+                if (!contextPoint) {
+                    return;
+                }
+
                 e.preventDefault();
                 e.stopPropagation();
 
-                // Get current price at mouse position
-                const rect = this._paneWidget?.canvas?.getBoundingClientRect();
-                if (rect) {
-                    const y = e.clientY - rect.top;
-                    const price = this._model.rightPriceScale.coordinateToPrice(y as any);
-                    this._contextMenu?.setCurrentPrice(price);
-                }
-
+                this._contextMenu?.setCurrentPrice(contextPoint.price);
                 this._contextMenu?.show(e.clientX, e.clientY);
                 return false;
             }, true);
@@ -1290,10 +1363,16 @@ export class ChartWidget implements Disposable {
     }
 
     private _onMouseDown(e: MouseEvent): void {
+        this._closeOpenMenus();
         const pane = this._resolvePaneInteraction(e.currentTarget ?? e.target);
         this._setInteractionPane(pane.paneId, pane.paneCanvas, pane.priceScale);
         const stateUpdates = handleMouseDownEvent(e, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
         this._applyEventState(stateUpdates);
+    }
+
+    private _closeOpenMenus(): void {
+        this._contextMenu?.hide();
+        this._drawingToolbarWidget?.closeFlyout();
     }
 
     private _onMouseMove(e: MouseEvent): void {
@@ -1562,21 +1641,160 @@ export class ChartWidget implements Disposable {
 
     // --- Touch Event Handlers ---
 
+    private _mouseEventFromTouch(type: 'mousedown' | 'mousemove' | 'mouseup', touch: Touch): MouseEvent {
+        return new MouseEvent(type, {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+    }
+
+    private _clearTouchLongPress(): void {
+        if (this._touchLongPressTimer !== null) {
+            window.clearTimeout(this._touchLongPressTimer);
+            this._touchLongPressTimer = null;
+        }
+        this._touchLongPressStart = null;
+    }
+
+    private _hitTestDrawingAt(x: number, y: number, paneId: string | null): boolean {
+        const drawings = this._drawingManager.drawings;
+
+        this._drawingManager.setScales(
+            this._model.timeScale,
+            paneId === null ? this._model.rightPriceScale : this._indicatorPanes.get(paneId)?.priceScale ?? this._model.rightPriceScale
+        );
+
+        for (let i = drawings.length - 1; i >= 0; i--) {
+            const drawing = drawings[i];
+
+            if (!drawing.visible || (drawing.paneId ?? null) !== paneId) {
+                continue;
+            }
+
+            if (drawing === this._drawingManager.activeDrawing && drawing.state === 'creating') {
+                continue;
+            }
+
+            if (drawing.type === 'longPosition' || drawing.type === 'shortPosition' || drawing.type === 'priceRange' || drawing.type === 'dateRange' || drawing.type === 'datePriceRange') {
+                if (drawing.points.length >= 2) {
+                    const p1 = drawing.points[0];
+                    const p2 = drawing.points[1];
+                    const x1 = this._drawingManager.timeToPixel(p1.time);
+                    const y1 = this._drawingManager.priceToPixel(p1.price);
+                    const x2 = this._drawingManager.timeToPixel(p2.time);
+                    const y2 = this._drawingManager.priceToPixel(p2.price);
+                    if (x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
+                        (drawing as any).setPixelPoints([{ x: x1, y: y1 }, { x: x2, y: y2 }]);
+                    }
+                }
+            }
+
+            if (drawing.hitTest(x, y, 8)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private _getMainPaneEmptyContextPoint(clientX: number, clientY: number, target: EventTarget | null): { x: number; y: number; price: number } | null {
+        if (this._drawingManager.mode !== 'none') {
+            return null;
+        }
+
+        const mainCanvas = this._paneWidget?.canvas ?? null;
+        const mainPaneElement = this._paneWidget?.element ?? null;
+        if (!mainCanvas || !mainPaneElement) {
+            return null;
+        }
+
+        const isMainPaneTarget = target === mainCanvas || (target instanceof Node && mainPaneElement.contains(target));
+        if (!isMainPaneTarget) {
+            return null;
+        }
+
+        const rect = mainCanvas.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        if (x < 0 || x > rect.width || y < 0 || y > rect.height) {
+            return null;
+        }
+
+        if (this._hitTestOverlayIndicator(x, y) || this._hitTestDrawingAt(x, y, null)) {
+            return null;
+        }
+
+        return {
+            x,
+            y,
+            price: this._model.rightPriceScale.coordinateToPrice(y as any),
+        };
+    }
+
+    private _scheduleTouchContextMenu(e: TouchEvent, touch: Touch): void {
+        this._clearTouchLongPress();
+        this._touchLongPressTriggered = false;
+
+        const contextPoint = this._getMainPaneEmptyContextPoint(touch.clientX, touch.clientY, e.currentTarget ?? e.target);
+        if (!contextPoint) {
+            return;
+        }
+
+        this._touchLongPressStart = { clientX: touch.clientX, clientY: touch.clientY };
+        this._touchLongPressTimer = window.setTimeout(() => {
+            this._touchLongPressTimer = null;
+            this._touchLongPressTriggered = true;
+
+            this._finishTouchInteraction(this._mouseEventFromTouch('mouseup', touch));
+            this._contextMenu?.setCurrentPrice(contextPoint.price);
+            this._contextMenu?.show(touch.clientX, touch.clientY);
+
+            const suppressNextClick = (event: MouseEvent) => {
+                event.preventDefault();
+                event.stopPropagation();
+                document.removeEventListener('click', suppressNextClick, true);
+            };
+            document.addEventListener('click', suppressNextClick, true);
+            window.setTimeout(() => {
+                document.removeEventListener('click', suppressNextClick, true);
+            }, 350);
+        }, 650);
+    }
+
+    private _finishTouchInteraction(mouseEvent: MouseEvent): void {
+        const pane = this._resolvePaneInteraction(null);
+        const stateUpdates = handleMouseUpEvent(mouseEvent, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
+        this._applyEventState(stateUpdates);
+
+        if (!this._isDragging && !this._isDraggingDrawing && this._drawingManager.activeDrawing === null) {
+            this._interactionPaneId = null;
+            this._interactionPaneCanvas = null;
+            this._interactionPriceScale = null;
+            this._drawingManager.setActivePaneId(null);
+            this._drawingManager.setScales(this._model.timeScale, this._model.rightPriceScale);
+        }
+    }
+
     private _onTouchStart(e: TouchEvent): void {
         e.preventDefault(); // Prevent scrolling
+        this._closeOpenMenus();
 
         if (e.touches.length === 1) {
-            // Single touch - Pan
+            // Single touch - draw/select/pan on the pane that received the real touch event.
             const touch = e.touches[0];
-            const mouseEvent = new MouseEvent('mousedown', {
-                clientX: touch.clientX,
-                clientY: touch.clientY,
-                bubbles: true,
-                cancelable: true,
-                view: window
-            });
-            this._onMouseDown(mouseEvent);
+            this._scheduleTouchContextMenu(e, touch);
+            const pane = this._resolvePaneInteraction(e.currentTarget ?? e.target);
+            this._setInteractionPane(pane.paneId, pane.paneCanvas, pane.priceScale);
+            const stateUpdates = handleMouseDownEvent(
+                this._mouseEventFromTouch('mousedown', touch),
+                this._getEventContextForPane(pane.paneId, pane.paneCanvas)
+            );
+            this._applyEventState(stateUpdates);
         } else if (e.touches.length === 2) {
+            this._clearTouchLongPress();
             // Two touches - Start Zoom
             const t1 = e.touches[0];
             const t2 = e.touches[1];
@@ -1586,7 +1804,7 @@ export class ChartWidget implements Disposable {
             // Should we end dragging if it was active?
             if (this._isDragging) {
                 this._isDragging = false;
-                this._onMouseUp(new MouseEvent('mouseup'));
+                this._finishTouchInteraction(this._mouseEventFromTouch('mouseup', t1));
             }
         }
     }
@@ -1595,19 +1813,31 @@ export class ChartWidget implements Disposable {
         e.preventDefault();
 
         if (e.touches.length === 1) {
-            // Single touch - Pan
+            // Single touch - update the same interaction path as mouse move, but with a pane
+            // resolved from the real touch target instead of a synthetic MouseEvent target.
             const touch = e.touches[0];
-            const mouseEvent = new MouseEvent('mousemove', {
-                clientX: touch.clientX,
-                clientY: touch.clientY,
-                bubbles: true,
-                cancelable: true,
-                view: window
-            });
+            if (this._touchLongPressStart) {
+                const dx = touch.clientX - this._touchLongPressStart.clientX;
+                const dy = touch.clientY - this._touchLongPressStart.clientY;
+                if (Math.sqrt(dx * dx + dy * dy) > 10) {
+                    this._clearTouchLongPress();
+                }
+            }
+            const shouldUseActivePane = this._isDragging || this._isDraggingDrawing || this._drawingManager.activeDrawing !== null;
+            const hoverTarget = shouldUseActivePane ? null : document.elementFromPoint(touch.clientX, touch.clientY);
+            const pane = shouldUseActivePane
+                ? this._resolvePaneInteraction(null)
+                : this._resolvePaneInteraction(hoverTarget ?? e.currentTarget ?? e.target);
 
-            this._onPaneMouseMove(mouseEvent); // For crosshair and tooltips
-            this._onMouseMove(mouseEvent);     // For dragging logic
+            this._drawingManager.setScales(this._model.timeScale, pane.priceScale);
+            this._drawingManager.setActivePaneId(pane.paneId);
+            const stateUpdates = handleMouseMoveEvent(
+                this._mouseEventFromTouch('mousemove', touch),
+                this._getEventContextForPane(pane.paneId, pane.paneCanvas)
+            );
+            this._applyEventState(stateUpdates);
         } else if (e.touches.length === 2) {
+            this._clearTouchLongPress();
             // Two touches - Zoom
             const t1 = e.touches[0];
             const t2 = e.touches[1];
@@ -1634,17 +1864,24 @@ export class ChartWidget implements Disposable {
 
     private _onTouchEnd(e: TouchEvent): void {
         e.preventDefault();
+        this._clearTouchLongPress();
+        this._priceAxisTouchStart = null;
+        this._priceAxisTouchActive = null;
+
+        if (this._touchLongPressTriggered) {
+            this._touchLongPressTriggered = false;
+            return;
+        }
 
         if (e.touches.length === 0) {
             // All fingers lifted
             this._lastTouchDistance = 0;
 
-            const mouseEvent = new MouseEvent('mouseup', {
-                bubbles: true,
-                cancelable: true,
-                view: window
-            });
-            this._onMouseUp(mouseEvent);
+            const touch = e.changedTouches[0];
+            const mouseEvent = touch
+                ? this._mouseEventFromTouch('mouseup', touch)
+                : new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window });
+            this._finishTouchInteraction(mouseEvent);
         } else if (e.touches.length === 1) {
             // Switched from 2 to 1 finger? Or 1 to 0 (handled above)?
             // If we still have 1 finger, maybe resume panning? 
@@ -1662,40 +1899,87 @@ export class ChartWidget implements Disposable {
         e.preventDefault();
 
         const touch = e.touches[0];
-        const mouseEvent = new MouseEvent('mousedown', {
-            clientX: touch.clientX,
-            clientY: touch.clientY,
-            bubbles: true,
-            cancelable: true,
-            view: window
-        } as MouseEventInit);
-
-        // Explicitly set target to price axis element as we're passing it directly
-        // without dispatching, so 'target' would otherwise be null
-        Object.defineProperty(mouseEvent, 'target', {
-            value: this._priceAxisWidget?.element,
-            writable: false,
-            enumerable: true,
-            configurable: true
-        });
-
-        this._onPriceAxisMouseDown(mouseEvent);
+        this._priceAxisTouchStart = { x: touch.clientX, y: touch.clientY };
+        this._priceAxisTouchActive = null;
     }
 
     private _onPriceAxisTouchMove(e: TouchEvent): void {
-        if (e.touches.length !== 1) return;
+        if (e.touches.length !== 1 || !this._priceAxisTouchStart) return;
         e.preventDefault();
 
         const touch = e.touches[0];
-        const mouseEvent = new MouseEvent('mousemove', {
-            clientX: touch.clientX,
-            clientY: touch.clientY,
-            bubbles: true,
-            cancelable: true,
-            view: window
-        });
 
-        this._onMouseMove(mouseEvent);
+        if (this._priceAxisTouchActive === null) {
+            const dx = touch.clientX - this._priceAxisTouchStart.x;
+            const dy = touch.clientY - this._priceAxisTouchStart.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > 10) {
+                if (Math.abs(dy) > Math.abs(dx)) {
+                    this._priceAxisTouchActive = 'scaling';
+                    const mouseEvent = new MouseEvent('mousedown', {
+                        clientX: this._priceAxisTouchStart.x,
+                        clientY: this._priceAxisTouchStart.y,
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    } as MouseEventInit);
+
+                    Object.defineProperty(mouseEvent, 'target', {
+                        value: this._priceAxisWidget?.element,
+                        writable: false,
+                        enumerable: true,
+                        configurable: true
+                    });
+
+                    this._onPriceAxisMouseDown(mouseEvent);
+                } else {
+                    this._priceAxisTouchActive = 'panning';
+                    const pane = this._resolvePaneInteraction(null);
+                    this._setInteractionPane(pane.paneId, pane.paneCanvas, pane.priceScale);
+                    const mouseEvent = new MouseEvent('mousedown', {
+                        clientX: this._priceAxisTouchStart.x,
+                        clientY: this._priceAxisTouchStart.y,
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    } as MouseEventInit);
+                    
+                    const stateUpdates = handleMouseDownEvent(
+                        mouseEvent,
+                        this._getEventContextForPane(pane.paneId, pane.paneCanvas)
+                    );
+                    this._applyEventState(stateUpdates);
+                }
+            }
+        }
+
+        if (this._priceAxisTouchActive !== null) {
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY,
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+
+            if (this._priceAxisTouchActive === 'scaling') {
+                this._onMouseMove(mouseEvent);
+            } else if (this._priceAxisTouchActive === 'panning') {
+                const shouldUseActivePane = this._isDragging || this._isDraggingDrawing || this._drawingManager.activeDrawing !== null;
+                const pane = shouldUseActivePane
+                    ? this._resolvePaneInteraction(null)
+                    : this._resolvePaneInteraction(e.currentTarget ?? e.target);
+
+                this._drawingManager.setScales(this._model.timeScale, pane.priceScale);
+                this._drawingManager.setActivePaneId(pane.paneId);
+                const stateUpdates = handleMouseMoveEvent(
+                    mouseEvent,
+                    this._getEventContextForPane(pane.paneId, pane.paneCanvas)
+                );
+                this._applyEventState(stateUpdates);
+            }
+        }
     }
 
     private _onPaneDoubleClick(e: MouseEvent): void {
@@ -1855,6 +2139,9 @@ export class ChartWidget implements Disposable {
         }
 
         this._updateLastPriceLabel();
+        if (this._priceAxisWidget?.updateWidth()) {
+            this._updateLayout();
+        }
 
         // Pass overlay indicators to pane widget for rendering
         this._paneWidget?.setOverlayIndicators(this._indicatorManager.overlayIndicators);
@@ -1877,9 +2164,74 @@ export class ChartWidget implements Disposable {
 
         // Render indicator panes (RSI, MACD, etc.)
         this._renderIndicatorPanes();
+        this._updateGainMetricsPanel();
 
         // Update main legend with overlay indicators only when needed
         // Removed call from here to prevent flickering on every draw
+    }
+
+    private _updateGainMetricsPanel(): void {
+        if (!this._gainMetricsPanel) {
+            return;
+        }
+
+        const gainMetrics = this._indicatorManager.overlayIndicators.find(
+            (indicator) => indicator instanceof DeMarkPivotIndicator && indicator.visible
+        ) as DeMarkPivotIndicator | undefined;
+
+        if (!gainMetrics) {
+            this._gainMetricsPanel.style.display = 'none';
+            this._gainMetricsPanel.innerHTML = '';
+            return;
+        }
+
+        const rows = gainMetrics.getPivotSummaryRows();
+        if (rows.length === 0) {
+            this._gainMetricsPanel.style.display = 'none';
+            this._gainMetricsPanel.innerHTML = '';
+            return;
+        }
+
+        const content = rows.map((row) => `
+            <div class="tv-gainmetrics-group">
+                <div class="tv-gainmetrics-period">${row.label.toUpperCase()}</div>
+                ${this._gainMetricsLine('DIRENC', row.values.r3, 'resistance')}
+                ${this._gainMetricsLine('DIRENC', row.values.r2, 'resistance')}
+                ${this._gainMetricsLine('DIRENC', row.values.r1, 'resistance')}
+                ${this._gainMetricsLine('PIVOT', row.values.pp, 'pivot')}
+                ${this._gainMetricsLine('DESTEK', row.values.s1, 'support')}
+                ${this._gainMetricsLine('DESTEK', row.values.s2, 'support')}
+                ${this._gainMetricsLine('DESTEK', row.values.s3, 'support')}
+            </div>
+        `).join('');
+
+        this._gainMetricsPanel.innerHTML = `
+            <div class="tv-gainmetrics-title">GainMetrics</div>
+            ${content}
+        `;
+        this._gainMetricsPanel.style.display = 'block';
+    }
+
+    private _gainMetricsLine(label: string, value: number, type: 'resistance' | 'pivot' | 'support'): string {
+        const formattedValue = Number.isFinite(value) ? this._formatGainMetricsValue(value) : '-';
+        return `
+            <div class="tv-gainmetrics-line tv-gainmetrics-${type}">
+                <span class="tv-gainmetrics-label">${label} :</span>
+                <span class="tv-gainmetrics-value">${formattedValue}</span>
+            </div>
+        `;
+    }
+
+    private _formatGainMetricsValue(value: number): string {
+        if (Math.abs(value) >= 100) {
+            return value.toFixed(2);
+        }
+
+        if (Math.abs(value) >= 1) {
+            return value.toFixed(2);
+        }
+
+        return value.toFixed(4);
     }
 
     private _updateLastPriceLabel(): void {
@@ -2106,8 +2458,8 @@ export class ChartWidget implements Disposable {
             // Touch events for mobile
             canvas.addEventListener('touchstart', this._onTouchStart.bind(this), { passive: false });
             canvas.addEventListener('touchmove', this._onTouchMove.bind(this), { passive: false });
-            canvas.addEventListener('touchend', this._onTouchEnd.bind(this));
-            canvas.addEventListener('touchcancel', this._onTouchEnd.bind(this));
+            canvas.addEventListener('touchend', this._onTouchEnd.bind(this), { passive: false });
+            canvas.addEventListener('touchcancel', this._onTouchEnd.bind(this), { passive: false });
         }
 
         // Ensure redraw when indicator price scale changes (e.g. during Y-axis drag)
@@ -2301,6 +2653,14 @@ export class ChartWidget implements Disposable {
             case 'tdoji-sr':
                 this.addOverlayIndicator(new TdojiSRIndicator());
                 break;
+            case 'demark-pivot':
+                this.addOverlayIndicator(new DeMarkPivotIndicator({
+                    timeframe: 'D',
+                    showPivots: true,
+                    showEma: true,
+                    showObv: false,
+                }));
+                break;
             case 'tdoji-mom':
                 this.addIndicator(new TdojiMomIndicator({ period: 60 }));
                 break;
@@ -2376,14 +2736,11 @@ export class ChartWidget implements Disposable {
      */
     addIndicator(indicator: PanelIndicator): void {
         this._indicatorManager.addPanelIndicator(indicator);
+        this._wireIndicatorEvents(indicator);
 
-        // If there's data in the chart, calculate the indicator
-        const series = this._model.serieses[0];
-        if (series && 'data' in series) {
-            const data = (series as any).data() as BarData[];
-            if (data && data.length > 0) {
-                indicator.calculate(data);
-            }
+        const data = this._indicatorManager.sourceData as BarData[];
+        if (data.length > 0 && indicator.data.length === 0) {
+            indicator.calculate([...data]);
         }
     }
 
@@ -2392,23 +2749,96 @@ export class ChartWidget implements Disposable {
      */
     addOverlayIndicator(indicator: OverlayIndicator): void {
         this._indicatorManager.addOverlayIndicator(indicator);
+        this._wireIndicatorEvents(indicator);
 
-        // If there's data in the chart, calculate the indicator
-        const series = this._model.serieses[0];
-        if (series && 'data' in series) {
-            const data = (series as any).data() as BarData[];
-            if (data && data.length > 0) {
-                indicator.calculate(data);
-            }
+        const data = this._indicatorManager.sourceData as BarData[];
+        if (data.length > 0 && indicator.data.length === 0) {
+            indicator.calculate([...data]);
         }
 
-        indicator.dataChanged.subscribe(() => {
-            this._updateMainLegend();
-            this._scheduleDraw();
-        });
+        if (indicator instanceof DeMarkPivotIndicator) {
+            void this._refreshDeMarkPivotSource(indicator);
+        }
 
         // Trigger redraw
         this._scheduleDraw();
+    }
+
+    private _wireExistingIndicators(): void {
+        for (const indicator of this._indicatorManager.allIndicators) {
+            this._wireIndicatorEvents(indicator);
+            if (indicator instanceof DeMarkPivotIndicator) {
+                void this._refreshDeMarkPivotSource(indicator);
+            }
+        }
+
+        this._updateMainLegend();
+        this._scheduleDraw();
+    }
+
+    private _wireIndicatorEvents(indicator: Indicator): void {
+        if (this._wiredIndicators.has(indicator)) {
+            return;
+        }
+
+        this._wiredIndicators.add(indicator);
+        indicator.dataChanged.subscribe(() => {
+            if (indicator instanceof DeMarkPivotIndicator) {
+                void this._refreshDeMarkPivotSource(indicator);
+            }
+            this._updateMainLegend();
+            this._scheduleDraw();
+        });
+    }
+
+    private async _refreshDeMarkPivotSource(indicator: DeMarkPivotIndicator): Promise<void> {
+        if (!this._dataProvider || typeof (this._dataProvider as any).getCandles !== 'function') {
+            return;
+        }
+
+        let fetchedKeys = this._deMarkPivotFetchKeys.get(indicator);
+        if (!fetchedKeys) {
+            fetchedKeys = new Set();
+            this._deMarkPivotFetchKeys.set(indicator, fetchedKeys);
+        }
+
+        for (const pivotTimeframe of indicator.pivotTimeframes) {
+            const interval = this._deMarkPivotInterval(pivotTimeframe);
+            const fetchKey = `${this._currentExchange}:${this._currentSymbol}:${interval}`;
+            if (fetchedKeys.has(fetchKey)) {
+                continue;
+            }
+
+            fetchedKeys.add(fetchKey);
+
+            try {
+                const candles = await (this._dataProvider as any).getCandles(this._currentSymbol, interval, 500);
+                const data = candles.map((candle: any) => ({
+                    time: candle.time,
+                    open: candle.open,
+                    high: candle.high,
+                    low: candle.low,
+                    close: candle.close,
+                    volume: candle.volume,
+                })) as BarData[];
+                indicator.setPivotSourceData(pivotTimeframe, data);
+            } catch (error) {
+                fetchedKeys.delete(fetchKey);
+                console.warn('GainMetrics pivot source could not be loaded; falling back to chart bars.', error);
+            }
+        }
+    }
+
+    private _deMarkPivotInterval(timeframe: 'D' | 'W' | 'M'): CandleInterval {
+        if (timeframe === 'W') {
+            return '1w';
+        }
+
+        if (timeframe === 'M') {
+            return '1M';
+        }
+
+        return '1d';
     }
 
     // --- Cleanup ---

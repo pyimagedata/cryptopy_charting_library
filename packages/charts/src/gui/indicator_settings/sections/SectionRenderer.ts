@@ -93,6 +93,43 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
             break;
         }
 
+        case 'select': {
+            const label = document.createElement('label');
+            label.textContent = row.label ? t(row.label) : '';
+            label.style.cssText = `color: #131722; font-size: 14px;`;
+            rowEl.appendChild(label);
+
+            const select = document.createElement('select');
+            select.value = (currentValue as string) || (row as any).defaultValue || '';
+            select.style.cssText = `
+                min-width: 150px;
+                height: 34px;
+                border: 1px solid #e0e3eb;
+                border-radius: 6px;
+                background: #ffffff;
+                color: #131722;
+                font-size: 13px;
+                padding: 0 10px;
+                outline: none;
+            `;
+
+            ((row as any).options || []).forEach((option: { value: string; label: string }) => {
+                const item = document.createElement('option');
+                item.value = option.value;
+                item.textContent = t(option.label);
+                select.appendChild(item);
+            });
+
+            select.addEventListener('change', () => {
+                if ((row as any).key) {
+                    context.setValue((row as any).key, select.value);
+                }
+            });
+
+            rowEl.appendChild(select);
+            break;
+        }
+
         case 'lineWidth': {
             const label = document.createElement('label');
             label.textContent = row.label ? t(row.label) : '';

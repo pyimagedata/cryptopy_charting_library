@@ -11,7 +11,8 @@ import {
     NumberSettingRow,
     CheckboxSettingRow,
     LineWidthSettingRow,
-    SliderSettingRow
+    SliderSettingRow,
+    SelectSettingRow
 } from '../../../drawings/drawing-settings-config';
 
 // ============================================================================
@@ -58,6 +59,16 @@ export function colorRow(key: string, label: string, defaultValue?: string): Col
 /** Checkbox row */
 export function checkboxRow(key: string, label: string, defaultValue?: boolean): CheckboxSettingRow {
     return { type: 'checkbox', key, label, defaultValue };
+}
+
+/** Select/dropdown row */
+export function selectRow(
+    key: string,
+    label: string,
+    options: { value: string; label: string }[],
+    defaultValue?: string
+): SelectSettingRow {
+    return { type: 'select', key, label, options, defaultValue };
 }
 
 /** Line width row */

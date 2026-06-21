@@ -159,6 +159,14 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         type: 'overlay'
     },
     {
+        id: 'demark-pivot',
+        name: 'GainMetrics',
+        shortName: 'GM',
+        description: 'Günlük, haftalık veya aylık DeMark destek direnç pivotları, EMA ve OBV çizgileri',
+        category: 'custom',
+        type: 'overlay'
+    },
+    {
         id: 'tdoji-mom',
         name: 'TDOJI MOM',
         shortName: 'MOM',

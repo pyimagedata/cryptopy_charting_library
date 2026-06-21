@@ -184,7 +184,37 @@ export class ToolbarWidget {
             font-size: 13px;
             user-select: none;
             gap: 4px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+            touch-action: pan-x;
+            -webkit-overflow-scrolling: touch;
         `;
+
+        // Hide scrollbar style
+        const style = document.createElement('style');
+        style.textContent = `
+            .chart-toolbar::-webkit-scrollbar {
+                display: none;
+            }
+            .chart-toolbar {
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Prevent touch events from bubbling to avoid triggering chart scroll
+        this._element.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+        }, { passive: true });
+        this._element.addEventListener('touchmove', (e) => {
+            e.stopPropagation();
+        }, { passive: true });
+        this._element.addEventListener('touchend', (e) => {
+            e.stopPropagation();
+        }, { passive: true });
 
         // Symbol section
         this._createSymbolSection();
@@ -233,6 +263,7 @@ export class ToolbarWidget {
             align-items: center;
             gap: 6px;
             padding: 6px 10px;
+            flex-shrink: 0;
             border-radius: 4px;
             cursor: pointer;
             color: #d1d4dc;
@@ -292,6 +323,7 @@ export class ToolbarWidget {
             height: 20px;
             background: #2B2B43;
             margin: 0 4px;
+            flex-shrink: 0;
         `;
         this._element!.appendChild(separator);
     }
@@ -303,6 +335,7 @@ export class ToolbarWidget {
             display: flex;
             align-items: center;
             gap: 2px;
+            flex-shrink: 0;
         `;
 
         this._options.timeframes!.forEach(tf => {
@@ -326,6 +359,7 @@ export class ToolbarWidget {
             display: flex;
             align-items: center;
             gap: 2px;
+            flex-shrink: 0;
         `;
 
         const types: { type: ChartType; icon: string; title: string }[] = [
@@ -360,6 +394,7 @@ export class ToolbarWidget {
             display: flex;
             align-items: center;
             gap: 2px;
+            flex-shrink: 0;
         `;
 
         const modes: { mode: 'normal' | 'logarithmic'; label: string; title: string }[] = [
@@ -397,6 +432,7 @@ export class ToolbarWidget {
             font-size: 13px;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
         `;
 
         const icon = document.createElement('span');
@@ -439,6 +475,7 @@ export class ToolbarWidget {
             font-size: 13px;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
         `;
 
         const icon = document.createElement('span');
@@ -476,6 +513,7 @@ export class ToolbarWidget {
             margin-left: auto;
             display: flex;
             align-items: center;
+            flex-shrink: 0;
         `;
 
         const isDark = this._currentTheme === 'dark';
@@ -532,6 +570,7 @@ export class ToolbarWidget {
             justify-content: center;
             margin-left: 8px;
             transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
         `;
 
         const moonIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;

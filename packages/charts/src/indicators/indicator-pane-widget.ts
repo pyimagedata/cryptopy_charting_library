@@ -767,6 +767,7 @@ export class IndicatorPaneWidget implements Disposable {
         this._canvas.style.cssText = `
             display: block;
             flex: 1;
+            touch-action: none;
         `;
         this._canvas.height = this._height * dpr;
         this._ctx = this._canvas.getContext('2d');
@@ -789,6 +790,7 @@ export class IndicatorPaneWidget implements Disposable {
             width: ${this._options.priceScaleWidth}px;
             flex-shrink: 0;
             cursor: ns-resize;
+            touch-action: none;
         `;
         this._priceAxisCanvas.width = this._options.priceScaleWidth * dpr;
         this._priceAxisCanvas.height = this._height * dpr;

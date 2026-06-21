@@ -15904,6 +15904,7 @@ var LightweightCharts = (() => {
             position: absolute;
             top: 0;
             left: 0;
+            touch-action: none;
         `;
       this._ctx = this._canvas.getContext("2d");
       this._element.appendChild(this._canvas);
@@ -15939,7 +15940,7 @@ var LightweightCharts = (() => {
 
   // src/gui/price-axis-widget.ts
   var defaultPriceAxisOptions = {
-    width: 80,
+    width: 52,
     backgroundColor: "#16213e",
     // Darker navy (original panel bg)
     textColor: "rgba(255, 255, 255, 0.5)",
@@ -15957,6 +15958,7 @@ var LightweightCharts = (() => {
       this._countdown = null;
       this._priceScale = priceScale;
       this._options = { ...defaultPriceAxisOptions, ...options };
+      this._width = this._options.width;
       this._createElement(container);
     }
     get element() {
@@ -15966,7 +15968,23 @@ var LightweightCharts = (() => {
       return this._canvas;
     }
     get width() {
-      return this._options.width;
+      return this._width;
+    }
+    updateWidth() {
+      const width = this._calculateRequiredWidth();
+      if (width === this._width) {
+        return false;
+      }
+      this._width = width;
+      if (this._element) {
+        this._element.style.width = `${width}px`;
+      }
+      if (this._canvas) {
+        const dpr = window.devicePixelRatio || 1;
+        this._canvas.style.width = `${width}px`;
+        this._canvas.width = width * dpr;
+      }
+      return true;
     }
     setHeight(height) {
       if (this._height === height) return;
@@ -15983,7 +16001,8 @@ var LightweightCharts = (() => {
     render() {
       if (!this._ctx || !this._canvas) return;
       const dpr = window.devicePixelRatio || 1;
-      const width = this._options.width;
+      this.updateWidth();
+      const width = this._width;
       const height = this._height;
       this._ctx.setTransform(1, 0, 0, 1, 0, 0);
       this._ctx.scale(dpr, dpr);
@@ -16020,17 +16039,32 @@ var LightweightCharts = (() => {
         this._drawLabel(this._crosshairY, text, "#2962ff", false);
       }
     }
+    _calculateRequiredWidth() {
+      if (!this._ctx) {
+        return this._width;
+      }
+      let maxTextWidth = 0;
+      this._ctx.font = `${this._options.fontSize}px ${this._options.fontFamily}`;
+      for (const mark of this._priceScale.marks()) {
+        maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(mark.label).width);
+      }
+      if (this._lastValue) {
+        this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+        maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(this._lastValue.text).width);
+      }
+      return Math.ceil(Math.max(44, maxTextWidth + 12));
+    }
     _drawLabel(y, text, color, isLastValue) {
       if (!this._ctx || !this._element) return;
-      const width = this._options.width;
+      const width = this._width;
       const height = this._height;
       if (y < -20 || y > height + 20) return;
-      const padding = 8;
+      const horizontalPadding = 2;
       this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
       const textWidth = this._ctx.measureText(text).width;
       const hasCountdown = isLastValue && this._countdown;
       const boxHeight = hasCountdown ? 34 : 20;
-      const boxWidth = Math.max(textWidth + padding * 2, hasCountdown ? 70 : 0);
+      const boxWidth = Math.ceil(textWidth + horizontalPadding * 2);
       const boxY = y - boxHeight / 2;
       const boxX = width - boxWidth;
       this._ctx.fillStyle = color;
@@ -16088,19 +16122,20 @@ var LightweightCharts = (() => {
     _createElement(container) {
       this._element = document.createElement("div");
       this._element.style.cssText = `
-            width: ${this._options.width}px;
+            width: ${this._width}px;
             height: 100%;
             flex-shrink: 0;
             position: relative;
         `;
       this._canvas = document.createElement("canvas");
       const dpr = window.devicePixelRatio || 1;
-      this._canvas.width = this._options.width * dpr;
+      this._canvas.width = this._width * dpr;
       this._canvas.style.cssText = `
-            width: ${this._options.width}px;
+            width: ${this._width}px;
             height: 100%;
             display: block;
             cursor: ns-resize;
+            touch-action: none;
         `;
       this._ctx = this._canvas.getContext("2d");
       const onMouseMove = (e) => {
@@ -16694,7 +16729,33 @@ var LightweightCharts = (() => {
             font-size: 13px;
             user-select: none;
             gap: 4px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+            touch-action: pan-x;
+            -webkit-overflow-scrolling: touch;
         `;
+      const style = document.createElement("style");
+      style.textContent = `
+            .chart-toolbar::-webkit-scrollbar {
+                display: none;
+            }
+            .chart-toolbar {
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+            }
+        `;
+      document.head.appendChild(style);
+      this._element.addEventListener("touchstart", (e) => {
+        e.stopPropagation();
+      }, { passive: true });
+      this._element.addEventListener("touchmove", (e) => {
+        e.stopPropagation();
+      }, { passive: true });
+      this._element.addEventListener("touchend", (e) => {
+        e.stopPropagation();
+      }, { passive: true });
       this._createSymbolSection();
       this._createSeparator();
       this._createTimeframeButtons();
@@ -16717,6 +16778,7 @@ var LightweightCharts = (() => {
             align-items: center;
             gap: 6px;
             padding: 6px 10px;
+            flex-shrink: 0;
             border-radius: 4px;
             cursor: pointer;
             color: #d1d4dc;
@@ -16766,6 +16828,7 @@ var LightweightCharts = (() => {
             height: 20px;
             background: #2B2B43;
             margin: 0 4px;
+            flex-shrink: 0;
         `;
       this._element.appendChild(separator);
     }
@@ -16776,6 +16839,7 @@ var LightweightCharts = (() => {
             display: flex;
             align-items: center;
             gap: 2px;
+            flex-shrink: 0;
         `;
       this._options.timeframes.forEach((tf) => {
         const isActive = tf === this._activeTimeframe;
@@ -16796,6 +16860,7 @@ var LightweightCharts = (() => {
             display: flex;
             align-items: center;
             gap: 2px;
+            flex-shrink: 0;
         `;
       const types = [
         { type: "candles", icon: TOOLBAR_ICONS.candles, title: t("Candlestick") },
@@ -16826,6 +16891,7 @@ var LightweightCharts = (() => {
             display: flex;
             align-items: center;
             gap: 2px;
+            flex-shrink: 0;
         `;
       const modes = [
         { mode: "normal", label: "LIN", title: t("Linear scale") },
@@ -16859,6 +16925,7 @@ var LightweightCharts = (() => {
             font-size: 13px;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
         `;
       const icon = document.createElement("span");
       icon.innerHTML = TOOLBAR_ICONS.indicators;
@@ -16896,6 +16963,7 @@ var LightweightCharts = (() => {
             font-size: 13px;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
         `;
       const icon = document.createElement("span");
       icon.innerHTML = TOOLBAR_ICONS.dom;
@@ -16928,6 +16996,7 @@ var LightweightCharts = (() => {
             margin-left: auto;
             display: flex;
             align-items: center;
+            flex-shrink: 0;
         `;
       const isDark = this._currentTheme === "dark";
       const select = document.createElement("select");
@@ -16976,6 +17045,7 @@ var LightweightCharts = (() => {
             justify-content: center;
             margin-left: 8px;
             transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
         `;
       const moonIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
       const sunIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`;
@@ -18448,6 +18518,38 @@ var LightweightCharts = (() => {
           currentValue ?? row.defaultValue ?? false,
           (value) => row.key && context.setValue(row.key, value)
         ));
+        break;
+      }
+      case "select": {
+        const label = document.createElement("label");
+        label.textContent = row.label ? t(row.label) : "";
+        label.style.cssText = `color: #131722; font-size: 14px;`;
+        rowEl.appendChild(label);
+        const select = document.createElement("select");
+        select.value = currentValue || row.defaultValue || "";
+        select.style.cssText = `
+                min-width: 150px;
+                height: 34px;
+                border: 1px solid #e0e3eb;
+                border-radius: 6px;
+                background: #ffffff;
+                color: #131722;
+                font-size: 13px;
+                padding: 0 10px;
+                outline: none;
+            `;
+        (row.options || []).forEach((option) => {
+          const item = document.createElement("option");
+          item.value = option.value;
+          item.textContent = t(option.label);
+          select.appendChild(item);
+        });
+        select.addEventListener("change", () => {
+          if (row.key) {
+            context.setValue(row.key, select.value);
+          }
+        });
+        rowEl.appendChild(select);
         break;
       }
       case "lineWidth": {
@@ -20624,12 +20726,12 @@ var LightweightCharts = (() => {
       return NaN;
     }
     let lowest = Infinity;
-    let highest = -Infinity;
+    let highest2 = -Infinity;
     for (let i = index - length + 1; i <= index; i++) {
       lowest = Math.min(lowest, sourceData[i].low);
-      highest = Math.max(highest, sourceData[i].high);
+      highest2 = Math.max(highest2, sourceData[i].high);
     }
-    return (lowest + highest) / 2;
+    return (lowest + highest2) / 2;
   }
   function withAlpha(color, alpha) {
     const normalizedAlpha = Math.max(0, Math.min(1, alpha));
@@ -20727,10 +20829,10 @@ var LightweightCharts = (() => {
       const startIndex = Math.max(0, endIndex - rangeBars + 1);
       const window2 = sourceData.slice(startIndex, endIndex + 1);
       const lowest = Math.min(...window2.map((bar) => bar.low));
-      const highest = Math.max(...window2.map((bar) => bar.high));
+      const highest2 = Math.max(...window2.map((bar) => bar.high));
       const rows = Math.max(8, Math.floor(this._optionsEx.rows));
-      const priceRange = highest - lowest;
-      if (!Number.isFinite(lowest) || !Number.isFinite(highest) || priceRange <= 0) {
+      const priceRange = highest2 - lowest;
+      if (!Number.isFinite(lowest) || !Number.isFinite(highest2) || priceRange <= 0) {
         return;
       }
       const step = priceRange / rows;
@@ -20744,8 +20846,8 @@ var LightweightCharts = (() => {
         const bar = sourceData[i];
         const volume = Math.max(0, bar.volume || 0);
         totalVolume += volume;
-        const high = clamp2(bar.high, lowest, highest);
-        const low = clamp2(bar.low, lowest, highest);
+        const high = clamp2(bar.high, lowest, highest2);
+        const low = clamp2(bar.low, lowest, highest2);
         const startBin = clampInt(Math.floor((low - lowest) / step), 0, rows - 1);
         const endBin = clampInt(Math.floor((high - lowest) / step - 1e-8), 0, rows - 1);
         const touched = Math.max(1, endBin - startBin + 1);
@@ -20761,7 +20863,7 @@ var LightweightCharts = (() => {
         startIndex,
         endIndex,
         lowest,
-        highest,
+        highest: highest2,
         bins,
         maxVolume,
         totalVolume,
@@ -20772,7 +20874,7 @@ var LightweightCharts = (() => {
       };
       this._data = [
         { time: sourceData[startIndex].time, value: lowest },
-        { time: sourceData[endIndex].time, value: highest }
+        { time: sourceData[endIndex].time, value: highest2 }
       ];
     }
     getRange() {
@@ -23563,11 +23665,11 @@ var LightweightCharts = (() => {
   };
   function _windowHighest(data, endIndex, length, accessor) {
     const startIndex = Math.max(0, endIndex - length + 1);
-    let highest = -Infinity;
+    let highest2 = -Infinity;
     for (let i = startIndex; i <= endIndex; i++) {
-      highest = Math.max(highest, accessor(data[i]));
+      highest2 = Math.max(highest2, accessor(data[i]));
     }
-    return highest;
+    return highest2;
   }
   function _windowLowest(data, endIndex, length, accessor) {
     const startIndex = Math.max(0, endIndex - length + 1);
@@ -25808,6 +25910,554 @@ ${note}`;
     return Math.hypot(px - cx, py - cy);
   }
 
+  // src/indicators/demark-pivot-indicator.ts
+  var defaultOptions2 = {
+    name: "GainMetrics",
+    timeframe: "D",
+    showDailyPivots: true,
+    showWeeklyPivots: false,
+    showMonthlyPivots: false,
+    useClassicPrevOpen: false,
+    showPivots: true,
+    showEma: true,
+    showClose: false,
+    showObv: false,
+    obvDivider: 25e7,
+    color: "#f6c343",
+    lineWidth: 1,
+    style: "line" /* Line */,
+    rColor: "#ef5350",
+    ppColor: "#f6c343",
+    sColor: "#22c55e",
+    ema21Color: "#00bcd4",
+    ema33Color: "#2962ff",
+    ema55Color: "#8e24aa",
+    ema144Color: "#ff9800",
+    ema233Color: "#7f1d1d",
+    ema5Color: "#ffffff",
+    closeColor: "#ffffff",
+    obvColor: "#787b86",
+    obvRefColor: "#d946ef"
+  };
+  var PIVOT_BASE_INDEX = {
+    D: 0,
+    W: 7,
+    M: 14
+  };
+  var VALUE_INDEX = {
+    ema21: 21,
+    ema33: 22,
+    ema55: 23,
+    ema144: 24,
+    ema233: 25,
+    ema5: 26,
+    close: 27,
+    obv: 28,
+    ro1: 29,
+    ro2: 30,
+    ro3: 31
+  };
+  var PIVOT_LEVELS = [
+    { key: "r3", offset: 0, alpha: 1 },
+    { key: "r2", offset: 1, alpha: 0.8 },
+    { key: "r1", offset: 2, alpha: 0.6 },
+    { key: "pp", offset: 3, alpha: 1, widthBoost: 1 },
+    { key: "s1", offset: 4, alpha: 0.6 },
+    { key: "s2", offset: 5, alpha: 0.8 },
+    { key: "s3", offset: 6, alpha: 1 }
+  ];
+  var DATA_VALUE_COUNT = 32;
+  var DeMarkPivotIndicator = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const mergedOptions = { ...defaultOptions2, ...options };
+      const hasPivotCheckboxes = options.showDailyPivots !== void 0 || options.showWeeklyPivots !== void 0 || options.showMonthlyPivots !== void 0;
+      if (!hasPivotCheckboxes) {
+        const timeframe = options.timeframe || mergedOptions.timeframe || "D";
+        mergedOptions.showDailyPivots = timeframe === "D";
+        mergedOptions.showWeeklyPivots = timeframe === "W";
+        mergedOptions.showMonthlyPivots = timeframe === "M";
+      }
+      mergedOptions.name = getIndicatorName();
+      super(mergedOptions);
+      this._pivotSourceData = {};
+      this._pivotOptions = { ...defaultOptions2, ...this._options };
+      this._syncName();
+    }
+    getSettingsConfig() {
+      return {
+        name: this.name,
+        tabs: [
+          createInputsTab([
+            {
+              rows: [
+                checkboxRow2("showDailyPivots", "G\xFCnl\xFCk", this._pivotOptions.showDailyPivots),
+                checkboxRow2("showWeeklyPivots", "Haftal\u0131k", this._pivotOptions.showWeeklyPivots),
+                checkboxRow2("showMonthlyPivots", "Ayl\u0131k", this._pivotOptions.showMonthlyPivots)
+              ]
+            }
+          ])
+        ]
+      };
+    }
+    _getAllOptions() {
+      return { ...this._pivotOptions };
+    }
+    get pivotTimeframe() {
+      return this.pivotTimeframes[0] ?? this._pivotOptions.timeframe;
+    }
+    get pivotTimeframes() {
+      const timeframes = [];
+      if (this._pivotOptions.showDailyPivots) {
+        timeframes.push("D");
+      }
+      if (this._pivotOptions.showWeeklyPivots) {
+        timeframes.push("W");
+      }
+      if (this._pivotOptions.showMonthlyPivots) {
+        timeframes.push("M");
+      }
+      return timeframes;
+    }
+    setPivotSourceData(timeframe, data) {
+      this._pivotSourceData[timeframe] = data;
+      if (this.pivotTimeframes.includes(timeframe) && this._sourceData.length > 0) {
+        this.calculate(this._sourceData);
+        this._dataChanged.fire();
+      }
+    }
+    clearPivotSourceData() {
+      this._pivotSourceData = {};
+    }
+    setSettingValue(key, value) {
+      const oldValue = this._pivotOptions[key];
+      if (oldValue === value) {
+        return false;
+      }
+      this._pivotOptions[key] = value;
+      this._options[key] = value;
+      if (key === "timeframe") {
+        this._pivotOptions.showDailyPivots = value === "D";
+        this._pivotOptions.showWeeklyPivots = value === "W";
+        this._pivotOptions.showMonthlyPivots = value === "M";
+        this._options.showDailyPivots = this._pivotOptions.showDailyPivots;
+        this._options.showWeeklyPivots = this._pivotOptions.showWeeklyPivots;
+        this._options.showMonthlyPivots = this._pivotOptions.showMonthlyPivots;
+      }
+      this._syncName();
+      const needsRecalc = key === "timeframe" || key === "showDailyPivots" || key === "showWeeklyPivots" || key === "showMonthlyPivots" || key === "useClassicPrevOpen" || key === "obvDivider";
+      if (needsRecalc && this._sourceData.length > 0) {
+        this.calculate(this._sourceData);
+      }
+      this._dataChanged.fire();
+      return needsRecalc;
+    }
+    calculate(sourceData) {
+      this._data = sourceData.map((bar) => ({
+        time: bar.time,
+        value: NaN,
+        values: new Array(DATA_VALUE_COUNT).fill(NaN)
+      }));
+      if (sourceData.length === 0) {
+        return;
+      }
+      for (const timeframe of this.pivotTimeframes) {
+        const pivotSource = this._pivotSourceData[timeframe];
+        if (pivotSource && pivotSource.length > 1) {
+          this._applyPivotLevelsFromSource(sourceData, pivotSource, timeframe);
+        } else {
+          this._applyPivotLevelsFromSourceBuckets(sourceData, timeframe);
+        }
+      }
+      this._applyEma(sourceData, 21, VALUE_INDEX.ema21);
+      this._applyEma(sourceData, 33, VALUE_INDEX.ema33);
+      this._applyEma(sourceData, 55, VALUE_INDEX.ema55);
+      this._applyEma(sourceData, 144, VALUE_INDEX.ema144);
+      this._applyEma(sourceData, 233, VALUE_INDEX.ema233);
+      this._applyEma(sourceData, 5, VALUE_INDEX.ema5);
+      this._applyClose(sourceData);
+      this._applyObv(sourceData);
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr, visibleRange) {
+      const startIndex = Math.max(0, Math.floor(visibleRange.from));
+      const endIndex = Math.min(this._data.length - 1, Math.ceil(visibleRange.to));
+      if (this._pivotOptions.showPivots) {
+        for (const timeframe of this.pivotTimeframes) {
+          this._drawPivotLevels(ctx, timeScale, priceScale, timeframe, startIndex, endIndex, hpr, vpr);
+        }
+      }
+      if (this._pivotOptions.showEma) {
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema21, this._pivotOptions.ema21Color, startIndex, endIndex, hpr, vpr);
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema33, this._pivotOptions.ema33Color, startIndex, endIndex, hpr, vpr);
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema55, this._pivotOptions.ema55Color, startIndex, endIndex, hpr, vpr);
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema144, this._pivotOptions.ema144Color, startIndex, endIndex, hpr, vpr, 1);
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema233, this._pivotOptions.ema233Color, startIndex, endIndex, hpr, vpr, 1);
+        if (this._pivotOptions.showDailyPivots) {
+          this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ema5, this._pivotOptions.ema5Color, startIndex, endIndex, hpr, vpr);
+        }
+      }
+      if (this._pivotOptions.showClose) {
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.close, this._pivotOptions.closeColor, startIndex, endIndex, hpr, vpr);
+      }
+      if (this._pivotOptions.showObv) {
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.obv, this._pivotOptions.obvColor, startIndex, endIndex, hpr, vpr);
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ro1, this._pivotOptions.obvRefColor, startIndex, endIndex, hpr, vpr);
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ro2, applyAlpha(this._pivotOptions.obvRefColor, 0.7), startIndex, endIndex, hpr, vpr);
+        this._drawValueLine(ctx, timeScale, priceScale, VALUE_INDEX.ro3, applyAlpha(this._pivotOptions.obvRefColor, 0.45), startIndex, endIndex, hpr, vpr);
+      }
+    }
+    getRange() {
+      const visibleIndices = this._pivotOptions.showPivots ? this.pivotTimeframes.flatMap((timeframe) => PIVOT_LEVELS.map((level) => this._pivotValueIndex(timeframe, level.offset))) : [];
+      let min = Infinity;
+      let max = -Infinity;
+      for (const point of this._data) {
+        const values = point.values || [];
+        for (const index of visibleIndices) {
+          const value = values[index];
+          if (Number.isFinite(value)) {
+            min = Math.min(min, value);
+            max = Math.max(max, value);
+          }
+        }
+      }
+      return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : { min: 0, max: 100 };
+    }
+    getDescription(index) {
+      const dataIndex = index !== void 0 && index >= 0 && index < this._data.length ? index : this._data.length - 1;
+      const timeframe = this.pivotTimeframes[0];
+      const value = timeframe ? this._data[dataIndex]?.values?.[this._pivotValueIndex(timeframe, 3)] ?? NaN : NaN;
+      const labels = this.pivotTimeframes.map(getTimeframeLabel).join("/");
+      return `GainMetrics ${labels || "Kapal\u0131"} ${Number.isFinite(value) ? value.toFixed(2) : "-"}`;
+    }
+    getPivotSummaryRows() {
+      const rows = [];
+      for (const timeframe of this.pivotTimeframes) {
+        const dataIndex = this._findLatestPivotIndex(timeframe);
+        if (dataIndex === -1) {
+          continue;
+        }
+        const values = this._data[dataIndex].values;
+        rows.push({
+          timeframe,
+          label: getTimeframeLabel(timeframe),
+          values: {
+            r3: values[this._pivotValueIndex(timeframe, 0)],
+            r2: values[this._pivotValueIndex(timeframe, 1)],
+            r1: values[this._pivotValueIndex(timeframe, 2)],
+            pp: values[this._pivotValueIndex(timeframe, 3)],
+            s1: values[this._pivotValueIndex(timeframe, 4)],
+            s2: values[this._pivotValueIndex(timeframe, 5)],
+            s3: values[this._pivotValueIndex(timeframe, 6)]
+          }
+        });
+      }
+      return rows;
+    }
+    _syncName() {
+      this._pivotOptions.name = getIndicatorName();
+      this._options.name = this._pivotOptions.name;
+    }
+    _pivotValueIndex(timeframe, offset) {
+      return PIVOT_BASE_INDEX[timeframe] + offset;
+    }
+    _findLatestPivotIndex(timeframe) {
+      const ppIndex = this._pivotValueIndex(timeframe, 3);
+      for (let i = this._data.length - 1; i >= 0; i--) {
+        const value = this._data[i]?.values?.[ppIndex];
+        if (typeof value === "number" && Number.isFinite(value)) {
+          return i;
+        }
+      }
+      return -1;
+    }
+    _buildPeriodBuckets(sourceData, timeframe) {
+      const buckets = [];
+      sourceData.forEach((bar, index) => {
+        const key = getPeriodKey(bar.time, timeframe);
+        let bucket = buckets[buckets.length - 1];
+        if (!bucket || bucket.key !== key) {
+          bucket = {
+            key,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
+            startIndex: index,
+            endIndex: index
+          };
+          buckets.push(bucket);
+          return;
+        }
+        bucket.high = Math.max(bucket.high, bar.high);
+        bucket.low = Math.min(bucket.low, bar.low);
+        bucket.close = bar.close;
+        bucket.endIndex = index;
+      });
+      return buckets;
+    }
+    _applyPivotLevelsFromSource(sourceData, pivotData, timeframe) {
+      const levelsByPeriod = /* @__PURE__ */ new Map();
+      for (let i = 1; i < pivotData.length; i++) {
+        const prev = pivotData[i - 1];
+        const current = pivotData[i];
+        const currentBucket = {
+          key: getPeriodKey(current.time, timeframe),
+          open: current.open,
+          high: current.high,
+          low: current.low,
+          close: current.close,
+          startIndex: 0,
+          endIndex: 0
+        };
+        const prevBucket = {
+          key: getPeriodKey(prev.time, timeframe),
+          open: prev.open,
+          high: prev.high,
+          low: prev.low,
+          close: prev.close,
+          startIndex: 0,
+          endIndex: 0
+        };
+        levelsByPeriod.set(currentBucket.key, this._calculatePivotLevels(prevBucket, currentBucket));
+      }
+      for (let i = 0; i < sourceData.length; i++) {
+        const levels = levelsByPeriod.get(getPeriodKey(sourceData[i].time, timeframe));
+        if (levels) {
+          this._setPivotValues(i, levels, timeframe);
+        }
+      }
+    }
+    _applyPivotLevelsFromSourceBuckets(sourceData, timeframe) {
+      const buckets = this._buildPeriodBuckets(sourceData, timeframe);
+      for (let i = 1; i < buckets.length; i++) {
+        const prev = buckets[i - 1];
+        const current = buckets[i];
+        const levels = this._calculatePivotLevels(prev, current);
+        for (let index = current.startIndex; index <= current.endIndex; index++) {
+          this._setPivotValues(index, levels, timeframe);
+        }
+      }
+    }
+    _setPivotValues(index, levels, timeframe) {
+      const values = this._data[index].values;
+      values[this._pivotValueIndex(timeframe, 0)] = levels.r3;
+      values[this._pivotValueIndex(timeframe, 1)] = levels.r2;
+      values[this._pivotValueIndex(timeframe, 2)] = levels.r1;
+      values[this._pivotValueIndex(timeframe, 3)] = levels.pp;
+      values[this._pivotValueIndex(timeframe, 4)] = levels.s1;
+      values[this._pivotValueIndex(timeframe, 5)] = levels.s2;
+      values[this._pivotValueIndex(timeframe, 6)] = levels.s3;
+      this._data[index].value = levels.pp;
+    }
+    _calculatePivotLevels(prev, current) {
+      const pivotOpen = this._pivotOptions.useClassicPrevOpen ? prev.open : current.open;
+      const x = prev.close < pivotOpen ? prev.low + prev.low + prev.high + prev.close : prev.close > pivotOpen ? prev.high + prev.high + prev.low + prev.close : prev.close + prev.close + prev.high + prev.low;
+      const pp = x / 4;
+      const range = prev.high - prev.low;
+      const r1 = 2 * pp - prev.low;
+      const s1 = 2 * pp - prev.high;
+      return {
+        pp,
+        r1,
+        s1,
+        r2: pp + range,
+        s2: pp - range,
+        r3: r1 + range,
+        s3: s1 - range
+      };
+    }
+    _applyEma(sourceData, period, valueIndex) {
+      if (sourceData.length < period) {
+        return;
+      }
+      let sum = 0;
+      for (let i = 0; i < period; i++) {
+        sum += sourceData[i].close;
+      }
+      let ema = sum / period;
+      this._data[period - 1].values[valueIndex] = ema;
+      const multiplier = 2 / (period + 1);
+      for (let i = period; i < sourceData.length; i++) {
+        ema = sourceData[i].close * multiplier + ema * (1 - multiplier);
+        this._data[i].values[valueIndex] = ema;
+      }
+    }
+    _applyClose(sourceData) {
+      for (let i = 0; i < sourceData.length; i++) {
+        this._data[i].values[VALUE_INDEX.close] = sourceData[i].close;
+      }
+    }
+    _applyObv(sourceData) {
+      let obv = 0;
+      const obvValues = [];
+      for (let i = 0; i < sourceData.length; i++) {
+        if (i > 0) {
+          const volume = sourceData[i].volume ?? 0;
+          if (sourceData[i].close > sourceData[i - 1].close) {
+            obv += volume;
+          } else if (sourceData[i].close < sourceData[i - 1].close) {
+            obv -= volume;
+          }
+        }
+        const scaled = obv / this._pivotOptions.obvDivider;
+        obvValues.push(scaled);
+        this._data[i].values[VALUE_INDEX.obv] = scaled;
+        this._data[i].values[VALUE_INDEX.ro1] = highest(obvValues, i - 1, 50);
+        this._data[i].values[VALUE_INDEX.ro2] = highest(obvValues, i - 1, 25);
+        this._data[i].values[VALUE_INDEX.ro3] = highest(obvValues, i - 1, 10);
+      }
+    }
+    _drawPivotLevels(ctx, timeScale, priceScale, timeframe, startIndex, endIndex, hpr, vpr) {
+      for (const level of PIVOT_LEVELS) {
+        const valueIndex = this._pivotValueIndex(timeframe, level.offset);
+        const color = level.offset <= 2 ? applyAlpha(this._pivotOptions.rColor, level.alpha) : level.offset >= 4 ? applyAlpha(this._pivotOptions.sColor, level.alpha) : this._pivotOptions.ppColor;
+        this._drawStepLine(ctx, timeScale, priceScale, valueIndex, color, startIndex, endIndex, hpr, vpr, level.widthBoost ?? 0);
+      }
+    }
+    _drawStepLine(ctx, timeScale, priceScale, valueIndex, color, startIndex, endIndex, hpr, vpr, widthBoost = 0) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = (this._pivotOptions.lineWidth + widthBoost) * hpr;
+      ctx.lineCap = "butt";
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      let hasSegment = false;
+      let segmentStartIndex = null;
+      let segmentEndIndex = null;
+      let segmentValue = null;
+      const flushSegment = () => {
+        if (segmentStartIndex === null || segmentEndIndex === null || segmentValue === null) {
+          return;
+        }
+        const startCoordinate = timeScale.indexToCoordinate(segmentStartIndex);
+        const endCoordinate = timeScale.indexToCoordinate(segmentEndIndex);
+        const priceCoordinate = priceScale.priceToCoordinate(segmentValue);
+        if (priceCoordinate === void 0) {
+          return;
+        }
+        const halfBar = timeScale.barSpacing / 2;
+        const x1 = (startCoordinate - halfBar) * hpr;
+        const x2 = (endCoordinate + halfBar) * hpr;
+        const y = priceCoordinate * vpr;
+        ctx.moveTo(x1, y);
+        ctx.lineTo(x2, y);
+        hasSegment = true;
+      };
+      for (let i = startIndex; i <= endIndex; i++) {
+        const value = this._data[i]?.values?.[valueIndex];
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          flushSegment();
+          segmentStartIndex = null;
+          segmentEndIndex = null;
+          segmentValue = null;
+          continue;
+        }
+        if (segmentValue !== null && Math.abs(segmentValue - value) > 1e-10) {
+          flushSegment();
+          segmentStartIndex = i;
+          segmentEndIndex = i;
+          segmentValue = value;
+          continue;
+        }
+        if (segmentStartIndex === null) {
+          segmentStartIndex = i;
+          segmentValue = value;
+        }
+        segmentEndIndex = i;
+      }
+      flushSegment();
+      if (hasSegment) {
+        ctx.stroke();
+      }
+    }
+    _drawValueLine(ctx, timeScale, priceScale, valueIndex, color, startIndex, endIndex, hpr, vpr, widthBoost = 0) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = (this._pivotOptions.lineWidth + widthBoost) * hpr;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      let started = false;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const value = this._data[i]?.values?.[valueIndex];
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          started = false;
+          continue;
+        }
+        const x = timeScale.indexToCoordinate(i) * hpr;
+        const coordinate2 = priceScale.priceToCoordinate(value);
+        if (coordinate2 === void 0) {
+          started = false;
+          continue;
+        }
+        const y = coordinate2 * vpr;
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    }
+  };
+  function getIndicatorName() {
+    return "GainMetrics";
+  }
+  function getTimeframeLabel(timeframe) {
+    return timeframe === "D" ? "G\xFCnl\xFCk" : timeframe === "W" ? "Haftal\u0131k" : "Ayl\u0131k";
+  }
+  function getPeriodKey(time, timeframe) {
+    const date = new Date(toUnixMilliseconds(time));
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth() + 1;
+    if (timeframe === "M") {
+      return `${year}-${month}`;
+    }
+    if (timeframe === "W") {
+      const week = getUtcIsoWeek(date);
+      return `${week.year}-W${week.week}`;
+    }
+    return `${year}-${month}-${date.getUTCDate()}`;
+  }
+  function toUnixMilliseconds(time) {
+    return Math.abs(time) > 1e11 ? time : time * 1e3;
+  }
+  function getUtcIsoWeek(date) {
+    const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const dayNumber = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - dayNumber);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    const week = Math.ceil(((target.getTime() - yearStart.getTime()) / 864e5 + 1) / 7);
+    return { year: target.getUTCFullYear(), week };
+  }
+  function highest(values, endIndex, length) {
+    if (endIndex < 0) {
+      return NaN;
+    }
+    let max = -Infinity;
+    const start = Math.max(0, endIndex - length + 1);
+    for (let i = start; i <= endIndex; i++) {
+      if (Number.isFinite(values[i])) {
+        max = Math.max(max, values[i]);
+      }
+    }
+    return Number.isFinite(max) ? max : NaN;
+  }
+  function applyAlpha(color, alpha) {
+    if (!color.startsWith("#")) {
+      return color;
+    }
+    const hex = color.slice(1);
+    const normalized = hex.length === 3 ? hex.split("").map((ch) => ch + ch).join("") : hex;
+    const value = parseInt(normalized, 16);
+    if (Number.isNaN(value)) {
+      return color;
+    }
+    const r = value >> 16 & 255;
+    const g = value >> 8 & 255;
+    const b = value & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
   // src/indicators/indicator-manager.ts
   var IndicatorManager = class {
     constructor() {
@@ -25965,6 +26615,7 @@ ${note}`;
         else if (indicator instanceof HarmonicPatternIndicator) typeId = "HarmonicPattern";
         else if (indicator instanceof ChartPatternsIndicator) typeId = "ChartPatterns";
         else if (indicator instanceof TrendlineBreakoutIndicator) typeId = "TrendlineBreakout";
+        else if (indicator instanceof DeMarkPivotIndicator) typeId = "DeMarkPivot";
         serialized.push({
           id: indicator.id,
           type: indicator.type,
@@ -26067,6 +26718,9 @@ ${note}`;
           break;
         case "TrendlineBreakout":
           indicator = new TrendlineBreakoutIndicator(item.options);
+          break;
+        case "DeMarkPivot":
+          indicator = new DeMarkPivotIndicator(item.options);
           break;
         default:
           console.warn(`Unknown indicator typeId: ${typeId}`);
@@ -26643,6 +27297,7 @@ ${note}`;
       this._canvas.style.cssText = `
             display: block;
             flex: 1;
+            touch-action: none;
         `;
       this._canvas.height = this._height * dpr;
       this._ctx = this._canvas.getContext("2d");
@@ -26659,6 +27314,7 @@ ${note}`;
             width: ${this._options.priceScaleWidth}px;
             flex-shrink: 0;
             cursor: ns-resize;
+            touch-action: none;
         `;
       this._priceAxisCanvas.width = this._options.priceScaleWidth * dpr;
       this._priceAxisCanvas.height = this._height * dpr;
@@ -26952,6 +27608,14 @@ ${note}`;
       name: "TDOJI-SR",
       shortName: "SR",
       description: "Prev close based support and resistance ladder with labels and level notes",
+      category: "custom",
+      type: "overlay"
+    },
+    {
+      id: "demark-pivot",
+      name: "GainMetrics",
+      shortName: "GM",
+      description: "G\xFCnl\xFCk, haftal\u0131k veya ayl\u0131k DeMark destek diren\xE7 pivotlar\u0131, EMA ve OBV \xE7izgileri",
       category: "custom",
       type: "overlay"
     },
@@ -28098,6 +28762,9 @@ ${note}`;
         this._flyoutContainer.innerHTML = "";
       }
       this._activeFlyout = null;
+    }
+    closeFlyout() {
+      this._closeFlyout();
     }
     _updateGroupButtonIcon(groupId, icon) {
       const btn = this._element?.querySelector(`button[data-group-id="${groupId}"]`);
@@ -34188,7 +34855,7 @@ ${note}`;
   };
 
   // src/renderers/orderbook-heatmap-renderer.ts
-  var defaultOptions2 = {
+  var defaultOptions3 = {
     enabled: true,
     bidColor: "#00d4aa",
     // Cyan
@@ -34225,7 +34892,7 @@ ${note}`;
       this._bidAgeBuffer = null;
       this._askAgeBuffer = null;
       this._bufferSize = 0;
-      this._options = { ...defaultOptions2, ...options };
+      this._options = { ...defaultOptions3, ...options };
     }
     get enabled() {
       return this._options.enabled;
@@ -34661,8 +35328,6 @@ ${note}`;
     ctx.model.setCrosshairPosition(0, 0, false);
   }
   function handleMouseUp(e, ctx) {
-    if (!ctx.paneCanvas) return {};
-    const paneRect = ctx.paneCanvas.getBoundingClientRect();
     const result = {};
     if (ctx.isDragging) {
       result.isDragging = false;
@@ -34676,10 +35341,13 @@ ${note}`;
       result.isDraggingDrawing = false;
       result.draggingControlPoint = -1;
     }
-    if (paneRect && ctx.drawingManager.activeDrawing && (ctx.drawingManager.activeDrawing.type === "brush" || ctx.drawingManager.activeDrawing.type === "highlighter")) {
-      const x = e.clientX - paneRect.left;
-      const y = e.clientY - paneRect.top;
-      ctx.drawingManager.finishDrawing(x, y);
+    if (ctx.paneCanvas) {
+      const paneRect = ctx.paneCanvas.getBoundingClientRect();
+      if (paneRect && ctx.drawingManager.activeDrawing && (ctx.drawingManager.activeDrawing.type === "brush" || ctx.drawingManager.activeDrawing.type === "highlighter")) {
+        const x = e.clientX - paneRect.left;
+        const y = e.clientY - paneRect.top;
+        ctx.drawingManager.finishDrawing(x, y);
+      }
     }
     return result;
   }
@@ -34869,11 +35537,14 @@ ${note}`;
       this._interactionPriceScale = null;
       this._symbolChanged = new Delegate();
       this._timeframeChanged = new Delegate();
+      this._wiredIndicators = /* @__PURE__ */ new WeakSet();
       // Context menu
       this._contextMenu = null;
       this._mainLegendContainer = null;
       this._brandingLogo = null;
+      this._gainMetricsPanel = null;
       this._indicatorPanes = /* @__PURE__ */ new Map();
+      this._deMarkPivotFetchKeys = /* @__PURE__ */ new WeakMap();
       // Loading overlay
       this._loadingOverlay = null;
       // Indicator search modal
@@ -34890,6 +35561,11 @@ ${note}`;
       this._indicatorPanesHidden = false;
       // Mobile Zoom State
       this._lastTouchDistance = 0;
+      this._touchLongPressTimer = null;
+      this._touchLongPressStart = null;
+      this._touchLongPressTriggered = false;
+      this._priceAxisTouchStart = null;
+      this._priceAxisTouchActive = null;
       // Technical Rating Badge
       this._technicalRatingBadge = null;
       this._currentTheme = "light";
@@ -34980,6 +35656,7 @@ ${note}`;
         this._chartSettingsModal.setTheme(this._currentTheme);
       }
       this._chartStateManager.setSymbol(initialSymbol);
+      this._wireExistingIndicators();
       this._indicatorSearchModal = new IndicatorSearchModal(this._container);
       this._indicatorSearchModal.indicatorSelected.subscribe((indicatorId) => {
         this._onIndicatorSelected(indicatorId);
@@ -35270,7 +35947,7 @@ ${note}`;
             --tv-toolbar-height: 38px;
             --tv-drawing-toolbar-width: 48px;
             --tv-time-axis-height: 28px;
-            --tv-price-axis-width: 80px;
+            --tv-price-axis-width: 52px;
             --tv-content-padding: 12px;
         `;
       this._chartRow = document.createElement("div");
@@ -35373,9 +36050,72 @@ ${note}`;
             .tv-legend-btn svg {
                 fill: currentColor;
             }
+            .tv-gainmetrics-panel {
+                position: absolute;
+                right: calc(var(--tv-price-axis-width) + 12px);
+                bottom: calc(var(--tv-time-axis-height) + 12px);
+                z-index: 19;
+                min-width: 154px;
+                max-width: min(230px, calc(100% - var(--tv-price-axis-width) - var(--tv-drawing-toolbar-width) - 36px));
+                padding: 8px 9px;
+                border: 1px solid rgba(0, 188, 212, 0.35);
+                background: rgba(0, 6, 12, 0.72);
+                box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+                color: #e5e7eb;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-size: 11px;
+                line-height: 1.28;
+                pointer-events: none;
+                backdrop-filter: blur(4px);
+            }
+            .tv-gainmetrics-title {
+                color: #22d3ee;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.02em;
+                margin-bottom: 4px;
+            }
+            .tv-gainmetrics-group + .tv-gainmetrics-group {
+                margin-top: 7px;
+                padding-top: 6px;
+                border-top: 1px solid rgba(34, 211, 238, 0.18);
+            }
+            .tv-gainmetrics-period {
+                color: #94a3b8;
+                font-weight: 800;
+                margin-bottom: 2px;
+            }
+            .tv-gainmetrics-line {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                white-space: nowrap;
+            }
+            .tv-gainmetrics-label {
+                font-weight: 800;
+            }
+            .tv-gainmetrics-value {
+                color: #f8fafc;
+                font-variant-numeric: tabular-nums;
+                font-weight: 700;
+            }
+            .tv-gainmetrics-resistance .tv-gainmetrics-label {
+                color: #22d3ee;
+            }
+            .tv-gainmetrics-pivot .tv-gainmetrics-label,
+            .tv-gainmetrics-pivot .tv-gainmetrics-value {
+                color: #facc15;
+            }
+            .tv-gainmetrics-support .tv-gainmetrics-label {
+                color: #f472b6;
+            }
         `;
       document.head.appendChild(legendStyle);
       this._element.appendChild(this._mainLegendContainer);
+      this._gainMetricsPanel = document.createElement("div");
+      this._gainMetricsPanel.className = "tv-gainmetrics-panel";
+      this._gainMetricsPanel.style.display = "none";
+      this._element.appendChild(this._gainMetricsPanel);
       this._element.appendChild(this._indicatorContainer);
       this._element.appendChild(this._timeAxisRow);
       this._loadingOverlay = document.createElement("div");
@@ -35531,7 +36271,8 @@ ${note}`;
     _updateLayout() {
       const toolbarHeight = this._toolbarWidget?.height ?? 0;
       const timeAxisHeight = this._timeAxisWidget?.height ?? 28;
-      const priceAxisWidth = this._priceAxisWidget?.width ?? 80;
+      this._priceAxisWidget?.updateWidth();
+      const priceAxisWidth = this._priceAxisWidget?.width ?? 52;
       const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 0;
       let indicatorPanesHeight = 0;
       for (const pane of this._indicatorPanes.values()) {
@@ -35691,8 +36432,8 @@ ${note}`;
         paneCanvas.addEventListener("dblclick", this._onPaneDoubleClick.bind(this));
         paneCanvas.addEventListener("touchstart", this._onTouchStart.bind(this), { passive: false });
         paneCanvas.addEventListener("touchmove", this._onTouchMove.bind(this), { passive: false });
-        paneCanvas.addEventListener("touchend", this._onTouchEnd.bind(this));
-        paneCanvas.addEventListener("touchcancel", this._onTouchEnd.bind(this));
+        paneCanvas.addEventListener("touchend", this._onTouchEnd.bind(this), { passive: false });
+        paneCanvas.addEventListener("touchcancel", this._onTouchEnd.bind(this), { passive: false });
       }
       document.addEventListener("keydown", this._onKeyDown.bind(this));
       const priceAxisElement = this._priceAxisWidget?.element;
@@ -35701,20 +36442,19 @@ ${note}`;
         priceAxisElement.addEventListener("dblclick", this._onPriceAxisDoubleClick.bind(this));
         priceAxisElement.addEventListener("touchstart", this._onPriceAxisTouchStart.bind(this), { passive: false });
         priceAxisElement.addEventListener("touchmove", this._onPriceAxisTouchMove.bind(this), { passive: false });
-        priceAxisElement.addEventListener("touchend", this._onTouchEnd.bind(this));
-        priceAxisElement.addEventListener("touchcancel", this._onTouchEnd.bind(this));
+        priceAxisElement.addEventListener("touchend", this._onTouchEnd.bind(this), { passive: false });
+        priceAxisElement.addEventListener("touchcancel", this._onTouchEnd.bind(this), { passive: false });
       }
       if (this._element) {
         this._createContextMenu();
         this._element.addEventListener("contextmenu", (e) => {
+          const contextPoint = this._getMainPaneEmptyContextPoint(e.clientX, e.clientY, e.target);
+          if (!contextPoint) {
+            return;
+          }
           e.preventDefault();
           e.stopPropagation();
-          const rect = this._paneWidget?.canvas?.getBoundingClientRect();
-          if (rect) {
-            const y = e.clientY - rect.top;
-            const price = this._model.rightPriceScale.coordinateToPrice(y);
-            this._contextMenu?.setCurrentPrice(price);
-          }
+          this._contextMenu?.setCurrentPrice(contextPoint.price);
           this._contextMenu?.show(e.clientX, e.clientY);
           return false;
         }, true);
@@ -35735,10 +36475,15 @@ ${note}`;
       handleWheel(e, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
     }
     _onMouseDown(e) {
+      this._closeOpenMenus();
       const pane = this._resolvePaneInteraction(e.currentTarget ?? e.target);
       this._setInteractionPane(pane.paneId, pane.paneCanvas, pane.priceScale);
       const stateUpdates = handleMouseDown(e, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
       this._applyEventState(stateUpdates);
+    }
+    _closeOpenMenus() {
+      this._contextMenu?.hide();
+      this._drawingToolbarWidget?.closeFlyout();
     }
     _onMouseMove(e) {
       const shouldUseActivePane = this._isDragging || this._isDraggingDrawing || this._drawingManager.activeDrawing !== null;
@@ -35960,26 +36705,142 @@ ${note}`;
       this._addTextTooltipHelper?.hide();
     }
     // --- Touch Event Handlers ---
+    _mouseEventFromTouch(type, touch) {
+      return new MouseEvent(type, {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        bubbles: true,
+        cancelable: true,
+        view: window
+      });
+    }
+    _clearTouchLongPress() {
+      if (this._touchLongPressTimer !== null) {
+        window.clearTimeout(this._touchLongPressTimer);
+        this._touchLongPressTimer = null;
+      }
+      this._touchLongPressStart = null;
+    }
+    _hitTestDrawingAt(x, y, paneId) {
+      const drawings = this._drawingManager.drawings;
+      this._drawingManager.setScales(
+        this._model.timeScale,
+        paneId === null ? this._model.rightPriceScale : this._indicatorPanes.get(paneId)?.priceScale ?? this._model.rightPriceScale
+      );
+      for (let i = drawings.length - 1; i >= 0; i--) {
+        const drawing = drawings[i];
+        if (!drawing.visible || (drawing.paneId ?? null) !== paneId) {
+          continue;
+        }
+        if (drawing === this._drawingManager.activeDrawing && drawing.state === "creating") {
+          continue;
+        }
+        if (drawing.type === "longPosition" || drawing.type === "shortPosition" || drawing.type === "priceRange" || drawing.type === "dateRange" || drawing.type === "datePriceRange") {
+          if (drawing.points.length >= 2) {
+            const p1 = drawing.points[0];
+            const p2 = drawing.points[1];
+            const x1 = this._drawingManager.timeToPixel(p1.time);
+            const y1 = this._drawingManager.priceToPixel(p1.price);
+            const x2 = this._drawingManager.timeToPixel(p2.time);
+            const y2 = this._drawingManager.priceToPixel(p2.price);
+            if (x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
+              drawing.setPixelPoints([{ x: x1, y: y1 }, { x: x2, y: y2 }]);
+            }
+          }
+        }
+        if (drawing.hitTest(x, y, 8)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    _getMainPaneEmptyContextPoint(clientX, clientY, target) {
+      if (this._drawingManager.mode !== "none") {
+        return null;
+      }
+      const mainCanvas = this._paneWidget?.canvas ?? null;
+      const mainPaneElement = this._paneWidget?.element ?? null;
+      if (!mainCanvas || !mainPaneElement) {
+        return null;
+      }
+      const isMainPaneTarget = target === mainCanvas || target instanceof Node && mainPaneElement.contains(target);
+      if (!isMainPaneTarget) {
+        return null;
+      }
+      const rect = mainCanvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      if (x < 0 || x > rect.width || y < 0 || y > rect.height) {
+        return null;
+      }
+      if (this._hitTestOverlayIndicator(x, y) || this._hitTestDrawingAt(x, y, null)) {
+        return null;
+      }
+      return {
+        x,
+        y,
+        price: this._model.rightPriceScale.coordinateToPrice(y)
+      };
+    }
+    _scheduleTouchContextMenu(e, touch) {
+      this._clearTouchLongPress();
+      this._touchLongPressTriggered = false;
+      const contextPoint = this._getMainPaneEmptyContextPoint(touch.clientX, touch.clientY, e.currentTarget ?? e.target);
+      if (!contextPoint) {
+        return;
+      }
+      this._touchLongPressStart = { clientX: touch.clientX, clientY: touch.clientY };
+      this._touchLongPressTimer = window.setTimeout(() => {
+        this._touchLongPressTimer = null;
+        this._touchLongPressTriggered = true;
+        this._finishTouchInteraction(this._mouseEventFromTouch("mouseup", touch));
+        this._contextMenu?.setCurrentPrice(contextPoint.price);
+        this._contextMenu?.show(touch.clientX, touch.clientY);
+        const suppressNextClick = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          document.removeEventListener("click", suppressNextClick, true);
+        };
+        document.addEventListener("click", suppressNextClick, true);
+        window.setTimeout(() => {
+          document.removeEventListener("click", suppressNextClick, true);
+        }, 350);
+      }, 650);
+    }
+    _finishTouchInteraction(mouseEvent) {
+      const pane = this._resolvePaneInteraction(null);
+      const stateUpdates = handleMouseUp(mouseEvent, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
+      this._applyEventState(stateUpdates);
+      if (!this._isDragging && !this._isDraggingDrawing && this._drawingManager.activeDrawing === null) {
+        this._interactionPaneId = null;
+        this._interactionPaneCanvas = null;
+        this._interactionPriceScale = null;
+        this._drawingManager.setActivePaneId(null);
+        this._drawingManager.setScales(this._model.timeScale, this._model.rightPriceScale);
+      }
+    }
     _onTouchStart(e) {
       e.preventDefault();
+      this._closeOpenMenus();
       if (e.touches.length === 1) {
         const touch = e.touches[0];
-        const mouseEvent = new MouseEvent("mousedown", {
-          clientX: touch.clientX,
-          clientY: touch.clientY,
-          bubbles: true,
-          cancelable: true,
-          view: window
-        });
-        this._onMouseDown(mouseEvent);
+        this._scheduleTouchContextMenu(e, touch);
+        const pane = this._resolvePaneInteraction(e.currentTarget ?? e.target);
+        this._setInteractionPane(pane.paneId, pane.paneCanvas, pane.priceScale);
+        const stateUpdates = handleMouseDown(
+          this._mouseEventFromTouch("mousedown", touch),
+          this._getEventContextForPane(pane.paneId, pane.paneCanvas)
+        );
+        this._applyEventState(stateUpdates);
       } else if (e.touches.length === 2) {
+        this._clearTouchLongPress();
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
         this._lastTouchDistance = dist;
         if (this._isDragging) {
           this._isDragging = false;
-          this._onMouseUp(new MouseEvent("mouseup"));
+          this._finishTouchInteraction(this._mouseEventFromTouch("mouseup", t1));
         }
       }
     }
@@ -35987,16 +36848,25 @@ ${note}`;
       e.preventDefault();
       if (e.touches.length === 1) {
         const touch = e.touches[0];
-        const mouseEvent = new MouseEvent("mousemove", {
-          clientX: touch.clientX,
-          clientY: touch.clientY,
-          bubbles: true,
-          cancelable: true,
-          view: window
-        });
-        this._onPaneMouseMove(mouseEvent);
-        this._onMouseMove(mouseEvent);
+        if (this._touchLongPressStart) {
+          const dx = touch.clientX - this._touchLongPressStart.clientX;
+          const dy = touch.clientY - this._touchLongPressStart.clientY;
+          if (Math.sqrt(dx * dx + dy * dy) > 10) {
+            this._clearTouchLongPress();
+          }
+        }
+        const shouldUseActivePane = this._isDragging || this._isDraggingDrawing || this._drawingManager.activeDrawing !== null;
+        const hoverTarget = shouldUseActivePane ? null : document.elementFromPoint(touch.clientX, touch.clientY);
+        const pane = shouldUseActivePane ? this._resolvePaneInteraction(null) : this._resolvePaneInteraction(hoverTarget ?? e.currentTarget ?? e.target);
+        this._drawingManager.setScales(this._model.timeScale, pane.priceScale);
+        this._drawingManager.setActivePaneId(pane.paneId);
+        const stateUpdates = handleMouseMove(
+          this._mouseEventFromTouch("mousemove", touch),
+          this._getEventContextForPane(pane.paneId, pane.paneCanvas)
+        );
+        this._applyEventState(stateUpdates);
       } else if (e.touches.length === 2) {
+        this._clearTouchLongPress();
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
@@ -36015,14 +36885,18 @@ ${note}`;
     }
     _onTouchEnd(e) {
       e.preventDefault();
+      this._clearTouchLongPress();
+      this._priceAxisTouchStart = null;
+      this._priceAxisTouchActive = null;
+      if (this._touchLongPressTriggered) {
+        this._touchLongPressTriggered = false;
+        return;
+      }
       if (e.touches.length === 0) {
         this._lastTouchDistance = 0;
-        const mouseEvent = new MouseEvent("mouseup", {
-          bubbles: true,
-          cancelable: true,
-          view: window
-        });
-        this._onMouseUp(mouseEvent);
+        const touch = e.changedTouches[0];
+        const mouseEvent = touch ? this._mouseEventFromTouch("mouseup", touch) : new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window });
+        this._finishTouchInteraction(mouseEvent);
       } else if (e.touches.length === 1) {
         this._lastTouchDistance = 0;
       }
@@ -36031,33 +36905,75 @@ ${note}`;
       if (e.touches.length !== 1) return;
       e.preventDefault();
       const touch = e.touches[0];
-      const mouseEvent = new MouseEvent("mousedown", {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        bubbles: true,
-        cancelable: true,
-        view: window
-      });
-      Object.defineProperty(mouseEvent, "target", {
-        value: this._priceAxisWidget?.element,
-        writable: false,
-        enumerable: true,
-        configurable: true
-      });
-      this._onPriceAxisMouseDown(mouseEvent);
+      this._priceAxisTouchStart = { x: touch.clientX, y: touch.clientY };
+      this._priceAxisTouchActive = null;
     }
     _onPriceAxisTouchMove(e) {
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1 || !this._priceAxisTouchStart) return;
       e.preventDefault();
       const touch = e.touches[0];
-      const mouseEvent = new MouseEvent("mousemove", {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        bubbles: true,
-        cancelable: true,
-        view: window
-      });
-      this._onMouseMove(mouseEvent);
+      if (this._priceAxisTouchActive === null) {
+        const dx = touch.clientX - this._priceAxisTouchStart.x;
+        const dy = touch.clientY - this._priceAxisTouchStart.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 10) {
+          if (Math.abs(dy) > Math.abs(dx)) {
+            this._priceAxisTouchActive = "scaling";
+            const mouseEvent = new MouseEvent("mousedown", {
+              clientX: this._priceAxisTouchStart.x,
+              clientY: this._priceAxisTouchStart.y,
+              bubbles: true,
+              cancelable: true,
+              view: window
+            });
+            Object.defineProperty(mouseEvent, "target", {
+              value: this._priceAxisWidget?.element,
+              writable: false,
+              enumerable: true,
+              configurable: true
+            });
+            this._onPriceAxisMouseDown(mouseEvent);
+          } else {
+            this._priceAxisTouchActive = "panning";
+            const pane = this._resolvePaneInteraction(null);
+            this._setInteractionPane(pane.paneId, pane.paneCanvas, pane.priceScale);
+            const mouseEvent = new MouseEvent("mousedown", {
+              clientX: this._priceAxisTouchStart.x,
+              clientY: this._priceAxisTouchStart.y,
+              bubbles: true,
+              cancelable: true,
+              view: window
+            });
+            const stateUpdates = handleMouseDown(
+              mouseEvent,
+              this._getEventContextForPane(pane.paneId, pane.paneCanvas)
+            );
+            this._applyEventState(stateUpdates);
+          }
+        }
+      }
+      if (this._priceAxisTouchActive !== null) {
+        const mouseEvent = new MouseEvent("mousemove", {
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          bubbles: true,
+          cancelable: true,
+          view: window
+        });
+        if (this._priceAxisTouchActive === "scaling") {
+          this._onMouseMove(mouseEvent);
+        } else if (this._priceAxisTouchActive === "panning") {
+          const shouldUseActivePane = this._isDragging || this._isDraggingDrawing || this._drawingManager.activeDrawing !== null;
+          const pane = shouldUseActivePane ? this._resolvePaneInteraction(null) : this._resolvePaneInteraction(e.currentTarget ?? e.target);
+          this._drawingManager.setScales(this._model.timeScale, pane.priceScale);
+          this._drawingManager.setActivePaneId(pane.paneId);
+          const stateUpdates = handleMouseMove(
+            mouseEvent,
+            this._getEventContextForPane(pane.paneId, pane.paneCanvas)
+          );
+          this._applyEventState(stateUpdates);
+        }
+      }
     }
     _onPaneDoubleClick(e) {
       const paneRect = this._paneWidget?.canvas?.getBoundingClientRect();
@@ -36176,6 +37092,9 @@ ${note}`;
         this._priceAxisWidget?.setCrosshair(0, false);
       }
       this._updateLastPriceLabel();
+      if (this._priceAxisWidget?.updateWidth()) {
+        this._updateLayout();
+      }
       this._paneWidget?.setOverlayIndicators(this._indicatorManager.overlayIndicators);
       this._paneWidget?.setHeatmapRenderer(this._heatmapRenderer);
       this._paneWidget?.render();
@@ -36188,6 +37107,61 @@ ${note}`;
       this._priceAxisWidget?.render();
       this._timeAxisWidget?.render();
       this._renderIndicatorPanes();
+      this._updateGainMetricsPanel();
+    }
+    _updateGainMetricsPanel() {
+      if (!this._gainMetricsPanel) {
+        return;
+      }
+      const gainMetrics = this._indicatorManager.overlayIndicators.find(
+        (indicator) => indicator instanceof DeMarkPivotIndicator && indicator.visible
+      );
+      if (!gainMetrics) {
+        this._gainMetricsPanel.style.display = "none";
+        this._gainMetricsPanel.innerHTML = "";
+        return;
+      }
+      const rows = gainMetrics.getPivotSummaryRows();
+      if (rows.length === 0) {
+        this._gainMetricsPanel.style.display = "none";
+        this._gainMetricsPanel.innerHTML = "";
+        return;
+      }
+      const content = rows.map((row) => `
+            <div class="tv-gainmetrics-group">
+                <div class="tv-gainmetrics-period">${row.label.toUpperCase()}</div>
+                ${this._gainMetricsLine("DIRENC", row.values.r3, "resistance")}
+                ${this._gainMetricsLine("DIRENC", row.values.r2, "resistance")}
+                ${this._gainMetricsLine("DIRENC", row.values.r1, "resistance")}
+                ${this._gainMetricsLine("PIVOT", row.values.pp, "pivot")}
+                ${this._gainMetricsLine("DESTEK", row.values.s1, "support")}
+                ${this._gainMetricsLine("DESTEK", row.values.s2, "support")}
+                ${this._gainMetricsLine("DESTEK", row.values.s3, "support")}
+            </div>
+        `).join("");
+      this._gainMetricsPanel.innerHTML = `
+            <div class="tv-gainmetrics-title">GainMetrics</div>
+            ${content}
+        `;
+      this._gainMetricsPanel.style.display = "block";
+    }
+    _gainMetricsLine(label, value, type) {
+      const formattedValue = Number.isFinite(value) ? this._formatGainMetricsValue(value) : "-";
+      return `
+            <div class="tv-gainmetrics-line tv-gainmetrics-${type}">
+                <span class="tv-gainmetrics-label">${label} :</span>
+                <span class="tv-gainmetrics-value">${formattedValue}</span>
+            </div>
+        `;
+    }
+    _formatGainMetricsValue(value) {
+      if (Math.abs(value) >= 100) {
+        return value.toFixed(2);
+      }
+      if (Math.abs(value) >= 1) {
+        return value.toFixed(2);
+      }
+      return value.toFixed(4);
     }
     _updateLastPriceLabel() {
       if (!this._priceAxisWidget || this._model.serieses.length === 0) return;
@@ -36368,8 +37342,8 @@ ${note}`;
         canvas.addEventListener("mouseleave", this._onMouseLeave.bind(this));
         canvas.addEventListener("touchstart", this._onTouchStart.bind(this), { passive: false });
         canvas.addEventListener("touchmove", this._onTouchMove.bind(this), { passive: false });
-        canvas.addEventListener("touchend", this._onTouchEnd.bind(this));
-        canvas.addEventListener("touchcancel", this._onTouchEnd.bind(this));
+        canvas.addEventListener("touchend", this._onTouchEnd.bind(this), { passive: false });
+        canvas.addEventListener("touchcancel", this._onTouchEnd.bind(this), { passive: false });
       }
       pane.priceScale.rangeChanged.subscribe(() => {
         this._scheduleDraw();
@@ -36532,6 +37506,14 @@ ${note}`;
         case "tdoji-sr":
           this.addOverlayIndicator(new TdojiSRIndicator());
           break;
+        case "demark-pivot":
+          this.addOverlayIndicator(new DeMarkPivotIndicator({
+            timeframe: "D",
+            showPivots: true,
+            showEma: true,
+            showObv: false
+          }));
+          break;
         case "tdoji-mom":
           this.addIndicator(new TdojiMomIndicator({ period: 60 }));
           break;
@@ -36602,12 +37584,10 @@ ${note}`;
      */
     addIndicator(indicator) {
       this._indicatorManager.addPanelIndicator(indicator);
-      const series = this._model.serieses[0];
-      if (series && "data" in series) {
-        const data = series.data();
-        if (data && data.length > 0) {
-          indicator.calculate(data);
-        }
+      this._wireIndicatorEvents(indicator);
+      const data = this._indicatorManager.sourceData;
+      if (data.length > 0 && indicator.data.length === 0) {
+        indicator.calculate([...data]);
       }
     }
     /**
@@ -36615,18 +37595,80 @@ ${note}`;
      */
     addOverlayIndicator(indicator) {
       this._indicatorManager.addOverlayIndicator(indicator);
-      const series = this._model.serieses[0];
-      if (series && "data" in series) {
-        const data = series.data();
-        if (data && data.length > 0) {
-          indicator.calculate(data);
+      this._wireIndicatorEvents(indicator);
+      const data = this._indicatorManager.sourceData;
+      if (data.length > 0 && indicator.data.length === 0) {
+        indicator.calculate([...data]);
+      }
+      if (indicator instanceof DeMarkPivotIndicator) {
+        void this._refreshDeMarkPivotSource(indicator);
+      }
+      this._scheduleDraw();
+    }
+    _wireExistingIndicators() {
+      for (const indicator of this._indicatorManager.allIndicators) {
+        this._wireIndicatorEvents(indicator);
+        if (indicator instanceof DeMarkPivotIndicator) {
+          void this._refreshDeMarkPivotSource(indicator);
         }
       }
+      this._updateMainLegend();
+      this._scheduleDraw();
+    }
+    _wireIndicatorEvents(indicator) {
+      if (this._wiredIndicators.has(indicator)) {
+        return;
+      }
+      this._wiredIndicators.add(indicator);
       indicator.dataChanged.subscribe(() => {
+        if (indicator instanceof DeMarkPivotIndicator) {
+          void this._refreshDeMarkPivotSource(indicator);
+        }
         this._updateMainLegend();
         this._scheduleDraw();
       });
-      this._scheduleDraw();
+    }
+    async _refreshDeMarkPivotSource(indicator) {
+      if (!this._dataProvider || typeof this._dataProvider.getCandles !== "function") {
+        return;
+      }
+      let fetchedKeys = this._deMarkPivotFetchKeys.get(indicator);
+      if (!fetchedKeys) {
+        fetchedKeys = /* @__PURE__ */ new Set();
+        this._deMarkPivotFetchKeys.set(indicator, fetchedKeys);
+      }
+      for (const pivotTimeframe of indicator.pivotTimeframes) {
+        const interval = this._deMarkPivotInterval(pivotTimeframe);
+        const fetchKey = `${this._currentExchange}:${this._currentSymbol}:${interval}`;
+        if (fetchedKeys.has(fetchKey)) {
+          continue;
+        }
+        fetchedKeys.add(fetchKey);
+        try {
+          const candles = await this._dataProvider.getCandles(this._currentSymbol, interval, 500);
+          const data = candles.map((candle) => ({
+            time: candle.time,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            volume: candle.volume
+          }));
+          indicator.setPivotSourceData(pivotTimeframe, data);
+        } catch (error) {
+          fetchedKeys.delete(fetchKey);
+          console.warn("GainMetrics pivot source could not be loaded; falling back to chart bars.", error);
+        }
+      }
+    }
+    _deMarkPivotInterval(timeframe) {
+      if (timeframe === "W") {
+        return "1w";
+      }
+      if (timeframe === "M") {
+        return "1M";
+      }
+      return "1d";
     }
     // --- Cleanup ---
     dispose() {
@@ -36889,7 +37931,7 @@ ${note}`;
     timeframe: "1h",
     exchange: "BINANCE"
   };
-  var defaultOptions3 = {
+  var defaultOptions4 = {
     layout: "2x2",
     syncSymbol: false,
     syncTimeframe: false,
@@ -36939,9 +37981,9 @@ ${note}`;
       if (!this._container) {
         throw new Error("MultiChartLayout container not found");
       }
-      this._options = { ...defaultOptions3, ...options };
-      this._layout = this._options.layout || defaultOptions3.layout;
-      this._activeIndex = this._options.activeIndex ?? defaultOptions3.activeIndex;
+      this._options = { ...defaultOptions4, ...options };
+      this._layout = this._options.layout || defaultOptions4.layout;
+      this._activeIndex = this._options.activeIndex ?? defaultOptions4.activeIndex;
       this._element = document.createElement("div");
       this._element.className = "tv-multi-chart-layout-shell";
       this._element.style.cssText = `
@@ -37130,7 +38172,7 @@ ${note}`;
       this._grid.style.gridTemplateColumns = preset.columns;
       this._grid.style.gridTemplateRows = preset.rows;
       this._grid.style.gridAutoFlow = "row";
-      this._grid.style.gap = `${this._options.gap ?? defaultOptions3.gap}px`;
+      this._grid.style.gap = `${this._options.gap ?? defaultOptions4.gap}px`;
       return preset;
     }
     _syncToolbarStateFromActiveChart() {

@@ -1506,6 +1506,9 @@
             // Create full screen chart
             chart = LightweightCharts.createChart('#chart', {
                  locale: 'tr', // 'en' or 'tr'
+                 symbol: currentSymbol,
+                 timeframe: currentInterval,
+                 exchange: currentExchange,
                  layout: {
                      backgroundColor: '#1a1a2e',
                      textColor: '#d1d4dc',

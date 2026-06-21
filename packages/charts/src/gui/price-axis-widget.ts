@@ -18,7 +18,7 @@ export interface PriceAxisWidgetOptions {
 }
 
 const defaultPriceAxisOptions: PriceAxisWidgetOptions = {
-    width: 80,
+    width: 52,
     backgroundColor: '#16213e',  // Darker navy (original panel bg)
     textColor: 'rgba(255, 255, 255, 0.5)',
     fontSize: 11,
@@ -35,6 +35,7 @@ export class PriceAxisWidget implements Disposable {
     private _canvas: HTMLCanvasElement | null = null;
     private _ctx: CanvasRenderingContext2D | null = null;
     private _height: number = 0;
+    private _width: number;
 
     constructor(
         container: HTMLElement,
@@ -43,6 +44,7 @@ export class PriceAxisWidget implements Disposable {
     ) {
         this._priceScale = priceScale;
         this._options = { ...defaultPriceAxisOptions, ...options };
+        this._width = this._options.width;
         this._createElement(container);
     }
 
@@ -55,7 +57,26 @@ export class PriceAxisWidget implements Disposable {
     }
 
     get width(): number {
-        return this._options.width;
+        return this._width;
+    }
+
+    updateWidth(): boolean {
+        const width = this._calculateRequiredWidth();
+        if (width === this._width) {
+            return false;
+        }
+
+        this._width = width;
+        if (this._element) {
+            this._element.style.width = `${width}px`;
+        }
+        if (this._canvas) {
+            const dpr = window.devicePixelRatio || 1;
+            this._canvas.style.width = `${width}px`;
+            this._canvas.width = width * dpr;
+        }
+
+        return true;
     }
 
     setHeight(height: number): void {
@@ -76,7 +97,8 @@ export class PriceAxisWidget implements Disposable {
         if (!this._ctx || !this._canvas) return;
 
         const dpr = window.devicePixelRatio || 1;
-        const width = this._options.width;
+        this.updateWidth();
+        const width = this._width;
         const height = this._height;
 
         // Clear
@@ -129,22 +151,44 @@ export class PriceAxisWidget implements Disposable {
         }
     }
 
+    private _calculateRequiredWidth(): number {
+        if (!this._ctx) {
+            return this._width;
+        }
+
+        let maxTextWidth = 0;
+
+        this._ctx.font = `${this._options.fontSize}px ${this._options.fontFamily}`;
+        for (const mark of this._priceScale.marks()) {
+            maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(mark.label).width);
+        }
+
+        if (this._lastValue) {
+            this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+            maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(this._lastValue.text).width);
+        }
+
+
+
+        return Math.ceil(Math.max(44, maxTextWidth + 12));
+    }
+
     private _drawLabel(y: number, text: string, color: string, isLastValue: boolean): void {
         if (!this._ctx || !this._element) return;
-        const width = this._options.width;
+        const width = this._width;
         const height = this._height;
 
         // Allow slightly out of bounds
         if (y < -20 || y > height + 20) return;
 
-        const padding = 8;
+        const horizontalPadding = 2;
         this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
         const textWidth = this._ctx.measureText(text).width;
 
         // Calculate box dimensions - taller if countdown is shown
         const hasCountdown = isLastValue && this._countdown;
         const boxHeight = hasCountdown ? 34 : 20;
-        const boxWidth = Math.max(textWidth + (padding * 2), hasCountdown ? 70 : 0);
+        const boxWidth = Math.ceil(textWidth + (horizontalPadding * 2));
         const boxY = y - (boxHeight / 2);
         const boxX = width - boxWidth;
 
@@ -220,7 +264,7 @@ export class PriceAxisWidget implements Disposable {
     private _createElement(container: HTMLElement): void {
         this._element = document.createElement('div');
         this._element.style.cssText = `
-            width: ${this._options.width}px;
+            width: ${this._width}px;
             height: 100%;
             flex-shrink: 0;
             position: relative;
@@ -228,12 +272,13 @@ export class PriceAxisWidget implements Disposable {
 
         this._canvas = document.createElement('canvas');
         const dpr = window.devicePixelRatio || 1;
-        this._canvas.width = this._options.width * dpr;
+        this._canvas.width = this._width * dpr;
         this._canvas.style.cssText = `
-            width: ${this._options.width}px;
+            width: ${this._width}px;
             height: 100%;
             display: block;
             cursor: ns-resize;
+            touch-action: none;
         `;
 
         this._ctx = this._canvas.getContext('2d');

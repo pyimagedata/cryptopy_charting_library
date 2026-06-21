@@ -1023,6 +1023,7 @@ export class PaneWidget implements Disposable {
             position: absolute;
             top: 0;
             left: 0;
+            touch-action: none;
         `;
 
         this._ctx = this._canvas.getContext('2d');

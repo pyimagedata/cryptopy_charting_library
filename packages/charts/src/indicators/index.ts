@@ -50,3 +50,4 @@ export { ABCDPatternIndicator, ABCDPatternIndicatorOptions } from './abcd-patter
 export { HarmonicPatternIndicator, HarmonicPatternIndicatorOptions } from './harmonic-pattern-indicator';
 export { ChartPatternsIndicator, ChartPatternsIndicatorOptions } from './chart-patterns-indicator';
 export { TrendlineBreakoutIndicator, TrendlineBreakoutIndicatorOptions } from './trendline-breakout-indicator';
+export { DeMarkPivotIndicator, DeMarkPivotIndicatorOptions } from './demark-pivot-indicator';

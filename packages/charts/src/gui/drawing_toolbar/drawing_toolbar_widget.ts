@@ -883,6 +883,10 @@ export class DrawingToolbarWidget {
         this._activeFlyout = null;
     }
 
+    closeFlyout(): void {
+        this._closeFlyout();
+    }
+
     private _updateGroupButtonIcon(groupId: string, icon: string): void {
         const btn = this._element?.querySelector(`button[data-group-id="${groupId}"]`) as HTMLButtonElement;
         if (btn) {
