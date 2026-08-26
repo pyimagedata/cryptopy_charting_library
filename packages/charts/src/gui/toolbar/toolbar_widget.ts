@@ -44,6 +44,8 @@ export interface ToolbarOptions {
     timeframes?: string[];
     locale?: string;
     priceScaleMode?: 'normal' | 'logarithmic';
+    /** IANA zone for the time axis, e.g. 'America/New_York'. '' means browser local zone. */
+    timezone?: string;
 }
 
 const defaultToolbarOptions: ToolbarOptions = {
@@ -53,7 +55,23 @@ const defaultToolbarOptions: ToolbarOptions = {
     timeframes: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', 'D', 'W'],
     locale: 'en',
     priceScaleMode: 'normal',
+    timezone: 'America/New_York',
 };
+
+/** Common IANA zones offered in the toolbar selector, most relevant to trading sessions first. */
+const TIMEZONE_OPTIONS: { val: string; label: string }[] = [
+    { val: '', label: '🌐 Local' },
+    { val: 'Etc/UTC', label: '🌍 UTC' },
+    { val: 'America/New_York', label: '🇺🇸 New York' },
+    { val: 'America/Chicago', label: '🇺🇸 Chicago' },
+    { val: 'Europe/London', label: '🇬🇧 London' },
+    { val: 'Europe/Istanbul', label: '🇹🇷 Istanbul' },
+    { val: 'Europe/Frankfurt', label: '🇩🇪 Frankfurt' },
+    { val: 'Asia/Tokyo', label: '🇯🇵 Tokyo' },
+    { val: 'Asia/Hong_Kong', label: '🇭🇰 Hong Kong' },
+    { val: 'Asia/Singapore', label: '🇸🇬 Singapore' },
+    { val: 'Australia/Sydney', label: '🇦🇺 Sydney' },
+];
 
 /**
  * TradingView-style top toolbar
@@ -64,6 +82,7 @@ export class ToolbarWidget {
     private _activeTimeframe: string;
     private _activeChartType: ChartType;
     private _activePriceScaleMode: 'normal' | 'logarithmic';
+    private _activeTimezone: string;
 
     // Events
     private readonly _symbolClicked = new Delegate<void>();
@@ -74,6 +93,7 @@ export class ToolbarWidget {
     private readonly _languageChanged = new Delegate<string>();
     private readonly _themeToggled = new Delegate<'dark' | 'light'>();
     private readonly _priceScaleModeChanged = new Delegate<'normal' | 'logarithmic'>();
+    private readonly _timezoneChanged = new Delegate<string>();
     private _domEnabled: boolean = false;
     private _currentTheme: 'dark' | 'light' = 'dark';
 
@@ -82,6 +102,7 @@ export class ToolbarWidget {
         this._activeTimeframe = this._options.timeframe!;
         this._activeChartType = this._options.chartType!;
         this._activePriceScaleMode = this._options.priceScaleMode!;
+        this._activeTimezone = this._options.timezone ?? defaultToolbarOptions.timezone!;
         this._createElement(container);
     }
 
@@ -125,6 +146,10 @@ export class ToolbarWidget {
 
     get priceScaleModeChanged(): Delegate<'normal' | 'logarithmic'> {
         return this._priceScaleModeChanged;
+    }
+
+    get timezoneChanged(): Delegate<string> {
+        return this._timezoneChanged;
     }
 
     get domEnabled(): boolean {
@@ -245,6 +270,9 @@ export class ToolbarWidget {
 
         // DOM (Orderbook) toggle button
         this._createDomButton();
+
+        // Timezone Selector
+        this._createTimezoneSelector();
 
         // Language Selector
         this._createLanguageSelector();
@@ -507,10 +535,53 @@ export class ToolbarWidget {
         this._element!.appendChild(btn);
     }
 
-    private _createLanguageSelector(): void {
+    private _createTimezoneSelector(): void {
         const container = document.createElement('div');
         container.style.cssText = `
             margin-left: auto;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        `;
+
+        const isDark = this._currentTheme === 'dark';
+
+        const select = document.createElement('select');
+        select.className = 'toolbar-tz-select';
+        select.title = t('Chart time zone');
+        select.style.cssText = `
+            background: ${isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'};
+            border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
+            color: ${isDark ? '#d1d4dc' : '#131722'};
+            border-radius: 4px;
+            padding: 4px;
+            font-size: 11px;
+            outline: none;
+            cursor: pointer;
+            margin-right: 6px;
+        `;
+
+        TIMEZONE_OPTIONS.forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = o.val;
+            opt.textContent = o.label;
+            select.appendChild(opt);
+        });
+
+        select.value = this._activeTimezone;
+
+        select.addEventListener('change', () => {
+            this._activeTimezone = select.value;
+            this._timezoneChanged.fire(select.value);
+        });
+
+        container.appendChild(select);
+        this._element!.appendChild(container);
+    }
+
+    private _createLanguageSelector(): void {
+        const container = document.createElement('div');
+        container.style.cssText = `
             display: flex;
             align-items: center;
             flex-shrink: 0;
@@ -775,6 +846,14 @@ export class ToolbarWidget {
             langSelect.style.border = `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`;
             langSelect.style.color = isDark ? '#d1d4dc' : '#131722';
         }
+
+        // Update timezone selector
+        const tzSelect = this._element.querySelector('.toolbar-tz-select') as HTMLSelectElement;
+        if (tzSelect) {
+            tzSelect.style.background = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
+            tzSelect.style.border = `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`;
+            tzSelect.style.color = isDark ? '#d1d4dc' : '#131722';
+        }
     }
 
     dispose(): void {
@@ -786,6 +865,7 @@ export class ToolbarWidget {
         this._languageChanged.destroy();
         this._themeToggled.destroy();
         this._priceScaleModeChanged.destroy();
+        this._timezoneChanged.destroy();
 
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);

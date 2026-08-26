@@ -36,7 +36,7 @@ export interface SymbolSearchConfig {
 }
 
 const DEFAULT_CONFIG: Required<SymbolSearchConfig> = {
-    categories: ['all', 'crypto', 'stocks'],
+    categories: ['all', 'crypto', 'forex', 'stocks'],
     defaultCategory: 'all'
 };
 
@@ -204,6 +204,7 @@ export class SymbolSearch {
                 this._fetchBybitFuturesSymbols(),
                 this._fetchOkxSpotSymbols(),
                 this._fetchOkxFuturesSymbols(),
+                this._fetchForexSymbols(),
             ]);
 
             // Collect successful results
@@ -211,7 +212,7 @@ export class SymbolSearch {
             const stats: string[] = [];
 
             results.forEach((result, index) => {
-                const names = ['Binance Spot', 'Binance Futures', 'Bybit Spot', 'Bybit Futures', 'OKX Spot', 'OKX Futures'];
+                const names = ['Binance Spot', 'Binance Futures', 'Bybit Spot', 'Bybit Futures', 'OKX Spot', 'OKX Futures', 'Forex'];
                 if (result.status === 'fulfilled') {
                     allSymbols.push(...result.value);
                     stats.push(`${names[index]}: ${result.value.length}`);
@@ -320,6 +321,43 @@ export class SymbolSearch {
                 logo_color: this._getRandomColor(s.ctValCcy),
                 provider: 'okx-futures'
             }));
+    }
+
+    // ========================================================================
+    // FOREX (via local forex_service.py proxy -- see project root)
+    // ========================================================================
+
+    private static readonly FOREX_SERVICE_URL =
+        (typeof window !== 'undefined' && (window as any).FOREX_SERVICE_URL) || 'http://127.0.0.1:8792';
+
+    private static readonly FOREX_DESCRIPTIONS: Record<string, string> = {
+        XAUUSD: 'Gold', XAGUSD: 'Silver', XPTUSD: 'Platinum', XPDUSD: 'Palladium',
+        USOIL: 'WTI Crude Oil', UKOIL: 'Brent Crude Oil',
+    };
+
+    private async _fetchForexSymbols(): Promise<SymbolInfo[]> {
+        // Optional local service (forex_service.py) -- if it isn't running,
+        // this simply fails and forex symbols are omitted (Promise.allSettled
+        // in _fetchAllSymbols already tolerates individual source failures).
+        const response = await fetch(`${SymbolSearch.FOREX_SERVICE_URL}/forex/symbols`);
+        if (!response.ok) throw new Error('Forex service error');
+        const data = await response.json();
+
+        if (!data.symbols) return [];
+
+        return data.symbols.map((s: any): SymbolInfo => {
+            const isCommodity = s.category === 'metal' || s.category === 'energy';
+            const description = SymbolSearch.FOREX_DESCRIPTIONS[s.symbol] || s.symbol;
+            return {
+                symbol: s.symbol,
+                full_name: isCommodity ? description : `${s.symbol.slice(0, 3)} / ${s.symbol.slice(3)}`,
+                description,
+                exchange: s.exchange,
+                type: 'forex',
+                logo_color: this._getRandomColor(s.symbol),
+                provider: 'oanda',
+            };
+        });
     }
 
     // ========================================================================

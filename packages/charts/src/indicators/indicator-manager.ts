@@ -33,6 +33,7 @@ import { HarmonicPatternIndicator } from './harmonic-pattern-indicator';
 import { ChartPatternsIndicator } from './chart-patterns-indicator';
 import { TrendlineBreakoutIndicator } from './trendline-breakout-indicator';
 import { DeMarkPivotIndicator } from './demark-pivot-indicator';
+import { SMCIndicator } from './smc-indicator';
 
 
 
@@ -67,6 +68,7 @@ export class IndicatorManager {
     private _overlayIndicators: OverlayIndicator[] = [];
     private _panelIndicators: PanelIndicator[] = [];
     private _sourceData: BarData[] = [];
+    private _theme: 'dark' | 'light' = 'dark';
 
     // Event callbacks
     private _onIndicatorAdded: ((indicator: Indicator) => void) | null = null;
@@ -108,6 +110,24 @@ export class IndicatorManager {
         this._onPaneRemoved = callback;
     }
 
+    // --- Theme ---
+
+    /**
+     * Push the chart theme to every indicator. Indicators that paint their own text
+     * need it to pick a readable plate colour; without it a label plate hardcoded
+     * for a dark chart turns into a black slab on a light one.
+     */
+    setTheme(theme: 'dark' | 'light'): void {
+        this._theme = theme;
+        for (const indicator of this.allIndicators) {
+            indicator.setTheme(theme);
+        }
+    }
+
+    get theme(): 'dark' | 'light' {
+        return this._theme;
+    }
+
     // --- Indicator management ---
 
     /**
@@ -115,6 +135,8 @@ export class IndicatorManager {
      */
     addOverlayIndicator(indicator: OverlayIndicator): void {
         this._overlayIndicators.push(indicator);
+        // Indicators added after a theme switch must not start on the default
+        indicator.setTheme(this._theme);
 
         // Calculate with current data
         if (this._sourceData.length > 0) {
@@ -129,6 +151,7 @@ export class IndicatorManager {
      */
     addPanelIndicator(indicator: PanelIndicator): void {
         this._panelIndicators.push(indicator);
+        indicator.setTheme(this._theme);
 
         // Calculate with current data
         if (this._sourceData.length > 0) {
@@ -257,6 +280,7 @@ export class IndicatorManager {
             else if (indicator instanceof ChartPatternsIndicator) typeId = 'ChartPatterns';
             else if (indicator instanceof TrendlineBreakoutIndicator) typeId = 'TrendlineBreakout';
             else if (indicator instanceof DeMarkPivotIndicator) typeId = 'DeMarkPivot';
+            else if (indicator instanceof SMCIndicator) typeId = 'SMC';
 
 
 
@@ -375,6 +399,9 @@ export class IndicatorManager {
                 break;
             case 'DeMarkPivot':
                 indicator = new DeMarkPivotIndicator(item.options as any);
+                break;
+            case 'SMC':
+                indicator = new SMCIndicator(item.options as any);
                 break;
 
 

@@ -58,6 +58,7 @@ var LightweightCharts = (() => {
     RSIIndicator: () => RSIIndicator,
     Series: () => Series,
     SeriesType: () => SeriesType,
+    SpecialForcesIndicator: () => SpecialForcesIndicator,
     TimeAxisWidget: () => TimeAxisWidget,
     TimeScale: () => TimeScale,
     TrendLineDrawing: () => TrendLineDrawing,
@@ -65,6 +66,8 @@ var LightweightCharts = (() => {
     assert: () => assert,
     barPrice: () => barPrice,
     calculateHarmonicPivots: () => calculateHarmonicPivots,
+    calculateMacroZigZag: () => calculateMacroZigZag,
+    calculateMinorZigZag: () => calculateMinorZigZag,
     calculateZigZagPoints: () => calculateZigZagPoints,
     clamp: () => clamp,
     coordinate: () => coordinate,
@@ -76,6 +79,7 @@ var LightweightCharts = (() => {
     detectChartPatterns: () => detectChartPatterns,
     detectCypherPatterns: () => detectCypherPatterns,
     detectGartleyPatterns: () => detectGartleyPatterns,
+    detectSMCBreaks: () => detectSMCBreaks,
     detectTrendlineBreakouts: () => detectTrendlineBreakouts,
     ensureDefined: () => ensureDefined,
     ensureNotNull: () => ensureNotNull,
@@ -16164,7 +16168,8 @@ var LightweightCharts = (() => {
     // Darker navy (original panel bg)
     textColor: "rgba(255, 255, 255, 0.5)",
     fontSize: 11,
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    timezone: ""
   };
   var TimeAxisWidget = class {
     constructor(container, timeScale, timestamps, options = {}) {
@@ -16172,6 +16177,8 @@ var LightweightCharts = (() => {
       this._canvas = null;
       this._ctx = null;
       this._width = 0;
+      this._fmt = null;
+      this._fmtTz = null;
       this._crosshairX = null;
       this._timeScale = timeScale;
       this._timestamps = timestamps;
@@ -16286,59 +16293,107 @@ var LightweightCharts = (() => {
       this._canvas = null;
       this._ctx = null;
     }
-    _formatTime(timestamp, index) {
+    /**
+     * Change the zone the axis labels are drawn in. Pass '' for browser local.
+     * Bar data is absolute epoch ms, so nothing but the labels moves.
+     */
+    setTimezone(timezone) {
+      if (this._options.timezone === timezone) return;
+      this._options.timezone = timezone;
+      this._fmt = null;
+      this._fmtTz = null;
+      this.render();
+    }
+    get timezone() {
+      return this._options.timezone;
+    }
+    /**
+     * Calendar fields of an instant in the configured zone. With no timezone set
+     * this uses the plain local getters, so the default path stays allocation-light
+     * and behaves exactly as before.
+     */
+    _parts(timestamp) {
+      const tz = this._options.timezone;
       const date = new Date(timestamp);
+      if (!tz) {
+        return {
+          year: date.getFullYear(),
+          month: date.getMonth(),
+          day: date.getDate(),
+          hour: date.getHours(),
+          minute: date.getMinutes()
+        };
+      }
+      if (!this._fmt || this._fmtTz !== tz) {
+        try {
+          this._fmt = new Intl.DateTimeFormat("en-GB", {
+            timeZone: tz,
+            hour12: false,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit"
+          });
+          this._fmtTz = tz;
+        } catch (e) {
+          this._options.timezone = "";
+          this._fmt = null;
+          this._fmtTz = null;
+          return this._parts(timestamp);
+        }
+      }
+      const out = { year: 0, month: 0, day: 1, hour: 0, minute: 0 };
+      for (const p of this._fmt.formatToParts(date)) {
+        switch (p.type) {
+          case "year":
+            out.year = parseInt(p.value, 10);
+            break;
+          case "month":
+            out.month = parseInt(p.value, 10) - 1;
+            break;
+          case "day":
+            out.day = parseInt(p.value, 10);
+            break;
+          case "hour":
+            out.hour = parseInt(p.value, 10) % 24;
+            break;
+          case "minute":
+            out.minute = parseInt(p.value, 10);
+            break;
+        }
+      }
+      return out;
+    }
+    _formatTime(timestamp, index) {
+      const cur = this._parts(timestamp);
       const prevTimestamp = index > 0 ? this._timestamps[index - 1] : null;
-      const isDayChange = this._isDayChange(timestamp, prevTimestamp);
-      const isMonthChange = this._isMonthChange(timestamp, prevTimestamp);
-      const isYearChange = this._isYearChange(timestamp, prevTimestamp);
+      const prev = prevTimestamp === null ? null : this._parts(prevTimestamp);
+      const isYearChange = prev === null || cur.year !== prev.year;
+      const isMonthChange = prev === null || isYearChange || cur.month !== prev.month;
+      const isDayChange = prev === null || isMonthChange || cur.day !== prev.day;
       if (isYearChange || index === 0) {
-        return this._formatFullDate(date);
+        return this._formatFullDate(cur);
       } else if (isMonthChange) {
-        return this._formatMonthDay(date);
+        return this._formatMonthDay(cur);
       } else if (isDayChange) {
-        return this._formatDayOnly(date);
+        return this._formatDayOnly(cur);
       } else {
-        return this._formatTimeOnly(date);
+        return this._formatTimeOnly(cur);
       }
     }
-    _isDayChange(current, previous) {
-      if (previous === null) return true;
-      const currentDate = new Date(current);
-      const prevDate = new Date(previous);
-      return currentDate.getDate() !== prevDate.getDate() || currentDate.getMonth() !== prevDate.getMonth() || currentDate.getFullYear() !== prevDate.getFullYear();
+    _formatFullDate(p) {
+      return `${p.day} ${this._getMonthShort(p.month)} '${p.year.toString().slice(-2)}`;
     }
-    _isMonthChange(current, previous) {
-      if (previous === null) return true;
-      const currentDate = new Date(current);
-      const prevDate = new Date(previous);
-      return currentDate.getMonth() !== prevDate.getMonth() || currentDate.getFullYear() !== prevDate.getFullYear();
+    _formatMonthDay(p) {
+      return `${p.day} ${this._getMonthShort(p.month)}`;
     }
-    _isYearChange(current, previous) {
-      if (previous === null) return true;
-      const currentDate = new Date(current);
-      const prevDate = new Date(previous);
-      return currentDate.getFullYear() !== prevDate.getFullYear();
+    _formatDayOnly(p) {
+      return `${p.day} ${this._getMonthShort(p.month)}`;
     }
-    _formatFullDate(date) {
-      const day = date.getDate();
-      const month = this._getMonthShort(date.getMonth());
-      const year = date.getFullYear().toString().slice(-2);
-      return `${day} ${month} '${year}`;
-    }
-    _formatMonthDay(date) {
-      const day = date.getDate();
-      const month = this._getMonthShort(date.getMonth());
-      return `${day} ${month}`;
-    }
-    _formatDayOnly(date) {
-      const day = date.getDate();
-      const month = this._getMonthShort(date.getMonth());
-      return `${day} ${month}`;
-    }
-    _formatTimeOnly(date) {
-      const hours = date.getHours().toString().padStart(2, "0");
-      const minutes = date.getMinutes().toString().padStart(2, "0");
+    _formatTimeOnly(p) {
+      const hours = p.hour.toString().padStart(2, "0");
+      const minutes = p.minute.toString().padStart(2, "0");
       return `${hours}:${minutes}`;
     }
     _getMonthShort(month) {
@@ -16359,13 +16414,10 @@ var LightweightCharts = (() => {
       return months[month];
     }
     _formatCrosshairTime(timestamp) {
-      const date = new Date(timestamp);
-      const day = date.getDate();
-      const month = this._getMonthShort(date.getMonth());
-      const year = date.getFullYear();
-      const hours = date.getHours().toString().padStart(2, "0");
-      const minutes = date.getMinutes().toString().padStart(2, "0");
-      return `${day} ${month} ${year}, ${hours}:${minutes}`;
+      const p = this._parts(timestamp);
+      const hours = p.hour.toString().padStart(2, "0");
+      const minutes = p.minute.toString().padStart(2, "0");
+      return `${p.day} ${this._getMonthShort(p.month)} ${p.year}, ${hours}:${minutes}`;
     }
     _createElement(container) {
       this._element = document.createElement("div");
@@ -16626,8 +16678,22 @@ var LightweightCharts = (() => {
     chartType: "candles",
     timeframes: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "D", "W"],
     locale: "en",
-    priceScaleMode: "normal"
+    priceScaleMode: "normal",
+    timezone: "America/New_York"
   };
+  var TIMEZONE_OPTIONS = [
+    { val: "", label: "\u{1F310} Local" },
+    { val: "Etc/UTC", label: "\u{1F30D} UTC" },
+    { val: "America/New_York", label: "\u{1F1FA}\u{1F1F8} New York" },
+    { val: "America/Chicago", label: "\u{1F1FA}\u{1F1F8} Chicago" },
+    { val: "Europe/London", label: "\u{1F1EC}\u{1F1E7} London" },
+    { val: "Europe/Istanbul", label: "\u{1F1F9}\u{1F1F7} Istanbul" },
+    { val: "Europe/Frankfurt", label: "\u{1F1E9}\u{1F1EA} Frankfurt" },
+    { val: "Asia/Tokyo", label: "\u{1F1EF}\u{1F1F5} Tokyo" },
+    { val: "Asia/Hong_Kong", label: "\u{1F1ED}\u{1F1F0} Hong Kong" },
+    { val: "Asia/Singapore", label: "\u{1F1F8}\u{1F1EC} Singapore" },
+    { val: "Australia/Sydney", label: "\u{1F1E6}\u{1F1FA} Sydney" }
+  ];
   var ToolbarWidget = class {
     constructor(container, options = {}) {
       this._element = null;
@@ -16640,12 +16706,14 @@ var LightweightCharts = (() => {
       this._languageChanged = new Delegate();
       this._themeToggled = new Delegate();
       this._priceScaleModeChanged = new Delegate();
+      this._timezoneChanged = new Delegate();
       this._domEnabled = false;
       this._currentTheme = "dark";
       this._options = { ...defaultToolbarOptions, ...options };
       this._activeTimeframe = this._options.timeframe;
       this._activeChartType = this._options.chartType;
       this._activePriceScaleMode = this._options.priceScaleMode;
+      this._activeTimezone = this._options.timezone ?? defaultToolbarOptions.timezone;
       this._createElement(container);
     }
     // --- Public getters ---
@@ -16678,6 +16746,9 @@ var LightweightCharts = (() => {
     }
     get priceScaleModeChanged() {
       return this._priceScaleModeChanged;
+    }
+    get timezoneChanged() {
+      return this._timezoneChanged;
     }
     get domEnabled() {
       return this._domEnabled;
@@ -16766,6 +16837,7 @@ var LightweightCharts = (() => {
       this._createSeparator();
       this._createIndicatorsButton();
       this._createDomButton();
+      this._createTimezoneSelector();
       this._createLanguageSelector();
       this._createThemeToggle();
       container.insertBefore(this._element, container.firstChild);
@@ -16990,10 +17062,46 @@ var LightweightCharts = (() => {
       });
       this._element.appendChild(btn);
     }
-    _createLanguageSelector() {
+    _createTimezoneSelector() {
       const container = document.createElement("div");
       container.style.cssText = `
             margin-left: auto;
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        `;
+      const isDark = this._currentTheme === "dark";
+      const select = document.createElement("select");
+      select.className = "toolbar-tz-select";
+      select.title = t("Chart time zone");
+      select.style.cssText = `
+            background: ${isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)"};
+            border: 1px solid ${isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)"};
+            color: ${isDark ? "#d1d4dc" : "#131722"};
+            border-radius: 4px;
+            padding: 4px;
+            font-size: 11px;
+            outline: none;
+            cursor: pointer;
+            margin-right: 6px;
+        `;
+      TIMEZONE_OPTIONS.forEach((o) => {
+        const opt = document.createElement("option");
+        opt.value = o.val;
+        opt.textContent = o.label;
+        select.appendChild(opt);
+      });
+      select.value = this._activeTimezone;
+      select.addEventListener("change", () => {
+        this._activeTimezone = select.value;
+        this._timezoneChanged.fire(select.value);
+      });
+      container.appendChild(select);
+      this._element.appendChild(container);
+    }
+    _createLanguageSelector() {
+      const container = document.createElement("div");
+      container.style.cssText = `
             display: flex;
             align-items: center;
             flex-shrink: 0;
@@ -17211,6 +17319,12 @@ var LightweightCharts = (() => {
         langSelect.style.border = `1px solid ${isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)"}`;
         langSelect.style.color = isDark ? "#d1d4dc" : "#131722";
       }
+      const tzSelect = this._element.querySelector(".toolbar-tz-select");
+      if (tzSelect) {
+        tzSelect.style.background = isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
+        tzSelect.style.border = `1px solid ${isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)"}`;
+        tzSelect.style.color = isDark ? "#d1d4dc" : "#131722";
+      }
     }
     dispose() {
       this._symbolClicked.destroy();
@@ -17221,6 +17335,7 @@ var LightweightCharts = (() => {
       this._languageChanged.destroy();
       this._themeToggled.destroy();
       this._priceScaleModeChanged.destroy();
+      this._timezoneChanged.destroy();
       if (this._element && this._element.parentNode) {
         this._element.parentNode.removeChild(this._element);
       }
@@ -17230,7 +17345,7 @@ var LightweightCharts = (() => {
 
   // src/gui/symbol_search/symbol_search.ts
   var DEFAULT_CONFIG = {
-    categories: ["all", "crypto", "stocks"],
+    categories: ["all", "crypto", "forex", "stocks"],
     defaultCategory: "all"
   };
   var MOCK_SYMBOLS = [
@@ -17367,12 +17482,13 @@ var LightweightCharts = (() => {
           this._fetchBybitSpotSymbols(),
           this._fetchBybitFuturesSymbols(),
           this._fetchOkxSpotSymbols(),
-          this._fetchOkxFuturesSymbols()
+          this._fetchOkxFuturesSymbols(),
+          this._fetchForexSymbols()
         ]);
         const allSymbols = [];
         const stats = [];
         results.forEach((result, index) => {
-          const names = ["Binance Spot", "Binance Futures", "Bybit Spot", "Bybit Futures", "OKX Spot", "OKX Futures"];
+          const names = ["Binance Spot", "Binance Futures", "Bybit Spot", "Bybit Futures", "OKX Spot", "OKX Futures", "Forex"];
           if (result.status === "fulfilled") {
             allSymbols.push(...result.value);
             stats.push(`${names[index]}: ${result.value.length}`);
@@ -17462,6 +17578,41 @@ var LightweightCharts = (() => {
         logo_color: this._getRandomColor(s.ctValCcy),
         provider: "okx-futures"
       }));
+    }
+    static {
+      // ========================================================================
+      // FOREX (via local forex_service.py proxy -- see project root)
+      // ========================================================================
+      this.FOREX_SERVICE_URL = typeof window !== "undefined" && window.FOREX_SERVICE_URL || "http://127.0.0.1:8792";
+    }
+    static {
+      this.FOREX_DESCRIPTIONS = {
+        XAUUSD: "Gold",
+        XAGUSD: "Silver",
+        XPTUSD: "Platinum",
+        XPDUSD: "Palladium",
+        USOIL: "WTI Crude Oil",
+        UKOIL: "Brent Crude Oil"
+      };
+    }
+    async _fetchForexSymbols() {
+      const response = await fetch(`${_SymbolSearch.FOREX_SERVICE_URL}/forex/symbols`);
+      if (!response.ok) throw new Error("Forex service error");
+      const data = await response.json();
+      if (!data.symbols) return [];
+      return data.symbols.map((s) => {
+        const isCommodity = s.category === "metal" || s.category === "energy";
+        const description = _SymbolSearch.FOREX_DESCRIPTIONS[s.symbol] || s.symbol;
+        return {
+          symbol: s.symbol,
+          full_name: isCommodity ? description : `${s.symbol.slice(0, 3)} / ${s.symbol.slice(3)}`,
+          description,
+          exchange: s.exchange,
+          type: "forex",
+          logo_color: this._getRandomColor(s.symbol),
+          provider: "oanda"
+        };
+      });
     }
     // ========================================================================
     // BYBIT
@@ -18030,10 +18181,29 @@ var LightweightCharts = (() => {
       this._data = [];
       this._sourceData = [];
       this._dataChanged = new Delegate();
+      this._theme = "dark";
       this._options = { ...defaultIndicatorOptions, ...options };
       if (!this._options.id) {
         this._options.id = `${this._options.name}_${Date.now()}`;
       }
+    }
+    /**
+     * Chart theme, pushed down by IndicatorManager. Indicators that paint their own
+     * text (labels, plates, callouts) need it: a plate hardcoded to black is
+     * invisible on a light chart, and vice versa.
+     */
+    setTheme(theme) {
+      this._theme = theme;
+    }
+    get theme() {
+      return this._theme;
+    }
+    get isDark() {
+      return this._theme === "dark";
+    }
+    /** Backing plate colour for on-canvas text, readable in either theme. */
+    plateColor(alpha = 0.55) {
+      return this.isDark ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha + 0.25})`;
     }
     // --- Getters ---
     get dataChanged() {
@@ -18175,15 +18345,23 @@ var LightweightCharts = (() => {
     /**
      * Overlay indicators use the main price scale range
      */
-    getRange() {
+    getRange(visibleRange) {
       if (this._data.length === 0) {
         return { min: 0, max: 100 };
       }
       let min = Infinity;
       let max = -Infinity;
-      for (const point of this._data) {
-        if (point.value < min) min = point.value;
-        if (point.value > max) max = point.value;
+      const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+      const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const point = this._data[i];
+        if (point && !isNaN(point.value) && isFinite(point.value)) {
+          if (point.value < min) min = point.value;
+          if (point.value > max) max = point.value;
+        }
+      }
+      if (min === Infinity || max === -Infinity) {
+        return { min: 0, max: 100 };
       }
       return { min, max };
     }
@@ -18227,6 +18405,9 @@ var LightweightCharts = (() => {
   }
   function checkboxRow2(key, label, defaultValue) {
     return { type: "checkbox", key, label, defaultValue };
+  }
+  function selectRow2(key, label, options, defaultValue) {
+    return { type: "select", key, label, options, defaultValue };
   }
   function lineWidthRow2(key, label = "Line Width") {
     return { type: "lineWidth", key, label, min: 1, max: 4 };
@@ -18526,7 +18707,6 @@ var LightweightCharts = (() => {
         label.style.cssText = `color: #131722; font-size: 14px;`;
         rowEl.appendChild(label);
         const select = document.createElement("select");
-        select.value = currentValue || row.defaultValue || "";
         select.style.cssText = `
                 min-width: 150px;
                 height: 34px;
@@ -18544,6 +18724,7 @@ var LightweightCharts = (() => {
           item.textContent = t(option.label);
           select.appendChild(item);
         });
+        select.value = currentValue || row.defaultValue || "";
         select.addEventListener("change", () => {
           if (row.key) {
             context.setValue(row.key, select.value);
@@ -19451,16 +19632,33 @@ var LightweightCharts = (() => {
         });
       }
     }
-    getRange() {
+    getRange(visibleRange) {
       if (this._data.length === 0) return { min: -1, max: 1 };
       let min = Infinity;
       let max = -Infinity;
-      for (const point of this._data) {
+      const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+      const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const point = this._data[i];
+        if (!point) continue;
         const hist = point.value;
-        const macd = point.values[0];
-        const signal = point.values[1];
-        min = Math.min(min, hist, macd, signal);
-        max = Math.max(max, hist, macd, signal);
+        const macd = point.values?.[0];
+        const signal = point.values?.[1];
+        if (hist !== void 0 && !isNaN(hist) && isFinite(hist)) {
+          min = Math.min(min, hist);
+          max = Math.max(max, hist);
+        }
+        if (macd !== void 0 && !isNaN(macd) && isFinite(macd)) {
+          min = Math.min(min, macd);
+          max = Math.max(max, macd);
+        }
+        if (signal !== void 0 && !isNaN(signal) && isFinite(signal)) {
+          min = Math.min(min, signal);
+          max = Math.max(max, signal);
+        }
+      }
+      if (min === Infinity || max === -Infinity) {
+        return { min: -1, max: 1 };
       }
       return { min, max };
     }
@@ -22665,6 +22863,639 @@ var LightweightCharts = (() => {
     return latest;
   }
 
+  // src/patterns/smc.ts
+  function calculateMinorZigZag(sourceData, prd, pivotSrc) {
+    const highs = sourceData.map((b) => pivotSrc === "Close" ? b.close : b.high);
+    const lows = sourceData.map((b) => pivotSrc === "Close" ? b.close : b.low);
+    const zigzag = [];
+    let dirVal = 0;
+    function addPivot2(value, idx, direction) {
+      zigzag.unshift({
+        price: value,
+        index: idx,
+        dir: direction,
+        time: sourceData[idx].time
+      });
+    }
+    function updatePivot2(value, idx, direction) {
+      if (zigzag.length === 0) {
+        addPivot2(value, idx, direction);
+      } else {
+        const current = zigzag[0];
+        if (direction === 1 && value > current.price || direction === -1 && value < current.price) {
+          current.price = value;
+          current.index = idx;
+          current.time = sourceData[idx].time;
+          current.dir = direction;
+        }
+      }
+    }
+    for (let i = 0; i < sourceData.length; i++) {
+      const startLookback = Math.max(0, i - prd + 1);
+      let isPH = true;
+      for (let j = startLookback; j < i; j++) {
+        if (highs[j] > highs[i]) {
+          isPH = false;
+          break;
+        }
+      }
+      let isPL = true;
+      for (let j = startLookback; j < i; j++) {
+        if (lows[j] < lows[i]) {
+          isPL = false;
+          break;
+        }
+      }
+      const phVal = isPH ? highs[i] : null;
+      const plVal = isPL ? lows[i] : null;
+      const lastDir = dirVal;
+      if (plVal !== null && phVal === null) {
+        dirVal = -1;
+      } else if (phVal !== null && plVal === null) {
+        dirVal = 1;
+      } else if (phVal !== null && plVal !== null) {
+        if (dirVal === 0) {
+          dirVal = sourceData[i].close >= sourceData[i].open ? 1 : -1;
+        } else {
+          dirVal = dirVal === -1 ? 1 : -1;
+        }
+      }
+      if (phVal !== null || plVal !== null) {
+        const valToUse = dirVal === 1 ? phVal : plVal;
+        if (dirVal !== lastDir) {
+          addPivot2(valToUse, i, dirVal);
+        } else {
+          updatePivot2(valToUse, i, dirVal);
+        }
+      }
+    }
+    return { zigzag, finalDir: dirVal };
+  }
+  function checkBreakBelow(level, startBar, endBar, breakSrc, useTickFilter, tickThreshold, closes, lows, confirmCandles = 3) {
+    const sBar = Math.min(startBar, endBar);
+    const eBar = Math.max(startBar, endBar);
+    const required = useTickFilter ? level - tickThreshold : level;
+    const actualConfirm = breakSrc === "Close" ? confirmCandles : 1;
+    const source = breakSrc === "Close" ? closes : lows;
+    for (let b = sBar; b <= eBar; b++) {
+      if (b + actualConfirm - 1 < source.length) {
+        let allOk = true;
+        for (let offset = 0; offset < actualConfirm; offset++) {
+          if (source[b + offset] >= required) {
+            allOk = false;
+            break;
+          }
+        }
+        if (allOk) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  function checkBreakAbove(level, startBar, endBar, breakSrc, useTickFilter, tickThreshold, closes, highs, confirmCandles = 3) {
+    const sBar = Math.min(startBar, endBar);
+    const eBar = Math.max(startBar, endBar);
+    const required = useTickFilter ? level + tickThreshold : level;
+    const actualConfirm = breakSrc === "Close" ? confirmCandles : 1;
+    const source = breakSrc === "Close" ? closes : highs;
+    for (let b = sBar; b <= eBar; b++) {
+      if (b + actualConfirm - 1 < source.length) {
+        let allOk = true;
+        for (let offset = 0; offset < actualConfirm; offset++) {
+          if (source[b + offset] <= required) {
+            allOk = false;
+            break;
+          }
+        }
+        if (allOk) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  function calculateMacroZigZag(sourceData, minorZigzag, breakSrc, useTickFilter, tickThreshold, confirmCandles = 3) {
+    const closes = sourceData.map((b) => b.close);
+    const highs = sourceData.map((b) => b.high);
+    const lows = sourceData.map((b) => b.low);
+    if (minorZigzag.length < 2) {
+      return { m_vals: [], m_bars: [], m_dirs: [], m_confirms: [] };
+    }
+    const numPoints = minorZigzag.length;
+    const baseVals = [...minorZigzag].reverse().map((p) => p.price);
+    const baseBars = [...minorZigzag].reverse().map((p) => p.index);
+    const baseDirs = [...minorZigzag].reverse().map((p) => p.dir);
+    let absoluteHigh = -Infinity;
+    let absoluteHighIdx = -1;
+    let absoluteLow = Infinity;
+    let absoluteLowIdx = -1;
+    for (let idx = 0; idx < numPoints; idx++) {
+      if (baseDirs[idx] === 1 && baseVals[idx] > absoluteHigh) {
+        absoluteHigh = baseVals[idx];
+        absoluteHighIdx = idx;
+      }
+      if (baseDirs[idx] === -1 && baseVals[idx] < absoluteLow) {
+        absoluteLow = baseVals[idx];
+        absoluteLowIdx = idx;
+      }
+    }
+    const startIdx = absoluteHighIdx !== -1 && absoluteLowIdx !== -1 ? Math.min(absoluteHighIdx, absoluteLowIdx) : 0;
+    const m_vals = [];
+    const m_bars = [];
+    const m_dirs = [];
+    const m_confirms = [];
+    let lastLow = null;
+    let lastLowBar = -1;
+    let lastHigh = null;
+    let lastHighBar = -1;
+    for (let i = startIdx; i < numPoints; i++) {
+      if (baseDirs[i] === 1 && lastHigh === null) {
+        lastHigh = baseVals[i];
+        lastHighBar = baseBars[i];
+      }
+      if (baseDirs[i] === -1 && lastLow === null) {
+        lastLow = baseVals[i];
+        lastLowBar = baseBars[i];
+      }
+      if (lastHigh !== null && lastLow !== null) {
+        break;
+      }
+    }
+    if (lastHigh === null) {
+      lastHigh = baseVals[startIdx];
+      lastHighBar = baseBars[startIdx];
+    }
+    if (lastLow === null) {
+      lastLow = baseVals[startIdx];
+      lastLowBar = baseBars[startIdx];
+    }
+    const firstVal = baseVals[startIdx];
+    const firstBar = baseBars[startIdx];
+    const firstDir = baseDirs[startIdx];
+    m_vals.push(firstVal);
+    m_bars.push(firstBar);
+    m_dirs.push(firstDir);
+    m_confirms.push(firstBar);
+    for (let idx = startIdx + 1; idx < numPoints; idx++) {
+      const val = baseVals[idx];
+      const bar = baseBars[idx];
+      const pDir = baseDirs[idx];
+      if (pDir === -1) {
+        if (lastLow === null) {
+          lastLow = val;
+          lastLowBar = bar;
+          if (m_dirs[m_dirs.length - 1] === 1) {
+            m_vals.push(val);
+            m_bars.push(bar);
+            m_dirs.push(-1);
+            m_confirms.push(bar);
+          }
+        } else if (checkBreakBelow(lastLow, lastLowBar, bar, breakSrc, useTickFilter, tickThreshold, closes, lows, confirmCandles)) {
+          let peakVal = -1e10;
+          let peakBar = -1;
+          if (lastLowBar !== -1) {
+            for (let b = lastLowBar + 1; b < bar; b++) {
+              if (highs[b] > peakVal) {
+                peakVal = highs[b];
+                peakBar = b;
+              }
+            }
+          }
+          if (peakBar !== -1) {
+            const breakBar = bar;
+            let isPeakValid = true;
+            if (lastHigh !== null && peakVal > lastHigh) {
+              const isHighBroken = checkBreakAbove(
+                lastHigh,
+                lastHighBar,
+                peakBar,
+                breakSrc,
+                useTickFilter,
+                tickThreshold,
+                closes,
+                highs,
+                confirmCandles
+              );
+              if (!isHighBroken) {
+                isPeakValid = false;
+              }
+            }
+            if (isPeakValid) {
+              if (m_dirs[m_dirs.length - 1] === 1 && lastHighBar !== -1) {
+                let valleyVal = 1e10;
+                let valleyBar = -1;
+                for (let b = lastHighBar + 1; b < peakBar; b++) {
+                  if (lows[b] < valleyVal) {
+                    valleyVal = lows[b];
+                    valleyBar = b;
+                  }
+                }
+                if (valleyBar !== -1) {
+                  m_vals.push(valleyVal);
+                  m_bars.push(valleyBar);
+                  m_dirs.push(-1);
+                  m_confirms.push(breakBar);
+                  lastLow = valleyVal;
+                  lastLowBar = valleyBar;
+                }
+              }
+              m_vals.push(peakVal);
+              m_bars.push(peakBar);
+              m_dirs.push(1);
+              m_confirms.push(breakBar);
+              lastHigh = peakVal;
+              lastHighBar = peakBar;
+              m_vals.push(val);
+              m_bars.push(bar);
+              m_dirs.push(-1);
+              m_confirms.push(breakBar);
+              lastLow = val;
+              lastLowBar = bar;
+            } else {
+              m_vals.push(val);
+              m_bars.push(bar);
+              m_dirs.push(-1);
+              m_confirms.push(breakBar);
+              lastLow = val;
+              lastLowBar = bar;
+            }
+          } else {
+            if (m_dirs[m_dirs.length - 1] === -1) {
+              m_vals[m_vals.length - 1] = val;
+              m_bars[m_bars.length - 1] = bar;
+              m_confirms[m_confirms.length - 1] = bar;
+              lastLow = val;
+              lastLowBar = bar;
+            } else {
+              m_vals.push(val);
+              m_bars.push(bar);
+              m_dirs.push(-1);
+              m_confirms.push(bar);
+              lastLow = val;
+              lastLowBar = bar;
+            }
+          }
+        }
+      } else if (pDir === 1) {
+        if (lastHigh === null) {
+          lastHigh = val;
+          lastHighBar = bar;
+          if (m_dirs[m_dirs.length - 1] === -1) {
+            m_vals.push(val);
+            m_bars.push(bar);
+            m_dirs.push(1);
+            m_confirms.push(bar);
+          }
+        } else if (checkBreakAbove(lastHigh, lastHighBar, bar, breakSrc, useTickFilter, tickThreshold, closes, highs, confirmCandles)) {
+          let valleyVal = 1e10;
+          let valleyBar = -1;
+          if (lastHighBar !== -1) {
+            for (let b = lastHighBar + 1; b < bar; b++) {
+              if (lows[b] < valleyVal) {
+                valleyVal = lows[b];
+                valleyBar = b;
+              }
+            }
+          }
+          if (valleyBar !== -1) {
+            const breakBar = bar;
+            let isValleyValid = true;
+            if (lastLow !== null && valleyVal < lastLow) {
+              const isLowBroken = checkBreakBelow(
+                lastLow,
+                lastLowBar,
+                valleyBar,
+                breakSrc,
+                useTickFilter,
+                tickThreshold,
+                closes,
+                lows,
+                confirmCandles
+              );
+              if (!isLowBroken) {
+                isValleyValid = false;
+              }
+            }
+            if (isValleyValid) {
+              if (m_dirs[m_dirs.length - 1] === -1 && lastLowBar !== -1) {
+                let peakVal = -1e10;
+                let peakBar = -1;
+                for (let b = lastLowBar + 1; b < valleyBar; b++) {
+                  if (highs[b] > peakVal) {
+                    peakVal = highs[b];
+                    peakBar = b;
+                  }
+                }
+                if (peakBar !== -1) {
+                  m_vals.push(peakVal);
+                  m_bars.push(peakBar);
+                  m_dirs.push(1);
+                  m_confirms.push(breakBar);
+                  lastHigh = peakVal;
+                  lastHighBar = peakBar;
+                }
+              }
+              m_vals.push(valleyVal);
+              m_bars.push(valleyBar);
+              m_dirs.push(-1);
+              m_confirms.push(breakBar);
+              lastLow = valleyVal;
+              lastLowBar = valleyBar;
+              m_vals.push(val);
+              m_bars.push(bar);
+              m_dirs.push(1);
+              m_confirms.push(breakBar);
+              lastHigh = val;
+              lastHighBar = bar;
+            } else {
+              m_vals.push(val);
+              m_bars.push(bar);
+              m_dirs.push(1);
+              m_confirms.push(breakBar);
+              lastHigh = val;
+              lastHighBar = bar;
+            }
+          } else {
+            if (m_dirs[m_dirs.length - 1] === 1) {
+              m_vals[m_vals.length - 1] = val;
+              m_bars[m_bars.length - 1] = bar;
+              m_confirms[m_confirms.length - 1] = bar;
+              lastHigh = val;
+              lastHighBar = bar;
+            } else {
+              m_vals.push(val);
+              m_bars.push(bar);
+              m_dirs.push(1);
+              m_confirms.push(bar);
+              lastHigh = val;
+              lastHighBar = bar;
+            }
+          }
+        }
+      }
+    }
+    const clean_vals = [];
+    const clean_bars = [];
+    const clean_dirs = [];
+    const clean_confirms = [];
+    if (m_vals.length > 0) {
+      clean_vals.push(m_vals[0]);
+      clean_bars.push(m_bars[0]);
+      clean_dirs.push(m_dirs[0]);
+      clean_confirms.push(m_confirms[0]);
+      for (let j = 1; j < m_vals.length; j++) {
+        const lastDir = clean_dirs[clean_dirs.length - 1];
+        const currDir = m_dirs[j];
+        if (currDir !== lastDir) {
+          clean_vals.push(m_vals[j]);
+          clean_bars.push(m_bars[j]);
+          clean_dirs.push(currDir);
+          clean_confirms.push(m_confirms[j]);
+        } else {
+          const lastVal = clean_vals[clean_vals.length - 1];
+          const currVal = m_vals[j];
+          if (currDir === 1) {
+            if (currVal > lastVal) {
+              clean_vals[clean_vals.length - 1] = currVal;
+              clean_bars[clean_bars.length - 1] = m_bars[j];
+              clean_confirms[clean_confirms.length - 1] = m_confirms[j];
+            }
+          } else {
+            if (currVal < lastVal) {
+              clean_vals[clean_vals.length - 1] = currVal;
+              clean_bars[clean_bars.length - 1] = m_bars[j];
+              clean_confirms[clean_confirms.length - 1] = m_confirms[j];
+            }
+          }
+        }
+      }
+    }
+    const N = clean_vals.length;
+    if (N > 0) {
+      for (let i = 0; i < N; i++) {
+        const currentDir = clean_dirs[i];
+        let rangeStart = 0;
+        let rangeEnd = sourceData.length - 1;
+        if (i > 0) {
+          rangeStart = clean_bars[i - 1] + 1;
+        }
+        if (i < N - 1) {
+          rangeEnd = clean_bars[i + 1] - 1;
+        }
+        if (rangeStart > rangeEnd) {
+          const mid = Math.floor((rangeStart + rangeEnd) / 2);
+          clean_bars[i] = mid;
+          clean_vals[i] = currentDir === 1 ? highs[mid] : lows[mid];
+        } else {
+          let bestVal = currentDir === 1 ? -Infinity : Infinity;
+          let bestBar = clean_bars[i];
+          for (let b = rangeStart; b <= rangeEnd; b++) {
+            if (currentDir === 1) {
+              if (highs[b] > bestVal) {
+                bestVal = highs[b];
+                bestBar = b;
+              }
+            } else {
+              if (lows[b] < bestVal) {
+                bestVal = lows[b];
+                bestBar = b;
+              }
+            }
+          }
+          clean_bars[i] = bestBar;
+          clean_vals[i] = bestVal;
+        }
+      }
+    }
+    return {
+      m_vals: clean_vals,
+      m_bars: clean_bars,
+      m_dirs: clean_dirs,
+      m_confirms: clean_confirms
+    };
+  }
+  function detectSMCBreaks(sourceData, m_vals, m_bars, m_dirs, m_confirms, breakSrc, useTickFilter, tickThreshold, confirmCandles = 3) {
+    const closes = sourceData.map((b) => b.close);
+    const highs = sourceData.map((b) => b.high);
+    const lows = sourceData.map((b) => b.low);
+    const breaks = [];
+    if (m_vals.length <= 1) {
+      return breaks;
+    }
+    let currentTrend = 0;
+    let hasBosInCurrentTrend = true;
+    let runningHigh = null;
+    let runningHighBar = -1;
+    let runningLow = null;
+    let runningLowBar = -1;
+    let candidateHigh = null;
+    let candidateHighBar = -1;
+    let candidateLow = null;
+    let candidateLowBar = -1;
+    for (let i = 0; i < m_vals.length; i++) {
+      if (m_dirs[i] === 1 && runningHigh === null) {
+        runningHigh = m_vals[i];
+        runningHighBar = m_bars[i];
+      }
+      if (m_dirs[i] === -1 && runningLow === null) {
+        runningLow = m_vals[i];
+        runningLowBar = m_bars[i];
+      }
+      if (runningHigh !== null && runningLow !== null) {
+        break;
+      }
+    }
+    for (let j = 1; j < m_vals.length; j++) {
+      const val = m_vals[j];
+      const bar = m_bars[j];
+      const pDir = m_dirs[j];
+      const confirmBar = m_confirms[j];
+      if (pDir === 1) {
+        if (runningHigh !== null && val > runningHigh) {
+          const isHighBroken = checkBreakAbove(
+            runningHigh,
+            runningHighBar,
+            confirmBar,
+            breakSrc,
+            useTickFilter,
+            tickThreshold,
+            closes,
+            highs,
+            confirmCandles
+          );
+          if (isHighBroken) {
+            if (currentTrend === -1) {
+              if (hasBosInCurrentTrend) {
+                breaks.push({
+                  type: "MSB",
+                  dir: "Bullish",
+                  level: runningHigh,
+                  start_bar: runningHighBar,
+                  end_bar: confirmBar
+                });
+                currentTrend = 1;
+                hasBosInCurrentTrend = false;
+              } else {
+                breaks.push({
+                  type: "BOS",
+                  dir: "Bullish",
+                  level: runningHigh,
+                  start_bar: runningHighBar,
+                  end_bar: confirmBar
+                });
+                currentTrend = 1;
+                hasBosInCurrentTrend = true;
+                if (candidateLow !== null) {
+                  runningLow = candidateLow;
+                  runningLowBar = candidateLowBar;
+                }
+              }
+            } else if (currentTrend === 1) {
+              breaks.push({
+                type: "BOS",
+                dir: "Bullish",
+                level: runningHigh,
+                start_bar: runningHighBar,
+                end_bar: confirmBar
+              });
+              hasBosInCurrentTrend = true;
+              if (candidateLow !== null) {
+                runningLow = candidateLow;
+                runningLowBar = candidateLowBar;
+              }
+            } else {
+              currentTrend = 1;
+              hasBosInCurrentTrend = true;
+            }
+            runningHigh = val;
+            runningHighBar = bar;
+            candidateHigh = null;
+            candidateHighBar = -1;
+            candidateLow = null;
+            candidateLowBar = -1;
+            continue;
+          }
+        }
+        if (candidateHigh === null || val > candidateHigh) {
+          candidateHigh = val;
+          candidateHighBar = bar;
+        }
+      } else if (pDir === -1) {
+        if (runningLow !== null && val < runningLow) {
+          const isLowBroken = checkBreakBelow(
+            runningLow,
+            runningLowBar,
+            confirmBar,
+            breakSrc,
+            useTickFilter,
+            tickThreshold,
+            closes,
+            lows,
+            confirmCandles
+          );
+          if (isLowBroken) {
+            if (currentTrend === 1) {
+              if (hasBosInCurrentTrend) {
+                breaks.push({
+                  type: "MSB",
+                  dir: "Bearish",
+                  level: runningLow,
+                  start_bar: runningLowBar,
+                  end_bar: confirmBar
+                });
+                currentTrend = -1;
+                hasBosInCurrentTrend = false;
+              } else {
+                breaks.push({
+                  type: "BOS",
+                  dir: "Bearish",
+                  level: runningLow,
+                  start_bar: runningLowBar,
+                  end_bar: confirmBar
+                });
+                currentTrend = -1;
+                hasBosInCurrentTrend = true;
+                if (candidateHigh !== null) {
+                  runningHigh = candidateHigh;
+                  runningHighBar = candidateHighBar;
+                }
+              }
+            } else if (currentTrend === -1) {
+              breaks.push({
+                type: "BOS",
+                dir: "Bearish",
+                level: runningLow,
+                start_bar: runningLowBar,
+                end_bar: confirmBar
+              });
+              hasBosInCurrentTrend = true;
+              if (candidateHigh !== null) {
+                runningHigh = candidateHigh;
+                runningHighBar = candidateHighBar;
+              }
+            } else {
+              currentTrend = -1;
+              hasBosInCurrentTrend = true;
+            }
+            runningLow = val;
+            runningLowBar = bar;
+            candidateHigh = null;
+            candidateHighBar = -1;
+            candidateLow = null;
+            candidateLowBar = -1;
+            continue;
+          }
+        }
+        if (candidateLow === null || val < candidateLow) {
+          candidateLow = val;
+          candidateLowBar = bar;
+        }
+      }
+    }
+    return breaks;
+  }
+
   // src/indicators/zigzag-trendline-indicator.ts
   var defaultTrendlineOptions = {
     name: "Trendline",
@@ -23025,29 +23856,129 @@ var LightweightCharts = (() => {
     // Red
     color: "#787b86",
     lineWidth: 1,
-    style: "histogram" /* Histogram */
+    style: "histogram" /* Histogram */,
+    showMA: false,
+    maType: "sma",
+    maPeriod: 20,
+    maColor: "#f59e0b"
   };
   var VolumeIndicator = class extends OverlayIndicator {
     constructor(options = {}) {
       const mergedOptions = { ...defaultVolumeOptions, ...options };
       super(mergedOptions);
+      this._volumeOptions = { ...defaultVolumeOptions, ...this._options };
+    }
+    _getAllOptions() {
+      return { ...this._volumeOptions };
+    }
+    updateOptions(newOptions) {
+      const needsRecalc = newOptions.maType !== void 0 && newOptions.maType !== this._volumeOptions.maType || newOptions.maPeriod !== void 0 && newOptions.maPeriod !== this._volumeOptions.maPeriod;
+      Object.assign(this._volumeOptions, newOptions);
+      Object.assign(this._options, newOptions);
+      this._dataChanged.fire();
+      return needsRecalc;
+    }
+    setSettingValue(key, value) {
+      const needsRecalc = this.updateOptions({ [key]: value });
+      if (needsRecalc && this._sourceData.length > 0) {
+        this.calculate(this._sourceData);
+      }
+      return needsRecalc;
+    }
+    getSettingsConfig() {
+      return {
+        name: this.name,
+        tabs: [
+          createInputsTab([{
+            title: "Volume MA",
+            rows: [
+              checkboxRow2("showMA", "Show Moving Average", false),
+              selectRow2("maType", "MA Type", [
+                { value: "sma", label: "SMA" },
+                { value: "ema", label: "EMA" },
+                { value: "wma", label: "WMA" }
+              ], "sma"),
+              numberRow2("maPeriod", "MA Length", 1, 200, 1)
+            ]
+          }]),
+          createStyleTab2([{
+            title: "Volume Bars",
+            rows: [
+              colorRow2("upColor", "Up Color"),
+              colorRow2("downColor", "Down Color")
+            ]
+          }, {
+            title: "MA Line",
+            rows: [
+              colorRow2("maColor", "MA Color"),
+              numberRow2("lineWidth", "MA Line Width", 1, 5, 1)
+            ]
+          }]),
+          createVisibilityTab2()
+        ]
+      };
     }
     /**
-     * Calculate Volume histogram data
+     * Calculate Volume histogram data (+ optional volume moving average)
      */
     calculate(sourceData) {
       this._data = [];
       if (sourceData.length === 0) return;
+      const volumes = sourceData.map((bar) => bar.volume || 0);
+      const maValues = this._volumeOptions.showMA ? this._calculateMA(volumes, this._volumeOptions.maPeriod, this._volumeOptions.maType) : null;
       for (let i = 0; i < sourceData.length; i++) {
         const bar = sourceData[i];
-        const volume = bar.volume || 0;
+        const volume = volumes[i];
         const direction = bar.close >= bar.open ? 1 : -1;
         this._data.push({
           time: bar.time,
           value: volume,
-          values: [direction]
-          // Used by renderer for coloring
+          // values[0] = direction (used by the histogram renderer for coloring),
+          // values[1] = volume MA (NaN when disabled or still in warmup period).
+          values: [direction, maValues ? maValues[i] : NaN]
         });
+      }
+    }
+    _calculateMA(values, period, type) {
+      const n = values.length;
+      const result = new Array(n).fill(NaN);
+      const p = Math.max(1, period);
+      if (n < p) return result;
+      switch (type) {
+        case "ema": {
+          const k = 2 / (p + 1);
+          let sum = 0;
+          for (let i = 0; i < p; i++) sum += values[i];
+          let prevEma = sum / p;
+          result[p - 1] = prevEma;
+          for (let i = p; i < n; i++) {
+            prevEma = values[i] * k + prevEma * (1 - k);
+            result[i] = prevEma;
+          }
+          return result;
+        }
+        case "wma": {
+          const denom = p * (p + 1) / 2;
+          for (let i = p - 1; i < n; i++) {
+            let weightedSum = 0;
+            for (let j = 0; j < p; j++) {
+              weightedSum += values[i - j] * (p - j);
+            }
+            result[i] = weightedSum / denom;
+          }
+          return result;
+        }
+        case "sma":
+        default: {
+          let sum = 0;
+          for (let i = 0; i < p; i++) sum += values[i];
+          result[p - 1] = sum / p;
+          for (let i = p; i < n; i++) {
+            sum += values[i] - values[i - p];
+            result[i] = sum / p;
+          }
+          return result;
+        }
       }
     }
     getDescription(index) {
@@ -23058,12 +23989,83 @@ var LightweightCharts = (() => {
         value = this._data[this._data.length - 1].value;
       }
       const valueStr = isNaN(value) ? "-" : this._formatVolume(value);
-      return `Vol ${valueStr}`;
+      let desc = `Vol ${valueStr}`;
+      if (this._volumeOptions.showMA) {
+        const maPoint = index !== void 0 ? this._data[index] : this._data[this._data.length - 1];
+        const maValue = maPoint?.values?.[1];
+        if (maValue !== void 0 && !isNaN(maValue)) {
+          desc += ` ${this._volumeOptions.maType.toUpperCase()}(${this._volumeOptions.maPeriod}) ${this._formatVolume(maValue)}`;
+        }
+      }
+      return desc;
     }
     _formatVolume(vol) {
       if (vol >= 1e6) return (vol / 1e6).toFixed(2) + "M";
       if (vol >= 1e3) return (vol / 1e3).toFixed(2) + "K";
       return vol.toFixed(2);
+    }
+    /**
+     * Custom overlay draw: histogram bars (same as the generic renderer would
+     * produce) plus, if enabled, a volume moving-average line scaled to the
+     * same reduced height band the histogram uses.
+     */
+    drawOverlay(ctx, timeScale, _priceScale, hpr, vpr, visibleRange) {
+      const data = this._data;
+      if (data.length === 0) return;
+      const startIndex = Math.max(0, Math.floor(visibleRange.from));
+      const endIndex = Math.min(data.length - 1, Math.ceil(visibleRange.to));
+      const h = ctx.canvas.height / vpr;
+      const volumeHeightRatio = 0.15;
+      const barWidth = 0.8 * timeScale.barSpacing;
+      const upColor = this._volumeOptions.upColor;
+      const downColor = this._volumeOptions.downColor;
+      let maxVal = -Infinity;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const val = data[i]?.value;
+        if (val !== void 0 && !isNaN(val) && val > maxVal) maxVal = val;
+      }
+      if (maxVal <= 0) maxVal = 1;
+      const valueToY = (value) => h - value / maxVal * (h * volumeHeightRatio);
+      for (let i = startIndex; i <= endIndex; i++) {
+        const point = data[i];
+        if (point === void 0 || point.value === void 0 || isNaN(point.value) || point.value === 0) continue;
+        const x = timeScale.indexToCoordinate(i) * hpr;
+        const barHeight = point.value / maxVal * (h * volumeHeightRatio);
+        const y = h - barHeight;
+        ctx.fillStyle = point.values && point.values[0] === -1 ? downColor : upColor;
+        ctx.fillRect(
+          x - barWidth / 2 * hpr,
+          y * vpr,
+          barWidth * hpr,
+          barHeight * vpr
+        );
+      }
+      if (this._volumeOptions.showMA) {
+        ctx.save();
+        ctx.strokeStyle = this._volumeOptions.maColor;
+        ctx.lineWidth = this._volumeOptions.lineWidth * hpr;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        let started = false;
+        for (let i = startIndex; i <= endIndex; i++) {
+          const maValue = data[i]?.values?.[1];
+          if (maValue === void 0 || isNaN(maValue)) {
+            started = false;
+            continue;
+          }
+          const x = timeScale.indexToCoordinate(i) * hpr;
+          const y = valueToY(maValue) * vpr;
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   };
 
@@ -23820,20 +24822,24 @@ var LightweightCharts = (() => {
         }
       }
     }
-    getRange() {
+    getRange(visibleRange) {
       if (this._data.length === 0) {
         return { min: -1, max: 1 };
       }
       let min = Infinity;
       let max = -Infinity;
-      for (const point of this._data) {
+      const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+      const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const point = this._data[i];
+        if (!point) continue;
         const slope = point.values?.[0];
         const signal = point.values?.[1];
-        if (slope !== void 0 && !isNaN(slope)) {
+        if (slope !== void 0 && !isNaN(slope) && isFinite(slope)) {
           min = Math.min(min, slope);
           max = Math.max(max, slope);
         }
-        if (signal !== void 0 && !isNaN(signal)) {
+        if (signal !== void 0 && !isNaN(signal) && isFinite(signal)) {
           min = Math.min(min, signal);
           max = Math.max(max, signal);
         }
@@ -24057,18 +25063,21 @@ var LightweightCharts = (() => {
         });
       }
     }
-    getRange() {
+    getRange(visibleRange) {
       if (this._data.length === 0) {
         return { min: -1, max: 1 };
       }
       let min = Infinity;
       let max = -Infinity;
-      for (let i = 0; i < this._data.length; i++) {
+      const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+      const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+      for (let i = startIndex; i <= endIndex; i++) {
         const point = this._data[i];
+        if (!point) continue;
         const values = point.values ?? [];
         const hist = this._histogram[i];
         for (const value of [hist, ...values]) {
-          if (value !== void 0 && !isNaN(value)) {
+          if (value !== void 0 && !isNaN(value) && isFinite(value)) {
             min = Math.min(min, value);
             max = Math.max(max, value);
           }
@@ -24767,16 +25776,23 @@ ${note}`;
         });
       }
     }
-    getRange() {
+    getRange(visibleRange) {
       if (this._data.length === 0) {
         return { min: -1, max: 1 };
       }
       let min = Infinity;
       let max = -Infinity;
-      for (const point of this._data) {
-        if (isNaN(point.value)) continue;
-        min = Math.min(min, point.value);
-        max = Math.max(max, point.value);
+      const startIndex = visibleRange ? Math.max(0, Math.floor(visibleRange.from)) : 0;
+      const endIndex = visibleRange ? Math.min(this._data.length - 1, Math.ceil(visibleRange.to)) : this._data.length - 1;
+      for (let i = startIndex; i <= endIndex; i++) {
+        const point = this._data[i];
+        if (point && !isNaN(point.value) && isFinite(point.value)) {
+          min = Math.min(min, point.value);
+          max = Math.max(max, point.value);
+        }
+      }
+      if (min === Infinity || max === -Infinity) {
+        return { min: -1, max: 1 };
       }
       const absMax = Math.max(Math.abs(min), Math.abs(max), 1e-6);
       return {
@@ -26431,12 +27447,343 @@ ${note}`;
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
+  // src/indicators/smc-indicator.ts
+  var defaultSMCOptions = {
+    name: "Smart Money Concepts",
+    period: 15,
+    pivotSrc: "High/Low",
+    breakSrc: "Close",
+    macroSrc: "Close",
+    useTickFilter: true,
+    tickMult: 3,
+    tickSize: 0,
+    // 0 means Auto
+    confirmCandles: 3,
+    showMinorZigZag: true,
+    showMacroZigZag: true,
+    showBOS: true,
+    showMSB: true,
+    minorColor: "rgba(41, 98, 255, 0.4)",
+    macroColor: "#212121",
+    bullishColor: "#008080",
+    bearishColor: "#ef4444",
+    lineWidth: 2
+  };
+  var SMCIndicator = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const merged = { ...defaultSMCOptions, ...options };
+      super(merged);
+      this._minorZigzag = [];
+      this._macroVals = [];
+      this._macroBars = [];
+      this._breaks = [];
+      this._smcOptions = { ...defaultSMCOptions, ...this._options };
+    }
+    _getAllOptions() {
+      return { ...this._smcOptions };
+    }
+    updateOptions(newOptions) {
+      const normalized = { ...newOptions };
+      if (normalized.period !== void 0) normalized.period = Number(normalized.period);
+      if (normalized.tickMult !== void 0) normalized.tickMult = Number(normalized.tickMult);
+      if (normalized.tickSize !== void 0) normalized.tickSize = Number(normalized.tickSize);
+      if (normalized.confirmCandles !== void 0) normalized.confirmCandles = Number(normalized.confirmCandles);
+      const needsRecalc = normalized.period !== void 0 || normalized.pivotSrc !== void 0 || normalized.breakSrc !== void 0 || normalized.macroSrc !== void 0 || normalized.useTickFilter !== void 0 || normalized.tickMult !== void 0 || normalized.tickSize !== void 0 || normalized.confirmCandles !== void 0;
+      Object.assign(this._smcOptions, normalized);
+      Object.assign(this._options, normalized);
+      this._dataChanged.fire();
+      return !!needsRecalc;
+    }
+    getSettingsConfig() {
+      return {
+        name: this.name,
+        tabs: [
+          createInputsTab([{
+            rows: [
+              numberRow2("period", "ZigZag Swing Period", 2, 100, 1),
+              selectRow2("pivotSrc", "ZigZag Source", [
+                { value: "High/Low", label: "High/Low" },
+                { value: "Close", label: "Close" }
+              ], this._smcOptions.pivotSrc),
+              selectRow2("breakSrc", "BOS/MSB Verification Source", [
+                { value: "Close", label: "Close" },
+                { value: "High/Low", label: "High/Low" }
+              ], this._smcOptions.breakSrc),
+              selectRow2("macroSrc", "Macro ZigZag Verification Source", [
+                { value: "Close", label: "Close" },
+                { value: "High/Low", label: "High/Low" }
+              ], this._smcOptions.macroSrc),
+              checkboxRow2("useTickFilter", "Enable Tick Filter", this._smcOptions.useTickFilter),
+              numberRow2("tickMult", "Tick Multiplier", 0.1, 50, 0.1),
+              numberRow2("tickSize", "Tick Size (0 = Auto)", 0, 1e3, 1e-6),
+              numberRow2("confirmCandles", "Consecutive Confirm Candles", 1, 10, 1),
+              checkboxRow2("showMinorZigZag", "Show Minor ZigZag", this._smcOptions.showMinorZigZag),
+              checkboxRow2("showMacroZigZag", "Show Macro ZigZag", this._smcOptions.showMacroZigZag),
+              checkboxRow2("showBOS", "Show BOS Levels", this._smcOptions.showBOS),
+              checkboxRow2("showMSB", "Show MSB Levels", this._smcOptions.showMSB)
+            ]
+          }]),
+          createStyleTab2([{
+            rows: [
+              colorRow2("minorColor", "Minor ZigZag Color", this._smcOptions.minorColor),
+              colorRow2("macroColor", "Macro ZigZag Color", this._smcOptions.macroColor),
+              colorRow2("bullishColor", "Bullish Level Color", this._smcOptions.bullishColor),
+              colorRow2("bearishColor", "Bearish Level Color", this._smcOptions.bearishColor),
+              lineWidthRow2("lineWidth", "Macro Line Width")
+            ]
+          }]),
+          createVisibilityTab2()
+        ]
+      };
+    }
+    setSettingValue(key, value) {
+      const needsRecalc = this.updateOptions({ [key]: value });
+      if (needsRecalc && this._sourceData.length > 0) {
+        this.calculate(this._sourceData);
+      }
+      return needsRecalc;
+    }
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      if (sourceData.length < this._smcOptions.period) {
+        this._minorZigzag = [];
+        this._macroVals = [];
+        this._macroBars = [];
+        this._breaks = [];
+        this._data = [];
+        return;
+      }
+      let tickSize = this._smcOptions.tickSize;
+      if (tickSize <= 0) {
+        tickSize = estimateTickSize(sourceData);
+      }
+      const tickThreshold = this._smcOptions.tickMult * tickSize;
+      const { zigzag } = calculateMinorZigZag(sourceData, this._smcOptions.period, this._smcOptions.pivotSrc);
+      this._minorZigzag = zigzag;
+      const { m_vals, m_bars, m_dirs, m_confirms } = calculateMacroZigZag(
+        sourceData,
+        zigzag,
+        this._smcOptions.macroSrc,
+        this._smcOptions.useTickFilter,
+        tickThreshold,
+        this._smcOptions.confirmCandles
+      );
+      this._macroVals = m_vals;
+      this._macroBars = m_bars;
+      this._breaks = detectSMCBreaks(
+        sourceData,
+        m_vals,
+        m_bars,
+        m_dirs,
+        m_confirms,
+        this._smcOptions.breakSrc,
+        this._smcOptions.useTickFilter,
+        tickThreshold,
+        this._smcOptions.confirmCandles
+      );
+      this._data = m_bars.map((barIdx, i) => ({
+        time: sourceData[barIdx].time,
+        value: m_vals[i]
+      }));
+      console.log(`[SMC] minor pivots: ${this._minorZigzag.length}, macro pivots: ${this._macroVals.length}, breaks: ${this._breaks.length}`);
+    }
+    getRange() {
+      if (this._sourceData.length === 0) {
+        return { min: 0, max: 100 };
+      }
+      let min = Infinity;
+      let max = -Infinity;
+      for (const bar of this._sourceData) {
+        min = Math.min(min, bar.low);
+        max = Math.max(max, bar.high);
+      }
+      return { min, max };
+    }
+    getDescription() {
+      return `SMC (${this._smcOptions.period})`;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr) {
+      if (this._sourceData.length === 0) return;
+      if (this._smcOptions.showMinorZigZag && this._minorZigzag.length >= 2) {
+        ctx.save();
+        ctx.strokeStyle = this._smcOptions.minorColor;
+        ctx.lineWidth = 1 * hpr;
+        ctx.setLineDash([4 * hpr, 4 * hpr]);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        let started = false;
+        for (let i = this._minorZigzag.length - 1; i >= 0; i--) {
+          const point = this._minorZigzag[i];
+          const x = timeScale.indexToCoordinate(point.index) * hpr;
+          const y = priceScale.priceToCoordinate(point.price) * vpr;
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (this._smcOptions.showMacroZigZag && this._macroVals.length >= 2) {
+        ctx.save();
+        ctx.strokeStyle = this._smcOptions.macroColor;
+        ctx.lineWidth = this._smcOptions.lineWidth * hpr;
+        ctx.setLineDash([]);
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < this._macroVals.length; i++) {
+          const barIdx = this._macroBars[i];
+          const price = this._macroVals[i];
+          const x = timeScale.indexToCoordinate(barIdx) * hpr;
+          const y = priceScale.priceToCoordinate(price) * vpr;
+          if (!started) {
+            ctx.moveTo(x, y);
+            started = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+      for (const b of this._breaks) {
+        const isBOS = b.type === "BOS";
+        const isMSB = b.type === "MSB";
+        if (isBOS && !this._smcOptions.showBOS) continue;
+        if (isMSB && !this._smcOptions.showMSB) continue;
+        const startX = timeScale.indexToCoordinate(b.start_bar) * hpr;
+        const endX = timeScale.indexToCoordinate(b.end_bar) * hpr;
+        const y = priceScale.priceToCoordinate(b.level) * vpr;
+        const color = b.dir === "Bullish" ? this._smcOptions.bullishColor : this._smcOptions.bearishColor;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1 * hpr;
+        ctx.setLineDash([2 * hpr, 2 * hpr]);
+        ctx.beginPath();
+        ctx.moveTo(startX, y);
+        ctx.lineTo(endX, y);
+        ctx.stroke();
+        ctx.restore();
+        const labelX = endX;
+        const bar = this._sourceData[b.end_bar];
+        if (!bar) continue;
+        const labelText = `${b.type} (${b.dir === "Bullish" ? "BULL" : "BEAR"})`;
+        ctx.save();
+        ctx.font = `bold ${10 * hpr}px sans-serif`;
+        const textMetrics = ctx.measureText(labelText);
+        const textWidth = textMetrics.width;
+        const textHeight = 12 * vpr;
+        if (b.dir === "Bullish") {
+          const peakY = priceScale.priceToCoordinate(bar.high) * vpr;
+          const arrowY = peakY - 8 * vpr;
+          ctx.fillStyle = color;
+          drawTriangle(ctx, labelX, arrowY, 5 * hpr, "up");
+          const textY = arrowY - 14 * vpr;
+          roundRect2(ctx, labelX - textWidth / 2 - 4 * hpr, textY - 2 * vpr, textWidth + 8 * hpr, textHeight + 4 * vpr, 3 * hpr);
+          ctx.fill();
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(labelText, labelX, textY + textHeight / 2);
+        } else {
+          const valleyY = priceScale.priceToCoordinate(bar.low) * vpr;
+          const arrowY = valleyY + 8 * vpr;
+          ctx.fillStyle = color;
+          drawTriangle(ctx, labelX, arrowY, 5 * hpr, "down");
+          const textY = arrowY + 8 * vpr;
+          roundRect2(ctx, labelX - textWidth / 2 - 4 * hpr, textY - 2 * vpr, textWidth + 8 * hpr, textHeight + 4 * vpr, 3 * hpr);
+          ctx.fill();
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(labelText, labelX, textY + textHeight / 2);
+        }
+        ctx.restore();
+      }
+    }
+    hitTest(x, y, timeScale, priceScale) {
+      if (this._macroVals.length < 2) {
+        return false;
+      }
+      const threshold = 8;
+      for (let i = 1; i < this._macroVals.length; i++) {
+        const startBar = this._macroBars[i - 1];
+        const startPrice = this._macroVals[i - 1];
+        const endBar = this._macroBars[i];
+        const endPrice = this._macroVals[i];
+        const x1 = timeScale.indexToCoordinate(startBar);
+        const y1 = priceScale.priceToCoordinate(startPrice);
+        const x2 = timeScale.indexToCoordinate(endBar);
+        const y2 = priceScale.priceToCoordinate(endPrice);
+        if (distanceToSegment4(x, y, x1, y1, x2, y2) <= threshold) {
+          return true;
+        }
+      }
+      return false;
+    }
+  };
+  function estimateTickSize(data) {
+    let minDiff = Infinity;
+    const len = Math.min(data.length, 100);
+    for (let i = 1; i < len; i++) {
+      const diff = Math.abs(data[i].close - data[i - 1].close);
+      if (diff > 0 && diff < minDiff) {
+        minDiff = diff;
+      }
+    }
+    return minDiff === Infinity ? 0.01 : minDiff;
+  }
+  function drawTriangle(ctx, x, y, size, direction) {
+    ctx.beginPath();
+    if (direction === "up") {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - size, y + size * 1.5);
+      ctx.lineTo(x + size, y + size * 1.5);
+    } else {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - size, y - size * 1.5);
+      ctx.lineTo(x + size, y - size * 1.5);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+  function roundRect2(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+  }
+  function distanceToSegment4(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    if (dx === 0 && dy === 0) {
+      return Math.hypot(px - x1, py - y1);
+    }
+    const t2 = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+    const cx = x1 + t2 * dx;
+    const cy = y1 + t2 * dy;
+    return Math.hypot(px - cx, py - cy);
+  }
+
   // src/indicators/indicator-manager.ts
   var IndicatorManager = class {
     constructor() {
       this._overlayIndicators = [];
       this._panelIndicators = [];
       this._sourceData = [];
+      this._theme = "dark";
       // Event callbacks
       this._onIndicatorAdded = null;
       this._onIndicatorRemoved = null;
@@ -26466,12 +27813,28 @@ ${note}`;
     set onPaneRemoved(callback) {
       this._onPaneRemoved = callback;
     }
+    // --- Theme ---
+    /**
+     * Push the chart theme to every indicator. Indicators that paint their own text
+     * need it to pick a readable plate colour; without it a label plate hardcoded
+     * for a dark chart turns into a black slab on a light one.
+     */
+    setTheme(theme) {
+      this._theme = theme;
+      for (const indicator of this.allIndicators) {
+        indicator.setTheme(theme);
+      }
+    }
+    get theme() {
+      return this._theme;
+    }
     // --- Indicator management ---
     /**
      * Add an overlay indicator (drawn on main chart)
      */
     addOverlayIndicator(indicator) {
       this._overlayIndicators.push(indicator);
+      indicator.setTheme(this._theme);
       if (this._sourceData.length > 0) {
         indicator.setData(this._sourceData);
       }
@@ -26482,6 +27845,7 @@ ${note}`;
      */
     addPanelIndicator(indicator) {
       this._panelIndicators.push(indicator);
+      indicator.setTheme(this._theme);
       if (this._sourceData.length > 0) {
         indicator.setData(this._sourceData);
       }
@@ -26589,6 +27953,7 @@ ${note}`;
         else if (indicator instanceof ChartPatternsIndicator) typeId = "ChartPatterns";
         else if (indicator instanceof TrendlineBreakoutIndicator) typeId = "TrendlineBreakout";
         else if (indicator instanceof DeMarkPivotIndicator) typeId = "DeMarkPivot";
+        else if (indicator instanceof SMCIndicator) typeId = "SMC";
         serialized.push({
           id: indicator.id,
           type: indicator.type,
@@ -26694,6 +28059,9 @@ ${note}`;
           break;
         case "DeMarkPivot":
           indicator = new DeMarkPivotIndicator(item.options);
+          break;
+        case "SMC":
+          indicator = new SMCIndicator(item.options);
           break;
         default:
           console.warn(`Unknown indicator typeId: ${typeId}`);
@@ -26824,8 +28192,16 @@ ${note}`;
       return this._indicators.includes(indicator);
     }
     // --- Size management ---
-    setWidth(width) {
+    setWidth(width, priceScaleWidth) {
       this._width = width;
+      if (priceScaleWidth !== void 0 && priceScaleWidth !== this._options.priceScaleWidth) {
+        this._options.priceScaleWidth = priceScaleWidth;
+        if (this._priceAxisCanvas) {
+          this._priceAxisCanvas.style.width = `${priceScaleWidth}px`;
+          const dpr = window.devicePixelRatio || 1;
+          this._priceAxisCanvas.width = priceScaleWidth * dpr;
+        }
+      }
       const chartWidth = width - this._options.priceScaleWidth;
       if (this._element) {
         this._element.style.width = `${width}px`;
@@ -26834,6 +28210,9 @@ ${note}`;
         const dpr = window.devicePixelRatio || 1;
         this._canvas.style.width = `${chartWidth}px`;
         this._canvas.width = chartWidth * dpr;
+      }
+      if (this._legendContainer) {
+        this._legendContainer.style.right = `${this._options.priceScaleWidth + 10}px`;
       }
     }
     setHeight(height) {
@@ -27207,8 +28586,9 @@ ${note}`;
       let min = Infinity;
       let max = -Infinity;
       let hasFixedRange = false;
+      const visibleRange = this._timeScale.visibleRange();
       for (const indicator of this._indicators) {
-        const range = indicator.getRange();
+        const range = indicator.getRange(visibleRange);
         if (range.fixedMin !== void 0 && range.fixedMax !== void 0) {
           min = range.fixedMin;
           max = range.fixedMax;
@@ -27438,6 +28818,562 @@ ${note}`;
     }
   };
 
+  // src/indicators/special-forces-indicator.ts
+  var defaultOptions3 = {
+    name: "Special Forces",
+    style: "line" /* Line */,
+    symbol: "BTCUSDT",
+    exchange: "BINANCE",
+    pivotLeft: 20,
+    pivotRight: 15,
+    numOfLine: 10,
+    tolerance: 0.01,
+    resistanceColor: "#FF5252",
+    supportColor: "#00FFEF",
+    showBobbin: true,
+    bobbinMult: 0.2,
+    bobbinMaxActive: 10,
+    bobbinRightExtend: 500,
+    bobbinColor: "#15e715",
+    showEngulf: true,
+    engulfRightExtend: 400,
+    engulfColor: "#ffeb3b"
+  };
+  function isGreen(c, o) {
+    return c > o;
+  }
+  function isRed(c, o) {
+    return o > c;
+  }
+  function boxIntersects(b, t2, b1, t1) {
+    return b > b1 && b1 > t2 || b > t1 && t1 > t2;
+  }
+  function computeBobbinBoxes(sourceData, mult, maxActive, rightExtend) {
+    const active = [];
+    for (let i = 2; i < sourceData.length; i++) {
+      const c2 = sourceData[i - 2].close;
+      const o2 = sourceData[i - 2].open;
+      const c1 = sourceData[i - 1].close;
+      const o1 = sourceData[i - 1].open;
+      const c0 = sourceData[i].close;
+      const o0 = sourceData[i].open;
+      let box = null;
+      if (isGreen(c2, o2) && isRed(c1, o1) && isGreen(c0, o0)) {
+        const mx = Math.max(c2 - o2, o1 - c1, c0 - o0);
+        const cmx = Math.max(c2, o1, c0) - mx * mult;
+        const cmin = Math.min(o2, c1, o0) + mx * mult;
+        const bobin = cmx < c2 && cmx < o1 && cmx < c0 && cmin > o2 && cmin > c1 && cmin > o0;
+        if (bobin) {
+          box = {
+            left: i - 2,
+            right: i + rightExtend,
+            top: Math.max(c2, o1, c0),
+            bottom: Math.min(o2, c1, o0)
+          };
+        }
+      }
+      if (isRed(c2, o2) && isGreen(c1, o1) && isRed(c0, o0)) {
+        const mx = Math.max(o2 - c2, c1 - o1, o0 - c0);
+        const cmx = Math.max(o2, c1, o0) - mx * mult;
+        const cmin = Math.min(c2, o1, c0) + mx * mult;
+        const bobin1 = cmx < o2 && cmx < c1 && cmx < o0 && cmin > c2 && cmin > o1 && cmin > c0;
+        if (bobin1) {
+          active.push({
+            left: i - 2,
+            right: i + rightExtend,
+            top: Math.max(o2, c1, o0),
+            bottom: Math.min(c2, o1, c0)
+          });
+        }
+      }
+      if (box !== null) {
+        active.push(box);
+      }
+      if (active.length > maxActive) {
+        active.shift();
+        if (active.length > 9) {
+          const b7 = active[7];
+          const b8 = active[8];
+          const b9 = active[9];
+          if (boxIntersects(b7.bottom, b7.top, b8.bottom, b8.top) && boxIntersects(b7.bottom, b7.top, b9.bottom, b9.top)) {
+            b7.right = i;
+          }
+        }
+      }
+    }
+    return active;
+  }
+  var YESIL_KIRMIZININ_KAC_KATI = 0.5;
+  var KIRMIZI_YESILIN_YUZDE_KACINDAN_KUCUK_OLMASIN = 0.1;
+  function getBearish(c1, o1, h1, l1, c0, o0, h0, l0) {
+    return c0 <= o1 && c1 > o1 && h0 + (o0 - c0) * 0.05 > h1 && l0 - (o0 - c0) * 0.05 < l1 && YESIL_KIRMIZININ_KAC_KATI * (h1 - l1) < h0 - l0 && c1 - o1 > KIRMIZI_YESILIN_YUZDE_KACINDAN_KUCUK_OLMASIN * (o0 - c0);
+  }
+  function getMultBearish(multOfBody, multOfNeedle, c1, o1, h1, l1, c0, o0, h0, l0) {
+    if (o0 - c0 > multOfBody * (c1 - o1)) {
+      if (o1 - l1 + (h1 - c1) < multOfNeedle * (c1 - o1)) {
+        return getBearish(c1, o1, h1, l1, c0, o0, h0, l0);
+      }
+    }
+    return false;
+  }
+  function getBullish(c1, o1, h1, l1, c0, o0, h0, l0) {
+    return c0 >= o1 && c1 < o1 && l0 - (c0 - o0) * 0.05 < l1 && h0 + (c0 - o0) * 0.05 > h1 && YESIL_KIRMIZININ_KAC_KATI * (h1 - l1) < h0 - l0 && o1 - c1 > KIRMIZI_YESILIN_YUZDE_KACINDAN_KUCUK_OLMASIN * (c0 - o0);
+  }
+  function getMultBullish(multOfBody, multOfNeedle, c1, o1, h1, l1, c0, o0, h0, l0) {
+    if (c0 - o0 > multOfBody * (o1 - c1)) {
+      if (c1 - l1 + (h1 - o1) < multOfNeedle * (o1 - c1)) {
+        return getBullish(c1, o1, h1, l1, c0, o0, h0, l0);
+      }
+    }
+    return false;
+  }
+  var BEARISH_MULT_PAIRS = [[5, 3.5], [4, 2.5], [3, 1.5], [2, 0.5], [1.5, 0.2]];
+  var BULLISH_MULT_PAIRS = [[5, 3.5], [4, 2.5], [3, 1.5], [2, 1], [1.5, 0.2]];
+  function computeEngulfBoxes(sourceData, rightExtend) {
+    const boxes = [];
+    for (let i = 1; i < sourceData.length; i++) {
+      const c1 = sourceData[i - 1].close;
+      const o1 = sourceData[i - 1].open;
+      const h1 = sourceData[i - 1].high;
+      const l1 = sourceData[i - 1].low;
+      const c0 = sourceData[i].close;
+      const o0 = sourceData[i].open;
+      const h0 = sourceData[i].high;
+      const l0 = sourceData[i].low;
+      let bearish = false;
+      for (const [multBody, multNeedle] of BEARISH_MULT_PAIRS) {
+        if (getMultBearish(multBody, multNeedle, c1, o1, h1, l1, c0, o0, h0, l0)) {
+          bearish = true;
+          break;
+        }
+      }
+      let bullish = false;
+      for (const [multBody, multNeedle] of BULLISH_MULT_PAIRS) {
+        if (getMultBullish(multBody, multNeedle, c1, o1, h1, l1, c0, o0, h0, l0)) {
+          bullish = true;
+          break;
+        }
+      }
+      if (bullish) {
+        boxes.push({ left: i - 1, right: i + rightExtend, top: o1, bottom: c1 });
+      }
+      if (bearish) {
+        boxes.push({ left: i - 1, right: i + rightExtend, top: c1, bottom: o1 });
+      }
+    }
+    return boxes;
+  }
+  function withAlpha4(color, alpha) {
+    const hex = color.replace("#", "").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
+      return color;
+    }
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+  var TIMEFRAME_CONFIG = {
+    "1m": ["15m", "15m", 15, 15],
+    "3m": ["30m", "30m", 10, 10],
+    "5m": ["1h", "1h", 12, 12],
+    "15m": ["2h", "4h", 8, 16],
+    "30m": ["2h", "4h", 4, 8],
+    "1h": ["4h", "1d", 4, 24],
+    "2h": ["4h", "1d", 2, 12],
+    "4h": ["1d", "3d", 6, 18],
+    "12h": ["1d", "3d", 2, 6],
+    "1d": ["3d", "3d", 3, 3],
+    "1w": ["1w", "1w", 2, 2],
+    "1M": ["1M", "1M", 2, 2]
+  };
+  var PERIOD_FILTER_MS = {
+    "15m": 4314856211,
+    "1h": 17276457450,
+    "4h": 69116504788
+  };
+  var TV_CHART_BARS = 15e3;
+  var SpecialForcesIndicator = class _SpecialForcesIndicator extends OverlayIndicator {
+    constructor(options = {}) {
+      const mergedOptions = { ...defaultOptions3, ...options };
+      super(mergedOptions);
+      this._boxes = [];
+      this._bobbinBoxes = [];
+      this._engulfBoxes = [];
+      this._fetchToken = 0;
+      this._debounceTimer = null;
+      this._sfOptions = { ...defaultOptions3, ...this._options };
+    }
+    static {
+      /**
+       * Set once by the host page (demo-ts.html) so this indicator can fetch
+       * higher-timeframe candles through the same multi-exchange data fetcher
+       * the chart itself uses (Binance/Bybit/OKX/OANDA+brokers), instead of
+       * always hitting Binance Futures directly.
+       */
+      this.defaultKlinesProvider = null;
+    }
+    _getAllOptions() {
+      return { ...this._sfOptions };
+    }
+    get boxes() {
+      return this._boxes;
+    }
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      if (sourceData.length === 0) {
+        return;
+      }
+      this._bobbinBoxes = this._sfOptions.showBobbin ? computeBobbinBoxes(sourceData, this._sfOptions.bobbinMult, this._sfOptions.bobbinMaxActive, this._sfOptions.bobbinRightExtend) : [];
+      this._engulfBoxes = this._sfOptions.showEngulf ? computeEngulfBoxes(sourceData, this._sfOptions.engulfRightExtend) : [];
+      if (this._debounceTimer !== null) {
+        clearTimeout(this._debounceTimer);
+      }
+      this._debounceTimer = setTimeout(() => {
+        this._debounceTimer = null;
+        void this._recompute(this._sourceData);
+      }, 500);
+    }
+    getRange() {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const box of this._boxes) {
+        min = Math.min(min, box.bottom);
+        max = Math.max(max, box.top);
+      }
+      for (const box of this._bobbinBoxes) {
+        min = Math.min(min, box.bottom);
+        max = Math.max(max, box.top);
+      }
+      for (const box of this._engulfBoxes) {
+        min = Math.min(min, box.bottom);
+        max = Math.max(max, box.top);
+      }
+      if (min === Infinity || max === -Infinity) {
+        return { min: 0, max: 100 };
+      }
+      return { min, max };
+    }
+    getDescription() {
+      return `Special Forces S/R (${this._boxes.length}) Bobbin (${this._bobbinBoxes.length}) Engulf (${this._engulfBoxes.length})`;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr) {
+      if (this._sourceData.length === 0) {
+        return;
+      }
+      const hasAnything = this._boxes.length > 0 || this._bobbinBoxes.length > 0 || this._engulfBoxes.length > 0;
+      if (!hasAnything) {
+        return;
+      }
+      const lastIndex = this._sourceData.length - 1;
+      const x2 = timeScale.indexToCoordinate(lastIndex) * hpr;
+      ctx.save();
+      for (const box of this._boxes) {
+        const startIndex = this._nearestBarIndex(box.date);
+        const clampedStart = Math.max(0, Math.min(lastIndex, startIndex));
+        const x1 = timeScale.indexToCoordinate(clampedStart) * hpr;
+        if (x2 <= x1) continue;
+        const y = priceScale.priceToCoordinate(box.mid) * vpr;
+        const strokeColor = box.type === "resistance" ? this._sfOptions.resistanceColor : this._sfOptions.supportColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 2 * hpr;
+        ctx.beginPath();
+        ctx.moveTo(x1, y);
+        ctx.lineTo(x2, y);
+        ctx.stroke();
+      }
+      if (this._bobbinBoxes.length > 0) {
+        ctx.fillStyle = withAlpha4(this._sfOptions.bobbinColor, 0.32);
+        for (const box of this._bobbinBoxes) {
+          this._fillBox(ctx, timeScale, priceScale, hpr, vpr, box);
+        }
+      }
+      if (this._engulfBoxes.length > 0) {
+        ctx.fillStyle = withAlpha4(this._sfOptions.engulfColor, 0.32);
+        for (const box of this._engulfBoxes) {
+          this._fillBox(ctx, timeScale, priceScale, hpr, vpr, box);
+        }
+      }
+      ctx.restore();
+    }
+    _fillBox(ctx, timeScale, priceScale, hpr, vpr, box) {
+      const x1 = timeScale.indexToCoordinate(box.left) * hpr;
+      const x2 = timeScale.indexToCoordinate(box.right) * hpr;
+      const yTop = priceScale.priceToCoordinate(box.top) * vpr;
+      const yBottom = priceScale.priceToCoordinate(box.bottom) * vpr;
+      const left = Math.min(x1, x2);
+      const width = Math.max(1, Math.abs(x2 - x1));
+      const top = Math.min(yTop, yBottom);
+      const height = Math.max(1, Math.abs(yBottom - yTop));
+      ctx.fillRect(left, top, width, height);
+    }
+    _nearestBarIndex(timeMs) {
+      const data = this._sourceData;
+      let lo = 0;
+      let hi = data.length - 1;
+      while (lo < hi) {
+        const mid = lo + hi >> 1;
+        if (this._toMs(data[mid].time) < timeMs) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      return lo;
+    }
+    _toMs(time) {
+      return time > 1e12 ? time : time * 1e3;
+    }
+    async _recompute(sourceData) {
+      const token = ++this._fetchToken;
+      const mainTf = this._currentTimeframeGuess(sourceData);
+      const config = TIMEFRAME_CONFIG[mainTf];
+      if (!config) {
+        return;
+      }
+      const [tf1, tf2, mult1, mult2] = config;
+      const cutoffMs = this._cutoffTime(mainTf);
+      try {
+        const boxes1 = await this._computeBoxesForTimeframe(tf1, mult1, cutoffMs);
+        if (token !== this._fetchToken) return;
+        let allBoxes = boxes1;
+        if (tf2 !== tf1) {
+          allBoxes = await this._computeBoxesForTimeframe(tf2, mult2, cutoffMs, boxes1);
+          if (token !== this._fetchToken) return;
+        }
+        const currentPrice = sourceData[sourceData.length - 1].close;
+        this._boxes = this._selectNearestLevels(allBoxes, currentPrice);
+        this._dataChanged.fire();
+      } catch (error) {
+        console.warn("SpecialForcesIndicator: HTF veri \xE7ekilemedi", error);
+      }
+    }
+    // spetial.txt barstate.islast bloğu (satır 592-731) ile BİREBİR aynı olacak
+    // şekilde satır satır çevrildi. `boxes` burada Pine'daki hem `data` (mid
+    // fiyat listesi, pivot oluşum sırasında unshift edilir) hem de dolaylı
+    // olarak `lines` yerine geçiyor -- kutunun kendisi zaten hem veri hem
+    // "çizgi" referansı. `checkData` Pine'da `data`'nın SIRALANMIŞ bir kopyası
+    // (array.sort) ve NOT deduplike edilmiş -- tolerans zaten checkOverlap'te
+    // pivot ekleme anında uygulanıyor, burada tekrar filtrelemek Pine'da
+    // olmayan bir adım eklemek olurdu, bu yüzden kaldırıldı.
+    _selectNearestLevels(boxes, currentPrice) {
+      if (boxes.length === 0) return [];
+      const checkData = [...boxes].sort((a, b) => a.mid - b.mid);
+      let point = 0;
+      let found = false;
+      for (let i = 1; i < checkData.length; i++) {
+        if (checkData[i - 1].mid < currentPrice && currentPrice < checkData[i].mid) {
+          point = i;
+          found = true;
+          break;
+        }
+      }
+      const half = this._sfOptions.numOfLine / 2;
+      const resultBoxes = [];
+      const resultTypes = /* @__PURE__ */ new Map();
+      const dts = [];
+      if (!found) {
+        for (let x = 0; x < checkData.length; x++) {
+          const y = checkData[x];
+          if (checkData.length - x <= half + 1) {
+            if (y.mid < currentPrice) {
+              resultTypes.set(y, "support");
+              resultBoxes.push(y);
+            }
+            if (y.mid > currentPrice) {
+              resultTypes.set(y, "resistance");
+              resultBoxes.push(y);
+            }
+          }
+        }
+      } else {
+        if (checkData.length - point > half - 1) {
+          if (checkData.length >= point + half) {
+            for (let i = 0; i <= half - 1; i++) {
+              const box = checkData[point + i];
+              if (box === void 0) continue;
+              dts.push(box);
+              resultTypes.set(box, "resistance");
+              resultBoxes.push(box);
+            }
+          }
+        } else {
+          const count = checkData.length - point;
+          for (let i = 0; i < count; i++) {
+            const box = checkData[point + i];
+            if (box === void 0) continue;
+            dts.push(box);
+            resultTypes.set(box, "resistance");
+            resultBoxes.push(box);
+          }
+        }
+        if (point - half > 0) {
+          for (let i = 1; i <= half; i++) {
+            const box = checkData[point - i];
+            if (box === void 0) continue;
+            dts.push(box);
+            resultTypes.set(box, "support");
+            resultBoxes.push(box);
+          }
+        } else {
+          for (let i = 0; i <= point; i++) {
+            const box = checkData[point - i];
+            if (box === void 0) continue;
+            if (box.mid < currentPrice) {
+              dts.push(box);
+              resultTypes.set(box, "support");
+              resultBoxes.push(box);
+            }
+          }
+        }
+      }
+      return resultBoxes.map((box) => ({ ...box, type: resultTypes.get(box) }));
+    }
+    _cutoffTime(mainTf) {
+      const filterMs = PERIOD_FILTER_MS[mainTf];
+      if (filterMs === void 0) return null;
+      return Date.now() - filterMs;
+    }
+    _currentTimeframeGuess(sourceData) {
+      if (sourceData.length < 2) return "15m";
+      const deltaMs = this._toMs(sourceData[sourceData.length - 1].time) - this._toMs(sourceData[sourceData.length - 2].time);
+      const minutes = Math.round(deltaMs / 6e4);
+      const map = {
+        1: "1m",
+        3: "3m",
+        5: "5m",
+        15: "15m",
+        30: "30m",
+        60: "1h",
+        120: "2h",
+        240: "4h",
+        720: "12h",
+        1440: "1d"
+      };
+      return map[minutes] || "15m";
+    }
+    // Delegates to the host page's own multi-exchange data fetcher (fetchData
+    // in demo-ts.html, which already knows Binance/Bybit/OKX/OANDA+brokers)
+    // instead of hitting Binance Futures directly. The original hard-coded
+    // fapi.binance.com URL silently failed for any non-Binance symbol (e.g.
+    // XAUUSD via OANDA/FXCM) since Binance Futures has no such symbol, so no
+    // S/R boxes were ever computed for forex/commodity charts. Pagination for
+    // limits above what a single request returns is the provider's own
+    // responsibility (demo-ts.html's fetchBinanceData already paginates).
+    async _fetchKlines(interval, limit) {
+      if (!_SpecialForcesIndicator.defaultKlinesProvider) {
+        throw new Error(
+          "SpecialForcesIndicator.defaultKlinesProvider was not set. The host page must set it (e.g. LightweightCharts.SpecialForcesIndicator.defaultKlinesProvider = fetchKlines) before adding this indicator."
+        );
+      }
+      const bars = await _SpecialForcesIndicator.defaultKlinesProvider(
+        this._sfOptions.symbol,
+        this._sfOptions.exchange,
+        interval,
+        limit
+      );
+      return bars.map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close }));
+    }
+    _heikinAshi(bars) {
+      if (bars.length === 0) return [];
+      const ha = [];
+      let prevOpen = (bars[0].open + bars[0].close) / 2;
+      let prevClose = (bars[0].open + bars[0].high + bars[0].low + bars[0].close) / 4;
+      ha.push({ time: bars[0].time, open: prevOpen, high: bars[0].high, low: bars[0].low, close: prevClose });
+      for (let i = 1; i < bars.length; i++) {
+        const bar = bars[i];
+        const close = (bar.open + bar.high + bar.low + bar.close) / 4;
+        const open = (prevOpen + prevClose) / 2;
+        const high = Math.max(bar.high, open, close);
+        const low = Math.min(bar.low, open, close);
+        ha.push({ time: bar.time, open, high, low, close });
+        prevOpen = open;
+        prevClose = close;
+      }
+      return ha;
+    }
+    // Pine ta.pivothigh/pivotlow eşdeğeri: >=/<= (special_forces.py ile aynı, stepped
+    // HTF verisinde tekrarlı değerler için eşitliğe izin verir).
+    _pivotIndices(closes, left, right, mode) {
+      const result = [];
+      const window2 = left + right + 1;
+      if (closes.length <= window2) return result;
+      for (let i = left; i < closes.length - right; i++) {
+        const val = closes[i];
+        let ok = true;
+        for (let j = i - left; j <= i + right; j++) {
+          if (j === i) continue;
+          if (mode === "high" ? closes[j] > val : closes[j] < val) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) result.push(i);
+      }
+      return result;
+    }
+    _checkOverlap(top, bottom, boxes, tolerance) {
+      for (const box of boxes) {
+        const bAdj = box.bottom - box.bottom * tolerance;
+        const tAdj = box.top + box.top * tolerance;
+        if (top > bAdj && top < tAdj || bottom < tAdj && bottom > bAdj) {
+          return false;
+        }
+      }
+      return true;
+    }
+    async _computeBoxesForTimeframe(higherTf, mult, cutoffMs, existingBoxes = []) {
+      const effectiveHtfBars = Math.floor(TV_CHART_BARS / mult);
+      const limit = Math.max(effectiveHtfBars + this._sfOptions.pivotLeft + this._sfOptions.pivotRight + 50, 200);
+      const raw = await this._fetchKlines(higherTf, limit);
+      const ha = this._heikinAshi(raw);
+      const closes = ha.map((b) => b.close);
+      const phIdx = this._pivotIndices(closes, this._sfOptions.pivotLeft, this._sfOptions.pivotRight, "high");
+      const plIdx = this._pivotIndices(closes, this._sfOptions.pivotLeft, this._sfOptions.pivotRight, "low");
+      const allIdx = Array.from(/* @__PURE__ */ new Set([...phIdx, ...plIdx])).sort((a, b) => a - b);
+      const phSet = new Set(phIdx);
+      const plSet = new Set(plIdx);
+      const boxes = [...existingBoxes];
+      for (const idx of allIdx) {
+        const bar = ha[idx];
+        if (cutoffMs !== null && bar.time < cutoffMs) {
+          continue;
+        }
+        if (phSet.has(idx)) {
+          const diff = bar.high - bar.close;
+          const top = bar.close + diff * 0.8;
+          const bottom = bar.close + diff * 0.2;
+          if (this._checkOverlap(top, bottom, boxes, this._sfOptions.tolerance)) {
+            boxes.unshift({
+              top,
+              bottom,
+              mid: bar.close + diff * 0.5,
+              type: "resistance",
+              date: bar.time,
+              sourceTf: higherTf
+            });
+          }
+        }
+        if (plSet.has(idx)) {
+          const diff = bar.close - bar.low;
+          const top = bar.close - diff * 0.2;
+          const bottom = bar.close - diff * 0.8;
+          if (this._checkOverlap(top, bottom, boxes, this._sfOptions.tolerance)) {
+            boxes.unshift({
+              top,
+              bottom,
+              mid: bar.close - diff * 0.5,
+              type: "support",
+              date: bar.time,
+              sourceTf: higherTf
+            });
+          }
+        }
+      }
+      return boxes;
+    }
+  };
+
   // src/gui/indicator_search/indicator_search_modal.ts
   var AVAILABLE_INDICATORS = [
     {
@@ -27646,6 +29582,22 @@ ${note}`;
       shortName: "TL BO",
       description: "Alcalan veya yukselen zigzag trendline kirilimlarini tespit eder",
       category: "pattern",
+      type: "overlay"
+    },
+    {
+      id: "smc",
+      name: "Smart Money Concepts",
+      shortName: "SMC",
+      description: "BOS (Break of Structure) ve MSB (Market Structure Break) yap\u0131sal k\u0131r\u0131l\u0131mlar\u0131n\u0131 ve minor/macro zigzag kanallar\u0131n\u0131 g\xF6sterir",
+      category: "pattern",
+      type: "overlay"
+    },
+    {
+      id: "special-forces",
+      name: "Special Forces",
+      shortName: "SF",
+      description: "\xDCst timeframe Heikin Ashi pivotlar\u0131ndan otomatik destek/diren\xE7 kutular\u0131 \xE7izer",
+      category: "custom",
       type: "overlay"
     }
   ];
@@ -34828,7 +36780,7 @@ ${note}`;
   };
 
   // src/renderers/orderbook-heatmap-renderer.ts
-  var defaultOptions3 = {
+  var defaultOptions4 = {
     enabled: true,
     bidColor: "#00d4aa",
     // Cyan
@@ -34865,7 +36817,7 @@ ${note}`;
       this._bidAgeBuffer = null;
       this._askAgeBuffer = null;
       this._bufferSize = 0;
-      this._options = { ...defaultOptions3, ...options };
+      this._options = { ...defaultOptions4, ...options };
     }
     get enabled() {
       return this._options.enabled;
@@ -35821,6 +37773,42 @@ ${note}`;
       }
     }
     /**
+     * Set the zone the time axis renders its labels in, e.g. 'America/New_York'.
+     * Pass '' to follow the browser's local zone.
+     *
+     * Bar timestamps are absolute epoch ms, so this changes labels only - no bar
+     * moves. Worth aligning with any time-based indicator (killzones, sessions),
+     * which resolve their own windows in their own configured zone.
+     */
+    setTimezone(timezone) {
+      try {
+        localStorage.setItem("tv-chart-timezone", timezone);
+      } catch (e) {
+      }
+      if (this._timeAxisWidget) {
+        this._timeAxisWidget.setTimezone(timezone);
+      }
+    }
+    getTimezone() {
+      return this._timeAxisWidget ? this._timeAxisWidget.timezone : "";
+    }
+    /**
+     * Saved preference wins, otherwise New York. ICT killzones and most session
+     * tooling are defined against the NY clock, so matching it here keeps the
+     * axis labels and those windows reading the same. Set '' to follow the
+     * browser's local zone instead. Used both for the initial TimeAxisWidget
+     * setup and the toolbar selector's starting value.
+     */
+    _resolveInitialTimezone() {
+      let axisTimezone = "America/New_York";
+      try {
+        const saved = localStorage.getItem("tv-chart-timezone");
+        if (saved !== null) axisTimezone = saved;
+      } catch (e) {
+      }
+      return axisTimezone;
+    }
+    /**
      * Set chart theme (dark or light)
      */
     setTheme(theme) {
@@ -35877,6 +37865,9 @@ ${note}`;
       }
       for (const pane of this._indicatorPanes.values()) {
         pane.setTheme(theme);
+      }
+      if (this._indicatorManager) {
+        this._indicatorManager.setTheme(theme);
       }
       if (this._loadingOverlay) {
         const isDark = theme === "dark";
@@ -36201,7 +38192,8 @@ ${note}`;
       });
       this._timeAxisWidget = new TimeAxisWidget(this._timeAxisRow, this._model.timeScale, this._timestamps, {
         backgroundColor: this._model.options.layout.backgroundColor,
-        textColor: this._model.options.layout.textColor
+        textColor: this._model.options.layout.textColor,
+        timezone: this._resolveInitialTimezone()
       });
       if (this._showDrawingToolbar) {
         this._createDrawingToolbar();
@@ -36269,7 +38261,7 @@ ${note}`;
         this._timeAxisRow.style.marginLeft = "var(--tv-drawing-toolbar-width)";
       }
       for (const pane of this._indicatorPanes.values()) {
-        pane.setWidth(this._width - drawingToolbarWidth);
+        pane.setWidth(this._width - drawingToolbarWidth, priceAxisWidth);
       }
       if (this._element) {
         this._element.style.setProperty("--tv-toolbar-height", `${toolbarHeight}px`);
@@ -37546,6 +39538,16 @@ ${note}`;
             showBullBreakout: true,
             showBearBreakdown: true
           }));
+        case "smc":
+          this.addOverlayIndicator(new SMCIndicator({
+            period: 15
+          }));
+          break;
+        case "special-forces":
+          this.addOverlayIndicator(new SpecialForcesIndicator({
+            symbol: this._model.symbol,
+            exchange: this._currentExchange
+          }));
           break;
         default:
           console.warn(`Unknown indicator: ${indicatorId}`);
@@ -37745,10 +39747,14 @@ ${note}`;
         timeframe: this._model.timeframe,
         chartType: this._activeChartType,
         locale: getCurrentLanguage(),
-        priceScaleMode: this._model.rightPriceScale.mode === 1 /* Logarithmic */ ? "logarithmic" : "normal"
+        priceScaleMode: this._model.rightPriceScale.mode === 1 /* Logarithmic */ ? "logarithmic" : "normal",
+        timezone: this._timeAxisWidget ? this._timeAxisWidget.timezone : this._resolveInitialTimezone()
       });
       this._toolbarWidget.languageChanged.subscribe((lang) => {
         this._onLanguageChange(lang);
+      });
+      this._toolbarWidget.timezoneChanged.subscribe((timezone) => {
+        this.setTimezone(timezone);
       });
       this._toolbarWidget.themeToggled.subscribe((theme) => {
         this.setTheme(theme);
@@ -37903,7 +39909,7 @@ ${note}`;
     timeframe: "1h",
     exchange: "BINANCE"
   };
-  var defaultOptions4 = {
+  var defaultOptions5 = {
     layout: "2x2",
     syncSymbol: false,
     syncTimeframe: false,
@@ -37953,9 +39959,9 @@ ${note}`;
       if (!this._container) {
         throw new Error("MultiChartLayout container not found");
       }
-      this._options = { ...defaultOptions4, ...options };
-      this._layout = this._options.layout || defaultOptions4.layout;
-      this._activeIndex = this._options.activeIndex ?? defaultOptions4.activeIndex;
+      this._options = { ...defaultOptions5, ...options };
+      this._layout = this._options.layout || defaultOptions5.layout;
+      this._activeIndex = this._options.activeIndex ?? defaultOptions5.activeIndex;
       this._element = document.createElement("div");
       this._element.className = "tv-multi-chart-layout-shell";
       this._element.style.cssText = `
@@ -38144,7 +40150,7 @@ ${note}`;
       this._grid.style.gridTemplateColumns = preset.columns;
       this._grid.style.gridTemplateRows = preset.rows;
       this._grid.style.gridAutoFlow = "row";
-      this._grid.style.gap = `${this._options.gap ?? defaultOptions4.gap}px`;
+      this._grid.style.gap = `${this._options.gap ?? defaultOptions5.gap}px`;
       return preset;
     }
     _syncToolbarStateFromActiveChart() {

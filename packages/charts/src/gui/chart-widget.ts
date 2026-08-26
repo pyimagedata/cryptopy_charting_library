@@ -14,7 +14,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, OverlayIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -569,6 +569,44 @@ export class ChartWidget implements Disposable {
     }
 
     /**
+     * Set the zone the time axis renders its labels in, e.g. 'America/New_York'.
+     * Pass '' to follow the browser's local zone.
+     *
+     * Bar timestamps are absolute epoch ms, so this changes labels only - no bar
+     * moves. Worth aligning with any time-based indicator (killzones, sessions),
+     * which resolve their own windows in their own configured zone.
+     */
+    setTimezone(timezone: string): void {
+        try {
+            localStorage.setItem('tv-chart-timezone', timezone);
+        } catch (e) { }
+
+        if (this._timeAxisWidget) {
+            this._timeAxisWidget.setTimezone(timezone);
+        }
+    }
+
+    getTimezone(): string {
+        return this._timeAxisWidget ? this._timeAxisWidget.timezone : '';
+    }
+
+    /**
+     * Saved preference wins, otherwise New York. ICT killzones and most session
+     * tooling are defined against the NY clock, so matching it here keeps the
+     * axis labels and those windows reading the same. Set '' to follow the
+     * browser's local zone instead. Used both for the initial TimeAxisWidget
+     * setup and the toolbar selector's starting value.
+     */
+    private _resolveInitialTimezone(): string {
+        let axisTimezone = 'America/New_York';
+        try {
+            const saved = localStorage.getItem('tv-chart-timezone');
+            if (saved !== null) axisTimezone = saved;
+        } catch (e) { }
+        return axisTimezone;
+    }
+
+    /**
      * Set chart theme (dark or light)
      */
     setTheme(theme: ThemeType): void {
@@ -651,6 +689,11 @@ export class ChartWidget implements Disposable {
         // Update indicator panels
         for (const pane of this._indicatorPanes.values()) {
             pane.setTheme(theme);
+        }
+
+        // Indicators paint their own labels on the canvas, so they need the theme too
+        if (this._indicatorManager) {
+            this._indicatorManager.setTheme(theme);
         }
 
         // Update loading overlay
@@ -1034,6 +1077,7 @@ export class ChartWidget implements Disposable {
         this._timeAxisWidget = new TimeAxisWidget(this._timeAxisRow, this._model.timeScale, this._timestamps, {
             backgroundColor: this._model.options.layout.backgroundColor,
             textColor: this._model.options.layout.textColor,
+            timezone: this._resolveInitialTimezone(),
         });
 
         // Create drawing toolbar (left side)
@@ -2720,6 +2764,16 @@ export class ChartWidget implements Disposable {
                     showBullBreakout: true,
                     showBearBreakdown: true,
                 }));
+            case 'smc':
+                this.addOverlayIndicator(new SMCIndicator({
+                    period: 15,
+                }));
+                break;
+            case 'special-forces':
+                this.addOverlayIndicator(new SpecialForcesIndicator({
+                    symbol: this._model.symbol,
+                    exchange: this._currentExchange,
+                }));
                 break;
 
 
@@ -2970,11 +3024,17 @@ export class ChartWidget implements Disposable {
             priceScaleMode: this._model.rightPriceScale.mode === PriceScaleMode.Logarithmic
                 ? 'logarithmic'
                 : 'normal',
+            timezone: this._timeAxisWidget ? this._timeAxisWidget.timezone : this._resolveInitialTimezone(),
         });
 
         // Listen for language changes
         this._toolbarWidget.languageChanged.subscribe((lang: string) => {
             this._onLanguageChange(lang);
+        });
+
+        // Listen for timezone changes
+        this._toolbarWidget.timezoneChanged.subscribe((timezone: string) => {
+            this.setTimezone(timezone);
         });
 
         // Listen for theme changes

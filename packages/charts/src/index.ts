@@ -46,6 +46,9 @@ export {
     RSIIndicatorOptions,
     ZigZagIndicator,
     ZigZagIndicatorOptions,
+    SpecialForcesIndicator,
+    SpecialForcesIndicatorOptions,
+    SpecialForcesKlinesProvider,
 } from './indicators';
 
 export * from './patterns';

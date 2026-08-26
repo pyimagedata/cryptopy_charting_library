@@ -46,8 +46,10 @@ export { ThunderbirdxIndicator, ThunderbirdxIndicatorOptions } from './thunderbi
 export { TdojiSRIndicator, TdojiSRIndicatorOptions } from './tdoji-sr-indicator';
 export { TdojiMomIndicator, TdojiMomIndicatorOptions } from './tdoji-mom-indicator';
 export { ZigZagIndicator, ZigZagIndicatorOptions } from './zigzag-indicator';
+export { SMCIndicator, SMCIndicatorOptions } from './smc-indicator';
 export { ABCDPatternIndicator, ABCDPatternIndicatorOptions } from './abcd-pattern-indicator';
 export { HarmonicPatternIndicator, HarmonicPatternIndicatorOptions } from './harmonic-pattern-indicator';
 export { ChartPatternsIndicator, ChartPatternsIndicatorOptions } from './chart-patterns-indicator';
 export { TrendlineBreakoutIndicator, TrendlineBreakoutIndicatorOptions } from './trendline-breakout-indicator';
 export { DeMarkPivotIndicator, DeMarkPivotIndicatorOptions } from './demark-pivot-indicator';
+export { SpecialForcesIndicator, SpecialForcesIndicatorOptions, SRBox, SpecialForcesBar, SpecialForcesKlinesProvider } from './special-forces-indicator';

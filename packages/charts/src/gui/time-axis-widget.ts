@@ -14,6 +14,12 @@ export interface TimeAxisWidgetOptions {
     textColor: string;
     fontSize: number;
     fontFamily: string;
+    /**
+     * IANA zone the axis labels are rendered in, e.g. 'America/New_York'.
+     * Empty string keeps the browser's local zone (previous behaviour).
+     * Bar timestamps are absolute epoch ms, so this only affects display.
+     */
+    timezone: string;
 }
 
 const defaultTimeAxisOptions: TimeAxisWidgetOptions = {
@@ -22,7 +28,17 @@ const defaultTimeAxisOptions: TimeAxisWidgetOptions = {
     textColor: 'rgba(255, 255, 255, 0.5)',
     fontSize: 11,
     fontFamily: '-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif',
+    timezone: '',
 };
+
+/** Calendar fields of an instant, resolved in some zone. Month is 0-based. */
+interface TimeParts {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    minute: number;
+}
 
 /**
  * Time axis widget - renders time labels at bottom
@@ -35,6 +51,8 @@ export class TimeAxisWidget implements Disposable {
     private _canvas: HTMLCanvasElement | null = null;
     private _ctx: CanvasRenderingContext2D | null = null;
     private _width: number = 0;
+    private _fmt: Intl.DateTimeFormat | null = null;
+    private _fmtTz: string | null = null;
 
     constructor(
         container: HTMLElement,
@@ -196,77 +214,107 @@ export class TimeAxisWidget implements Disposable {
         this._ctx = null;
     }
 
-    private _formatTime(timestamp: number, index: number): string {
+    /**
+     * Change the zone the axis labels are drawn in. Pass '' for browser local.
+     * Bar data is absolute epoch ms, so nothing but the labels moves.
+     */
+    setTimezone(timezone: string): void {
+        if (this._options.timezone === timezone) return;
+        this._options.timezone = timezone;
+        this._fmt = null;
+        this._fmtTz = null;
+        this.render();
+    }
+
+    get timezone(): string {
+        return this._options.timezone;
+    }
+
+    /**
+     * Calendar fields of an instant in the configured zone. With no timezone set
+     * this uses the plain local getters, so the default path stays allocation-light
+     * and behaves exactly as before.
+     */
+    private _parts(timestamp: number): TimeParts {
+        const tz = this._options.timezone;
         const date = new Date(timestamp);
+        if (!tz) {
+            return {
+                year: date.getFullYear(),
+                month: date.getMonth(),
+                day: date.getDate(),
+                hour: date.getHours(),
+                minute: date.getMinutes(),
+            };
+        }
+        if (!this._fmt || this._fmtTz !== tz) {
+            try {
+                this._fmt = new Intl.DateTimeFormat('en-GB', {
+                    timeZone: tz, hour12: false,
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit',
+                });
+                this._fmtTz = tz;
+            } catch (e) {
+                // Unknown zone: fall back to local rather than throwing on every frame
+                this._options.timezone = '';
+                this._fmt = null;
+                this._fmtTz = null;
+                return this._parts(timestamp);
+            }
+        }
+        const out: TimeParts = { year: 0, month: 0, day: 1, hour: 0, minute: 0 };
+        for (const p of this._fmt.formatToParts(date)) {
+            switch (p.type) {
+                case 'year': out.year = parseInt(p.value, 10); break;
+                case 'month': out.month = parseInt(p.value, 10) - 1; break;
+                case 'day': out.day = parseInt(p.value, 10); break;
+                case 'hour': out.hour = parseInt(p.value, 10) % 24; break;
+                case 'minute': out.minute = parseInt(p.value, 10); break;
+            }
+        }
+        return out;
+    }
 
-        // Check if this is a new day (compare with previous bar)
+    private _formatTime(timestamp: number, index: number): string {
+        const cur = this._parts(timestamp);
+
+        // Compare against the previous bar to decide how much date context to show.
+        // Resolved in the same zone as the label, so the day divider lands on the
+        // configured zone's midnight rather than the browser's.
         const prevTimestamp = index > 0 ? this._timestamps[index - 1] : null;
-        const isDayChange = this._isDayChange(timestamp, prevTimestamp);
-        const isMonthChange = this._isMonthChange(timestamp, prevTimestamp);
-        const isYearChange = this._isYearChange(timestamp, prevTimestamp);
+        const prev = prevTimestamp === null ? null : this._parts(prevTimestamp);
 
-        // Format based on context
+        const isYearChange = prev === null || cur.year !== prev.year;
+        const isMonthChange = prev === null || isYearChange || cur.month !== prev.month;
+        const isDayChange = prev === null || isMonthChange || cur.day !== prev.day;
+
         if (isYearChange || index === 0) {
-            // Show full date for year changes or first bar
-            return this._formatFullDate(date);
+            return this._formatFullDate(cur);
         } else if (isMonthChange) {
-            // Show month and day for month changes
-            return this._formatMonthDay(date);
+            return this._formatMonthDay(cur);
         } else if (isDayChange) {
-            // Show day for day changes
-            return this._formatDayOnly(date);
+            return this._formatDayOnly(cur);
         } else {
-            // Show time for same day
-            return this._formatTimeOnly(date);
+            return this._formatTimeOnly(cur);
         }
     }
 
-    private _isDayChange(current: number, previous: number | null): boolean {
-        if (previous === null) return true;
-        const currentDate = new Date(current);
-        const prevDate = new Date(previous);
-        return currentDate.getDate() !== prevDate.getDate() ||
-            currentDate.getMonth() !== prevDate.getMonth() ||
-            currentDate.getFullYear() !== prevDate.getFullYear();
+    private _formatFullDate(p: TimeParts): string {
+        return `${p.day} ${this._getMonthShort(p.month)} '${p.year.toString().slice(-2)}`;
     }
 
-    private _isMonthChange(current: number, previous: number | null): boolean {
-        if (previous === null) return true;
-        const currentDate = new Date(current);
-        const prevDate = new Date(previous);
-        return currentDate.getMonth() !== prevDate.getMonth() ||
-            currentDate.getFullYear() !== prevDate.getFullYear();
+    private _formatMonthDay(p: TimeParts): string {
+        return `${p.day} ${this._getMonthShort(p.month)}`;
     }
 
-    private _isYearChange(current: number, previous: number | null): boolean {
-        if (previous === null) return true;
-        const currentDate = new Date(current);
-        const prevDate = new Date(previous);
-        return currentDate.getFullYear() !== prevDate.getFullYear();
+    private _formatDayOnly(p: TimeParts): string {
+        return `${p.day} ${this._getMonthShort(p.month)}`;
     }
 
-    private _formatFullDate(date: Date): string {
-        const day = date.getDate();
-        const month = this._getMonthShort(date.getMonth());
-        const year = date.getFullYear().toString().slice(-2);
-        return `${day} ${month} '${year}`;
-    }
-
-    private _formatMonthDay(date: Date): string {
-        const day = date.getDate();
-        const month = this._getMonthShort(date.getMonth());
-        return `${day} ${month}`;
-    }
-
-    private _formatDayOnly(date: Date): string {
-        const day = date.getDate();
-        const month = this._getMonthShort(date.getMonth());
-        return `${day} ${month}`;
-    }
-
-    private _formatTimeOnly(date: Date): string {
-        const hours = date.getHours().toString().padStart(2, '0');
-        const minutes = date.getMinutes().toString().padStart(2, '0');
+    private _formatTimeOnly(p: TimeParts): string {
+        const hours = p.hour.toString().padStart(2, '0');
+        const minutes = p.minute.toString().padStart(2, '0');
         return `${hours}:${minutes}`;
     }
 
@@ -277,13 +325,10 @@ export class TimeAxisWidget implements Disposable {
     }
 
     private _formatCrosshairTime(timestamp: number): string {
-        const date = new Date(timestamp);
-        const day = date.getDate();
-        const month = this._getMonthShort(date.getMonth());
-        const year = date.getFullYear();
-        const hours = date.getHours().toString().padStart(2, '0');
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        return `${day} ${month} ${year}, ${hours}:${minutes}`;
+        const p = this._parts(timestamp);
+        const hours = p.hour.toString().padStart(2, '0');
+        const minutes = p.minute.toString().padStart(2, '0');
+        return `${p.day} ${this._getMonthShort(p.month)} ${p.year}, ${hours}:${minutes}`;
     }
 
     private _createElement(container: HTMLElement): void {

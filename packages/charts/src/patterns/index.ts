@@ -7,3 +7,4 @@ export * from './bat';
 export * from './cypher';
 export * from './chart-patterns';
 export * from './trendline-breakout';
+export * from './smc';

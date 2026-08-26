@@ -222,6 +222,22 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         category: 'pattern',
         type: 'overlay'
     },
+    {
+        id: 'smc',
+        name: 'Smart Money Concepts',
+        shortName: 'SMC',
+        description: 'BOS (Break of Structure) ve MSB (Market Structure Break) yapısal kırılımlarını ve minor/macro zigzag kanallarını gösterir',
+        category: 'pattern',
+        type: 'overlay'
+    },
+    {
+        id: 'special-forces',
+        name: 'Special Forces',
+        shortName: 'SF',
+        description: 'Üst timeframe Heikin Ashi pivotlarından otomatik destek/direnç kutuları çizer',
+        category: 'custom',
+        type: 'overlay'
+    },
 ];
 
 export class IndicatorSearchModal {

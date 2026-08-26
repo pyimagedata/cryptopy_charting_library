@@ -80,12 +80,35 @@ export abstract class Indicator {
     protected _data: IndicatorDataPoint[] = [];
     protected _sourceData: BarData[] = [];
     protected readonly _dataChanged = new Delegate<void>();
+    protected _theme: 'dark' | 'light' = 'dark';
 
     constructor(options: Partial<IndicatorOptions> = {}) {
         this._options = { ...defaultIndicatorOptions, ...options };
         if (!this._options.id) {
             this._options.id = `${this._options.name}_${Date.now()}`;
         }
+    }
+
+    /**
+     * Chart theme, pushed down by IndicatorManager. Indicators that paint their own
+     * text (labels, plates, callouts) need it: a plate hardcoded to black is
+     * invisible on a light chart, and vice versa.
+     */
+    setTheme(theme: 'dark' | 'light'): void {
+        this._theme = theme;
+    }
+
+    get theme(): 'dark' | 'light' {
+        return this._theme;
+    }
+
+    protected get isDark(): boolean {
+        return this._theme === 'dark';
+    }
+
+    /** Backing plate colour for on-canvas text, readable in either theme. */
+    protected plateColor(alpha: number = 0.55): string {
+        return this.isDark ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha + 0.25})`;
     }
 
     // --- Getters ---

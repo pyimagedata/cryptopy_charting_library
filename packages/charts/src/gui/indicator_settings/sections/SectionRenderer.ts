@@ -100,7 +100,6 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
             rowEl.appendChild(label);
 
             const select = document.createElement('select');
-            select.value = (currentValue as string) || (row as any).defaultValue || '';
             select.style.cssText = `
                 min-width: 150px;
                 height: 34px;
@@ -119,6 +118,12 @@ function renderRow(row: SettingRow, context: SectionContext): HTMLElement {
                 item.textContent = t(option.label);
                 select.appendChild(item);
             });
+
+            // Must run AFTER the options exist: assigning .value to a <select> with no
+            // matching child is silently dropped, leaving the browser on option[0]. That
+            // made every select in every indicator display its first entry regardless of
+            // the saved setting.
+            select.value = (currentValue as string) || (row as any).defaultValue || '';
 
             select.addEventListener('change', () => {
                 if ((row as any).key) {
