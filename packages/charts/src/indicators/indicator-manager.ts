@@ -34,6 +34,11 @@ import { ChartPatternsIndicator } from './chart-patterns-indicator';
 import { TrendlineBreakoutIndicator } from './trendline-breakout-indicator';
 import { DeMarkPivotIndicator } from './demark-pivot-indicator';
 import { SMCIndicator } from './smc-indicator';
+import { BobbinIndicator } from './bobbin-indicator';
+import { FVGIndicator } from './fvg-indicator';
+import { FvgInversionIndicator } from './fvg-inversion-indicator';
+import { EqHLIndicatorV2 } from './eqhl-v2-indicator';
+import { JudasSwingIndicator } from './judas-swing-indicator';
 
 
 
@@ -281,6 +286,11 @@ export class IndicatorManager {
             else if (indicator instanceof TrendlineBreakoutIndicator) typeId = 'TrendlineBreakout';
             else if (indicator instanceof DeMarkPivotIndicator) typeId = 'DeMarkPivot';
             else if (indicator instanceof SMCIndicator) typeId = 'SMC';
+            else if (indicator instanceof BobbinIndicator) typeId = 'Bobbin';
+            else if (indicator instanceof FVGIndicator) typeId = 'FVG';
+            else if (indicator instanceof FvgInversionIndicator) typeId = 'FvgInversion';
+            else if (indicator instanceof EqHLIndicatorV2) typeId = 'EqHLV2';
+            else if (indicator instanceof JudasSwingIndicator) typeId = 'JudasSwing';
 
 
 
@@ -402,6 +412,21 @@ export class IndicatorManager {
                 break;
             case 'SMC':
                 indicator = new SMCIndicator(item.options as any);
+                break;
+            case 'Bobbin':
+                indicator = new BobbinIndicator(item.options as any);
+                break;
+            case 'FVG':
+                indicator = new FVGIndicator(item.options as any);
+                break;
+            case 'FvgInversion':
+                indicator = new FvgInversionIndicator(item.options as any);
+                break;
+            case 'EqHLV2':
+                indicator = new EqHLIndicatorV2(item.options as any);
+                break;
+            case 'JudasSwing':
+                indicator = new JudasSwingIndicator(item.options as any);
                 break;
 
 

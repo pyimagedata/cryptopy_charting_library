@@ -238,6 +238,46 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         category: 'custom',
         type: 'overlay'
     },
+    {
+        id: 'bobbin',
+        name: 'Bobbin',
+        shortName: 'Bobbin',
+        description: 'Ardışık gövde-renk dizilerindeki tekdüze/dar bantlı "bobin" bölgelerini istatistiksel bir skor modeliyle tespit eder',
+        category: 'custom',
+        type: 'overlay'
+    },
+    {
+        id: 'fvg',
+        name: 'Fair Value Gap',
+        shortName: 'FVG',
+        description: '3 mumluk dengesizlik (imbalance) bölgelerini ATR/displacement filtreleriyle çizer, Londra seansı ve 1:2 hedef çizgisi vurgulu',
+        category: 'pattern',
+        type: 'overlay'
+    },
+    {
+        id: 'fvg-inversion',
+        name: 'FVG Inversion',
+        shortName: 'IFVG',
+        description: 'Kendi yönünün tersine gövde-kapanışla kırılan Fair Value Gap bölgelerini (IFVG) tespit eder',
+        category: 'pattern',
+        type: 'overlay'
+    },
+    {
+        id: 'eqhl-v2',
+        name: 'Equal Highs/Lows V2',
+        shortName: 'EQH/EQL',
+        description: 'ATR veya akademik gama toleransıyla eşit tepe/dip likidite seviyelerini kümeleyip süpürülmeyi işaretler',
+        category: 'pattern',
+        type: 'overlay'
+    },
+    {
+        id: 'judas-swing',
+        name: 'Judas Swing',
+        shortName: 'Judas',
+        description: 'ICT Judas Swing: referans aralık dışına sahte kırılım, MSS, FVG onayı ve retest ile giriş sinyali',
+        category: 'pattern',
+        type: 'overlay'
+    },
 ];
 
 export class IndicatorSearchModal {
