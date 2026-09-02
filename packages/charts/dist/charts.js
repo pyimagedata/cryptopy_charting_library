@@ -17581,9 +17581,19 @@ var LightweightCharts = (() => {
     }
     static {
       // ========================================================================
-      // FOREX (via local forex_service.py proxy -- see project root)
+      // FOREX (EvoTrading'in kendi Django backend'i -- /api/symbols/)
       // ========================================================================
-      this.FOREX_SERVICE_URL = typeof window !== "undefined" && window.FOREX_SERVICE_URL || "http://127.0.0.1:8792";
+      // Onceden ayri, yerel bir "forex_service.py" mikroservisinden
+      // (127.0.0.1:8792) cekiliyordu -- ama bu dosya projede hicbir zaman var
+      // olmadi/deploy edilmedi. Promise.allSettled hatayi sessizce yuttugu
+      // icin bu, developer'in KENDI makinesi disinda (production'daki
+      // GERCEK kullanicilar dahil) forex sembol aramasinin HER ZAMAN
+      // "Sembol bulunamadi" ile sessizce basarisiz olmasina yol aciyordu --
+      // canli olarak dogrulandi (farkli bir tarayicidan XAU aramasi bos
+      // dondu). Artik candle/OHLCV verisinin de tek kaynagi olan AYNI Django
+      // backend'i (window.DJANGO_API_URL, demo-ts.html tarafindan URL query
+      // param'indan set edilir) kullaniliyor.
+      this.DJANGO_API_URL = typeof window !== "undefined" && window.DJANGO_API_URL || "http://127.0.0.1:8000";
     }
     static {
       this.FOREX_DESCRIPTIONS = {
@@ -17596,21 +17606,20 @@ var LightweightCharts = (() => {
       };
     }
     async _fetchForexSymbols() {
-      const response = await fetch(`${_SymbolSearch.FOREX_SERVICE_URL}/forex/symbols`);
-      if (!response.ok) throw new Error("Forex service error");
+      const response = await fetch(`${_SymbolSearch.DJANGO_API_URL}/api/symbols/`);
+      if (!response.ok) throw new Error("Symbols API error");
       const data = await response.json();
-      if (!data.symbols) return [];
-      return data.symbols.map((s) => {
-        const isCommodity = s.category === "metal" || s.category === "energy";
-        const description = _SymbolSearch.FOREX_DESCRIPTIONS[s.symbol] || s.symbol;
+      return data.filter((s) => s.asset_class !== "crypto").map((s) => {
+        const isCommodity = s.asset_class === "metal" || s.asset_class === "energy";
+        const description = _SymbolSearch.FOREX_DESCRIPTIONS[s.code] || s.code;
         return {
-          symbol: s.symbol,
-          full_name: isCommodity ? description : `${s.symbol.slice(0, 3)} / ${s.symbol.slice(3)}`,
+          symbol: s.code,
+          full_name: isCommodity ? description : `${s.code.slice(0, 3)} / ${s.code.slice(3)}`,
           description,
           exchange: s.exchange,
           type: "forex",
-          logo_color: this._getRandomColor(s.symbol),
-          provider: "oanda"
+          logo_color: this._getRandomColor(s.code),
+          provider: (s.exchange || "fxcm").toLowerCase()
         };
       });
     }

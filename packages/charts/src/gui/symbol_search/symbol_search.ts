@@ -324,11 +324,21 @@ export class SymbolSearch {
     }
 
     // ========================================================================
-    // FOREX (via local forex_service.py proxy -- see project root)
+    // FOREX (EvoTrading'in kendi Django backend'i -- /api/symbols/)
     // ========================================================================
+    // Onceden ayri, yerel bir "forex_service.py" mikroservisinden
+    // (127.0.0.1:8792) cekiliyordu -- ama bu dosya projede hicbir zaman var
+    // olmadi/deploy edilmedi. Promise.allSettled hatayi sessizce yuttugu
+    // icin bu, developer'in KENDI makinesi disinda (production'daki
+    // GERCEK kullanicilar dahil) forex sembol aramasinin HER ZAMAN
+    // "Sembol bulunamadi" ile sessizce basarisiz olmasina yol aciyordu --
+    // canli olarak dogrulandi (farkli bir tarayicidan XAU aramasi bos
+    // dondu). Artik candle/OHLCV verisinin de tek kaynagi olan AYNI Django
+    // backend'i (window.DJANGO_API_URL, demo-ts.html tarafindan URL query
+    // param'indan set edilir) kullaniliyor.
 
-    private static readonly FOREX_SERVICE_URL =
-        (typeof window !== 'undefined' && (window as any).FOREX_SERVICE_URL) || 'http://127.0.0.1:8792';
+    private static readonly DJANGO_API_URL =
+        (typeof window !== 'undefined' && (window as any).DJANGO_API_URL) || 'http://127.0.0.1:8000';
 
     private static readonly FOREX_DESCRIPTIONS: Record<string, string> = {
         XAUUSD: 'Gold', XAGUSD: 'Silver', XPTUSD: 'Platinum', XPDUSD: 'Palladium',
@@ -336,28 +346,25 @@ export class SymbolSearch {
     };
 
     private async _fetchForexSymbols(): Promise<SymbolInfo[]> {
-        // Optional local service (forex_service.py) -- if it isn't running,
-        // this simply fails and forex symbols are omitted (Promise.allSettled
-        // in _fetchAllSymbols already tolerates individual source failures).
-        const response = await fetch(`${SymbolSearch.FOREX_SERVICE_URL}/forex/symbols`);
-        if (!response.ok) throw new Error('Forex service error');
-        const data = await response.json();
+        const response = await fetch(`${SymbolSearch.DJANGO_API_URL}/api/symbols/`);
+        if (!response.ok) throw new Error('Symbols API error');
+        const data: Array<{ code: string; exchange: string; asset_class: string }> = await response.json();
 
-        if (!data.symbols) return [];
-
-        return data.symbols.map((s: any): SymbolInfo => {
-            const isCommodity = s.category === 'metal' || s.category === 'energy';
-            const description = SymbolSearch.FOREX_DESCRIPTIONS[s.symbol] || s.symbol;
-            return {
-                symbol: s.symbol,
-                full_name: isCommodity ? description : `${s.symbol.slice(0, 3)} / ${s.symbol.slice(3)}`,
-                description,
-                exchange: s.exchange,
-                type: 'forex',
-                logo_color: this._getRandomColor(s.symbol),
-                provider: 'oanda',
-            };
-        });
+        return data
+            .filter(s => s.asset_class !== 'crypto')
+            .map((s): SymbolInfo => {
+                const isCommodity = s.asset_class === 'metal' || s.asset_class === 'energy';
+                const description = SymbolSearch.FOREX_DESCRIPTIONS[s.code] || s.code;
+                return {
+                    symbol: s.code,
+                    full_name: isCommodity ? description : `${s.code.slice(0, 3)} / ${s.code.slice(3)}`,
+                    description,
+                    exchange: s.exchange,
+                    type: 'forex',
+                    logo_color: this._getRandomColor(s.code),
+                    provider: (s.exchange || 'fxcm').toLowerCase(),
+                };
+            });
     }
 
     // ========================================================================
