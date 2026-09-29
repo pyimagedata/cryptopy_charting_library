@@ -39,6 +39,7 @@ import { FVGIndicator } from './fvg-indicator';
 import { FvgInversionIndicator } from './fvg-inversion-indicator';
 import { EqHLIndicatorV2 } from './eqhl-v2-indicator';
 import { JudasSwingIndicator } from './judas-swing-indicator';
+import { SpotCompareIndicator } from './spot-compare-indicator';
 
 
 
@@ -291,6 +292,7 @@ export class IndicatorManager {
             else if (indicator instanceof FvgInversionIndicator) typeId = 'FvgInversion';
             else if (indicator instanceof EqHLIndicatorV2) typeId = 'EqHLV2';
             else if (indicator instanceof JudasSwingIndicator) typeId = 'JudasSwing';
+            else if (indicator instanceof SpotCompareIndicator) typeId = 'SpotCompare';
 
 
 
@@ -427,6 +429,9 @@ export class IndicatorManager {
                 break;
             case 'JudasSwing':
                 indicator = new JudasSwingIndicator(item.options as any);
+                break;
+            case 'SpotCompare':
+                indicator = new SpotCompareIndicator(item.options as any);
                 break;
 
 
