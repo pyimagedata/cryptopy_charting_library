@@ -34,6 +34,8 @@ export interface SpotCompareIndicatorOptions extends IndicatorOptions {
     pairSymbol: string;
     pairExchange: string;
     showDifference: boolean;
+    /** Karsi sembolun kapanis cizgisi; varsayilan kapali (sadece legend degerleri). */
+    showLine: boolean;
 }
 
 interface PairInfo {
@@ -59,6 +61,7 @@ const defaultOptions: Partial<SpotCompareIndicatorOptions> = {
     pairSymbol: 'auto',
     pairExchange: '',
     showDifference: true,
+    showLine: false,
     color: '#f5a623',
     lineWidth: 1,
 };
@@ -184,7 +187,7 @@ export class SpotCompareIndicator extends OverlayIndicator {
         for (let i = 0; i < src.length; i++) {
             const other = this._byTime.get(toMs(src[i].time)) ?? null;
             this._aligned[i] = other;
-            this._data[i] = { time: src[i].time, value: other ? other.close : NaN };
+            this._data[i] = { time: src[i].time, value: other && this._scOptions.showLine ? other.close : NaN };
         }
     }
 
@@ -243,6 +246,7 @@ export class SpotCompareIndicator extends OverlayIndicator {
             this.setContext({ symbol: ctxSymbol, timeframe: tf });
             return true;
         }
+        if (key === 'showLine') this._realign();
         this._dataChanged.fire();
         return false;
     }
