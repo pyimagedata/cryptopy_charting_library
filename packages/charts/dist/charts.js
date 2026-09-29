@@ -1131,7 +1131,7 @@ var LightweightCharts = (() => {
     }
     setExchange(exchange) {
       this._exchange = exchange;
-      this._marketType = exchange.includes("FUTURES") ? "futures" : "spot";
+      this._marketType = exchange.includes("FUTURES") || exchange === "COMEX" ? "futures" : "spot";
       this._invalidated.fire("data" /* Data */);
     }
     get exchange() {
@@ -1157,6 +1157,9 @@ var LightweightCharts = (() => {
     get marketTypeDisplayName() {
       if (this._exchange === "BIST") {
         return "Hisse";
+      }
+      if (this._exchange === "COMEX") {
+        return "Futures";
       }
       return this._marketType === "futures" ? "Perpetual Contract" : "Spot";
     }
@@ -1621,6 +1624,7 @@ var LightweightCharts = (() => {
       "1h": "1s",
       "2h": "2s",
       "4h": "4s",
+      "12h": "12s",
       "D": "G",
       "W": "H",
       "M": "A",
@@ -16676,7 +16680,7 @@ var LightweightCharts = (() => {
     symbol: "BTCUSDT",
     timeframe: "1h",
     chartType: "candles",
-    timeframes: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "D", "W"],
+    timeframes: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "D", "W", "M"],
     locale: "en",
     priceScaleMode: "normal",
     timezone: "America/New_York"
@@ -27786,6 +27790,1438 @@ ${note}`;
     return Math.hypot(px - cx, py - cy);
   }
 
+  // src/indicators/bobbin-indicator.ts
+  var defaultBobbinOptions = {
+    name: "Bobbin",
+    minRun: 4,
+    maxHeightAtr: 1.5,
+    scoreThreshold: 0.6,
+    rightExtend: 60,
+    showScore: false,
+    bobbinColor: "#2962ff",
+    boxOpacity: 20,
+    visible: true
+  };
+  var SC_MEAN_UCV = 0.3526;
+  var SC_SD_UCV = 0.2277;
+  var SC_W_UCV = 1.7994;
+  var SC_MEAN_BANDMX = 1.1791;
+  var SC_SD_BANDMX = 0.243;
+  var SC_W_BANDMX = -1.181;
+  var SC_MEAN_HEIGHT = 0.9007;
+  var SC_SD_HEIGHT = 0.3191;
+  var SC_W_HEIGHT = -0.9361;
+  var SC_BIAS = -0.6138;
+  function bodyColor(b) {
+    if (b.close > b.open) return 1;
+    if (b.close < b.open) return -1;
+    return 0;
+  }
+  function wilderAtr(bars, period) {
+    const trs = [];
+    for (let i = 0; i < bars.length; i++) {
+      const b = bars[i];
+      if (i === 0) {
+        trs.push(b.high - b.low);
+      } else {
+        const pc = bars[i - 1].close;
+        trs.push(Math.max(b.high - b.low, Math.abs(b.high - pc), Math.abs(b.low - pc)));
+      }
+    }
+    const out = new Array(bars.length).fill(null);
+    if (bars.length < period) return out;
+    let run = 0;
+    for (let i = 0; i < period; i++) run += trs[i];
+    run /= period;
+    out[period - 1] = run;
+    for (let i = period; i < bars.length; i++) {
+      run = (run * (period - 1) + trs[i]) / period;
+      out[i] = run;
+    }
+    return out;
+  }
+  function findRuns(bars, minRun) {
+    const runs = [];
+    let i = 0;
+    while (i < bars.length) {
+      if (bodyColor(bars[i]) === 0) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j + 1 < bars.length) {
+        const nxt = bodyColor(bars[j + 1]);
+        if (nxt === 0 || nxt === bodyColor(bars[j])) break;
+        j++;
+      }
+      if (j - i + 1 >= minRun) runs.push([i, j]);
+      i = j + 1;
+    }
+    return runs;
+  }
+  function evalWindow(bars, atr, lo, hi, maxHeightAtr) {
+    const a = atr[hi];
+    if (a === null || a <= 0) return null;
+    const n = hi - lo + 1;
+    let top = -Infinity, bottom = Infinity, mxBody = 0, sumBody = 0;
+    const bodies = [];
+    for (let k = lo; k <= hi; k++) {
+      const t2 = Math.max(bars[k].open, bars[k].close);
+      const b = Math.min(bars[k].open, bars[k].close);
+      const body = t2 - b;
+      bodies.push(body);
+      if (t2 > top) top = t2;
+      if (b < bottom) bottom = b;
+      if (body > mxBody) mxBody = body;
+      sumBody += body;
+    }
+    const height = top - bottom;
+    if (height <= 0 || mxBody <= 0 || sumBody <= 0) return null;
+    const heightAtr = height / a;
+    if (heightAtr > maxHeightAtr) return null;
+    const meanBody = sumBody / n;
+    let varSum = 0;
+    for (let k = 0; k < n; k++) {
+      const d = bodies[k] - meanBody;
+      varSum += d * d;
+    }
+    const uCv = 1 - Math.sqrt(varSum / n) / meanBody;
+    const bandMx = height / mxBody;
+    const z = SC_BIAS + SC_W_UCV * ((uCv - SC_MEAN_UCV) / SC_SD_UCV) + SC_W_BANDMX * ((bandMx - SC_MEAN_BANDMX) / SC_SD_BANDMX) + SC_W_HEIGHT * ((heightAtr - SC_MEAN_HEIGHT) / SC_SD_HEIGHT);
+    return {
+      left: lo,
+      formIdx: hi,
+      right: hi,
+      top,
+      bottom,
+      n,
+      uCv,
+      bandMx,
+      heightAtr,
+      score: 1 / (1 + Math.exp(-z))
+    };
+  }
+  function computeBobbins(bars, o) {
+    const atr = wilderAtr(bars, 14);
+    const runs = findRuns(bars, o.minRun);
+    const out = [];
+    for (let ri = 0; ri < runs.length; ri++) {
+      const rlo = runs[ri][0];
+      const rhi = runs[ri][1];
+      let best = null;
+      for (let a = rlo; a <= rhi - o.minRun + 1; a++) {
+        for (let b = a + o.minRun - 1; b <= rhi; b++) {
+          const w = evalWindow(bars, atr, a, b, o.maxHeightAtr);
+          if (w && (best === null || w.score > best.score)) best = w;
+        }
+      }
+      if (best === null || best.score < o.scoreThreshold) continue;
+      best.right = best.formIdx + o.rightExtend;
+      out.push(best);
+    }
+    return out;
+  }
+  function rgbaFrom(color, alpha) {
+    const hex = color.replace("#", "").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return color;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+  var BobbinIndicator = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const merged = { ...defaultBobbinOptions, ...options };
+      super(merged);
+      this._bobbins = [];
+      this._bOptions = { ...defaultBobbinOptions, ...this._options };
+    }
+    _getAllOptions() {
+      return { ...this._bOptions };
+    }
+    setSettingValue(key, value) {
+      this._bOptions[key] = value;
+      this._options[key] = value;
+      if (this._sourceData.length > 0) this.calculate(this._sourceData);
+      this._dataChanged.fire();
+      return true;
+    }
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      this._data = [];
+      if (sourceData.length === 0) {
+        this._bobbins = [];
+        return;
+      }
+      this._bobbins = computeBobbins(sourceData, this._bOptions);
+      const byForm = {};
+      for (let i = 0; i < this._bobbins.length; i++) {
+        byForm[this._bobbins[i].formIdx] = this._bobbins[i];
+      }
+      this._data = sourceData.map((bar, i) => {
+        const b = byForm[i];
+        return b ? { time: bar.time, value: b.score, values: [b.score, b.top, b.bottom, b.n, b.uCv, b.bandMx, b.heightAtr] } : { time: bar.time, value: NaN, values: [] };
+      });
+    }
+    getRange() {
+      if (this._bobbins.length === 0) return { min: 0, max: 100 };
+      let min = Infinity, max = -Infinity;
+      for (const b of this._bobbins) {
+        if (b.bottom < min) min = b.bottom;
+        if (b.top > max) max = b.top;
+      }
+      return { min, max };
+    }
+    getDescription() {
+      return `Bobbin: ${this._bobbins.length} tespit (esik ${this._bOptions.scoreThreshold})`;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr) {
+      if (this._bobbins.length === 0 || this._sourceData.length === 0) return;
+      ctx.save();
+      for (const box of this._bobbins) {
+        const x1 = timeScale.indexToCoordinate(box.left) * hpr;
+        const x2 = timeScale.indexToCoordinate(box.right) * hpr;
+        const yA = priceScale.priceToCoordinate(box.top) * vpr;
+        const yB = priceScale.priceToCoordinate(box.bottom) * vpr;
+        const left = Math.min(x1, x2);
+        const width = Math.max(1, Math.abs(x2 - x1));
+        const top = Math.min(yA, yB);
+        const height = Math.max(1, Math.abs(yB - yA));
+        const t2 = Math.max(0, Math.min(1, (box.score - this._bOptions.scoreThreshold) / Math.max(0.01, 1 - this._bOptions.scoreThreshold)));
+        const alpha = this._bOptions.boxOpacity / 100 * (0.55 + 0.45 * t2);
+        ctx.fillStyle = rgbaFrom(this._bOptions.bobbinColor, alpha);
+        ctx.fillRect(left, top, width, height);
+        ctx.strokeStyle = rgbaFrom(this._bOptions.bobbinColor, 0.85);
+        ctx.lineWidth = 1 * hpr;
+        ctx.strokeRect(left, top, width, height);
+        if (this._bOptions.showScore) {
+          ctx.fillStyle = rgbaFrom(this._bOptions.bobbinColor, 0.95);
+          ctx.font = `${10 * hpr}px sans-serif`;
+          ctx.textBaseline = "bottom";
+          ctx.textAlign = "left";
+          ctx.fillText(box.score.toFixed(2), left + 2 * hpr, top - 2 * vpr);
+        }
+      }
+      ctx.restore();
+    }
+  };
+
+  // src/indicators/fvg-indicator.ts
+  var FVG_DEFAULTS = {
+    name: "Fair Value Gap",
+    bullColor: "#26a69a",
+    bearColor: "#ef5350",
+    fillOpacity: 0.16,
+    borderOpacity: 0.6,
+    mitigation: "Touch",
+    mitigationSrc: "Wick",
+    showMitigated: true,
+    showMidline: false,
+    showLabels: false,
+    // core size filter (universal) — ATR50 baseline is spike-resistant (see header)
+    atrPeriod: 50,
+    minGapATR: 0.5,
+    minGapTicks: 0,
+    tickSize: 0,
+    // timeframe adaptivity
+    autoTimeframe: true,
+    dispCutoffMin: 15,
+    // displacement filter
+    useDisplacement: true,
+    dispLookback: 20,
+    dispMult: 2,
+    bodyRatio: 0.65,
+    // liquidity sweep filter (optional; best on 1h/4h)
+    useSweep: false,
+    sweepPivotP: 3,
+    sweepLookback: 4,
+    // London-session highlight (gold border for zones formed in London KZ)
+    highlightLondon: true,
+    londonStartHour: 7,
+    // UTC (~02:00 NY) — London killzone, gold's prime session
+    londonEndHour: 10,
+    // UTC
+    londonColor: "#f0b90b",
+    // 1:2 target line on open (unmitigated) zones
+    showTargets: true,
+    targetRR: 2,
+    targetColor: "#3b82f6",
+    // draw
+    maxBoxes: 40,
+    lineWidth: 1,
+    visible: true
+  };
+  function fvgHexToRgba(hex, alpha) {
+    let h = String(hex).replace("#", "").trim();
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const r = parseInt(h.substring(0, 2), 16) || 0;
+    const g = parseInt(h.substring(2, 4), 16) || 0;
+    const b = parseInt(h.substring(4, 6), 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, Number(alpha)))})`;
+  }
+  function fvgEstimateTick(data) {
+    let m = Infinity;
+    for (let i = 1; i < Math.min(data.length, 200); i++) {
+      const d = Math.abs(data[i].close - data[i - 1].close);
+      if (d > 0 && d < m) m = d;
+    }
+    return m === Infinity ? 0.01 : m;
+  }
+  function fvgComputeATR(data, period) {
+    const n = data.length, tr = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      const h = data[i].high, l = data[i].low;
+      tr[i] = i === 0 ? h - l : Math.max(h - l, Math.abs(h - data[i - 1].close), Math.abs(l - data[i - 1].close));
+    }
+    const atr = new Array(n).fill(NaN);
+    let s = 0;
+    for (let i = 0; i < n; i++) {
+      s += tr[i];
+      if (i >= period) s -= tr[i - period];
+      atr[i] = s / Math.min(i + 1, period);
+    }
+    return atr;
+  }
+  function fvgComputeAvgRange(data, period) {
+    const n = data.length, rng = new Array(n);
+    for (let i = 0; i < n; i++) rng[i] = data[i].high - data[i].low;
+    const avg = new Array(n).fill(NaN);
+    for (let i = 0; i < n; i++) {
+      let s = 0, c = 0;
+      for (let j = Math.max(0, i - period); j < i; j++) {
+        s += rng[j];
+        c++;
+      }
+      avg[i] = c > 0 ? s / c : rng[i];
+    }
+    return avg;
+  }
+  function fvgDetectBarMinutes(data) {
+    const n = data.length;
+    if (n < 3) return 0;
+    const d = [];
+    for (let i = 1; i < n; i++) {
+      const dt = (data[i].time - data[i - 1].time) / 6e4;
+      if (dt > 0) d.push(dt);
+    }
+    if (!d.length) return 0;
+    d.sort((a, b) => a - b);
+    return d[Math.floor(d.length / 2)];
+  }
+  function fvgTFLabel(min) {
+    const m = Math.round(min);
+    if (m >= 1440) return (m % 1440 === 0 ? String(m / 1440) : (m / 1440).toFixed(1)) + "d";
+    if (m >= 60) return (m % 60 === 0 ? String(m / 60) : (m / 60).toFixed(1)) + "h";
+    return m + "m";
+  }
+  function fvgSwings(data, P) {
+    const n = data.length;
+    const H = data.map((b) => b.high), L = data.map((b) => b.low);
+    const lastSH = new Array(n).fill(NaN), lastSL = new Array(n).fill(NaN);
+    const isSH = new Array(n).fill(false), isSL = new Array(n).fill(false);
+    for (let k = P; k < n - P; k++) {
+      let hi = true, lo = true;
+      for (let m = k - P; m <= k + P; m++) {
+        if (m === k) continue;
+        if (H[m] >= H[k]) hi = false;
+        if (L[m] <= L[k]) lo = false;
+      }
+      isSH[k] = hi;
+      isSL[k] = lo;
+    }
+    let cH = NaN, cL = NaN;
+    for (let i = 0; i < n; i++) {
+      const kc = i - P;
+      if (kc >= 0 && isSH[kc]) cH = H[kc];
+      if (kc >= 0 && isSL[kc]) cL = L[kc];
+      lastSH[i] = cH;
+      lastSL[i] = cL;
+    }
+    return { lastSH, lastSL };
+  }
+  var FVGIndicator = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const merged = { ...FVG_DEFAULTS, ...options, name: options.name || FVG_DEFAULTS.name };
+      super(merged);
+      this._gaps = [];
+      this._barMin = 0;
+      this._opt = { ...FVG_DEFAULTS, ...this._options };
+      this._effDisp = this._opt.useDisplacement;
+    }
+    _getAllOptions() {
+      return { ...this._opt };
+    }
+    updateOptions(newOptions) {
+      const n = { ...newOptions };
+      ["fillOpacity", "borderOpacity", "atrPeriod", "minGapATR", "minGapTicks", "tickSize", "dispCutoffMin", "dispLookback", "dispMult", "bodyRatio", "sweepPivotP", "sweepLookback", "londonStartHour", "londonEndHour", "targetRR", "maxBoxes", "lineWidth"].forEach((k) => {
+        if (n[k] !== void 0) n[k] = Number(n[k]);
+      });
+      Object.assign(this._opt, n);
+      Object.assign(this._options, n);
+      if (this._dataChanged && this._dataChanged.fire) this._dataChanged.fire();
+      return true;
+    }
+    setSettingValue(key, value) {
+      this.updateOptions({ [key]: value });
+      if (this._sourceData && this._sourceData.length > 0) this.calculate(this._sourceData);
+      return true;
+    }
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      this._gaps = [];
+      const n = sourceData.length;
+      this._data = sourceData.map((b) => ({ time: b.time, value: NaN }));
+      if (n < 3) return;
+      this._barMin = fvgDetectBarMinutes(sourceData);
+      if (this._opt.autoTimeframe) this._effDisp = this._barMin > 0 && this._barMin >= this._opt.dispCutoffMin;
+      else this._effDisp = !!this._opt.useDisplacement;
+      let tick = this._opt.tickSize;
+      if (!tick || tick <= 0) tick = fvgEstimateTick(sourceData);
+      const tickFloor = Math.max(0, this._opt.minGapTicks) * tick;
+      const atr = fvgComputeATR(sourceData, Math.max(1, Math.round(this._opt.atrPeriod)));
+      const avgRange = fvgComputeAvgRange(sourceData, Math.max(1, Math.round(this._opt.dispLookback)));
+      const H = sourceData.map((b) => b.high), L = sourceData.map((b) => b.low), C = sourceData.map((b) => b.close);
+      let sw = null;
+      if (this._opt.useSweep) sw = fvgSwings(sourceData, Math.max(1, Math.round(this._opt.sweepPivotP)));
+      const swLB = Math.max(1, Math.round(this._opt.sweepLookback));
+      for (let i = 2; i < n; i++) {
+        const c0 = sourceData[i - 2], c2 = sourceData[i];
+        const atrFloor = this._opt.minGapATR > 0 && isFinite(atr[i]) ? this._opt.minGapATR * atr[i] : 0;
+        const minGap = Math.max(tickFloor, atrFloor);
+        let type = null, top = 0, bottom = 0;
+        if (c2.low > c0.high) {
+          type = "Bull";
+          bottom = c0.high;
+          top = c2.low;
+        } else if (c2.high < c0.low) {
+          type = "Bear";
+          bottom = c2.high;
+          top = c0.low;
+        }
+        if (!type) continue;
+        if (top - bottom < minGap) continue;
+        if (this._effDisp) {
+          const mid = sourceData[i - 1];
+          const range = mid.high - mid.low;
+          if (range <= 0) continue;
+          const body = Math.abs(mid.close - mid.open);
+          const avg = isFinite(avgRange[i - 1]) && avgRange[i - 1] > 0 ? avgRange[i - 1] : range;
+          if (!(range >= this._opt.dispMult * avg && body / range >= this._opt.bodyRatio)) continue;
+        }
+        if (this._opt.useSweep && sw) {
+          let ok = false;
+          const lo0 = Math.max(0, i - swLB);
+          if (type === "Bull") {
+            const ref = sw.lastSL[i - 2];
+            if (isFinite(ref)) {
+              let mn = Infinity;
+              for (let j = lo0; j < i; j++) if (L[j] < mn) mn = L[j];
+              ok = mn < ref && C[i] > ref;
+            }
+          } else {
+            const ref = sw.lastSH[i - 2];
+            if (isFinite(ref)) {
+              let mx = -Infinity;
+              for (let j = lo0; j < i; j++) if (H[j] > mx) mx = H[j];
+              ok = mx > ref && C[i] < ref;
+            }
+          }
+          if (!ok) continue;
+        }
+        this._gaps.push(this._buildGap(type, i, top, bottom, sourceData));
+      }
+    }
+    _buildGap(type, formIdx, top, bottom, data) {
+      const n = data.length, startIndex = formIdx - 1;
+      const useClose = this._opt.mitigationSrc === "Close", full = this._opt.mitigation === "Fill";
+      const hour = Math.floor(data[formIdx].time / 36e5 % 24);
+      let endIndex = n - 1, mitigated = false;
+      for (let j = formIdx + 1; j < n; j++) {
+        const bar = data[j];
+        let hit = false;
+        if (type === "Bull") {
+          const p = useClose ? bar.close : bar.low;
+          hit = full ? p <= bottom : p <= top;
+        } else {
+          const p = useClose ? bar.close : bar.high;
+          hit = full ? p >= top : p >= bottom;
+        }
+        if (hit) {
+          endIndex = j;
+          mitigated = true;
+          break;
+        }
+      }
+      return { type, startIndex, endIndex, top, bottom, mitigated, hour };
+    }
+    getRange() {
+      if (!this._sourceData || this._sourceData.length === 0) return { min: 0, max: 100 };
+      let min = Infinity, max = -Infinity;
+      for (const bar of this._sourceData) {
+        if (bar.low < min) min = bar.low;
+        if (bar.high > max) max = bar.high;
+      }
+      return { min, max };
+    }
+    getDescription() {
+      const open = this._gaps.filter((g) => !g.mitigated).length;
+      const tf = this._opt.autoTimeframe ? `auto ${fvgTFLabel(this._barMin)}, disp ${this._effDisp ? "ON" : "OFF"}` : `disp ${this._effDisp ? "ON" : "OFF"}`;
+      const sweep = this._opt.useSweep ? ", sweep ON" : "";
+      return `FVG [${tf}${sweep}] (${this._gaps.length} total, ${open} open)`;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr) {
+      if (!this._sourceData || this._sourceData.length === 0 || this._gaps.length === 0) return;
+      let gaps = this._gaps;
+      if (!this._opt.showMitigated) gaps = gaps.filter((g) => !g.mitigated);
+      if (this._opt.maxBoxes > 0 && gaps.length > this._opt.maxBoxes) gaps = gaps.slice(gaps.length - this._opt.maxBoxes);
+      const lonA = this._opt.londonStartHour, lonB = this._opt.londonEndHour;
+      for (const g of gaps) {
+        const isBull = g.type === "Bull";
+        const base = isBull ? this._opt.bullColor : this._opt.bearColor;
+        const fill = fvgHexToRgba(base, g.mitigated ? this._opt.fillOpacity * 0.5 : this._opt.fillOpacity);
+        const isLondon = this._opt.highlightLondon && g.hour >= lonA && g.hour < lonB;
+        const border = isLondon ? fvgHexToRgba(this._opt.londonColor, Math.max(this._opt.borderOpacity, 0.85)) : fvgHexToRgba(base, this._opt.borderOpacity);
+        const bw = (isLondon ? this._opt.lineWidth * 2 : this._opt.lineWidth) * hpr;
+        const x1 = timeScale.indexToCoordinate(g.startIndex) * hpr;
+        const x2 = timeScale.indexToCoordinate(g.endIndex) * hpr;
+        const yTop = priceScale.priceToCoordinate(g.top) * vpr;
+        const yBot = priceScale.priceToCoordinate(g.bottom) * vpr;
+        const left = Math.min(x1, x2), width = Math.max(1, Math.abs(x2 - x1));
+        const topY = Math.min(yTop, yBot), height = Math.max(1, Math.abs(yBot - yTop));
+        ctx.save();
+        ctx.fillStyle = fill;
+        ctx.fillRect(left, topY, width, height);
+        ctx.strokeStyle = border;
+        ctx.lineWidth = bw;
+        ctx.setLineDash([]);
+        ctx.strokeRect(left, topY, width, height);
+        if (this._opt.showMidline) {
+          const mid = priceScale.priceToCoordinate((g.top + g.bottom) / 2) * vpr;
+          ctx.beginPath();
+          ctx.setLineDash([3 * hpr, 3 * hpr]);
+          ctx.moveTo(left, mid);
+          ctx.lineTo(left + width, mid);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        if (this._opt.showTargets && !g.mitigated && this._opt.targetRR > 0) {
+          const risk = g.top - g.bottom;
+          const entry = isBull ? g.top : g.bottom;
+          const targetPrice = isBull ? entry + this._opt.targetRR * risk : entry - this._opt.targetRR * risk;
+          const ty = priceScale.priceToCoordinate(targetPrice) * vpr;
+          ctx.strokeStyle = fvgHexToRgba(this._opt.targetColor, 0.9);
+          ctx.lineWidth = this._opt.lineWidth * hpr;
+          ctx.setLineDash([5 * hpr, 4 * hpr]);
+          ctx.beginPath();
+          ctx.moveTo(left, ty);
+          ctx.lineTo(left + width, ty);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = fvgHexToRgba(this._opt.targetColor, 1);
+          ctx.font = `bold ${9 * hpr}px sans-serif`;
+          ctx.textAlign = "right";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(`TP 1:${this._opt.targetRR}`, left + width - 3 * hpr, ty - 2 * hpr);
+        }
+        if (this._opt.showLabels) {
+          ctx.fillStyle = border;
+          ctx.font = `bold ${9 * hpr}px sans-serif`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText((isBull ? "FVG +" : "FVG -") + (isLondon ? " (LDN)" : ""), left + 3 * hpr, topY + height / 2);
+        }
+        ctx.restore();
+      }
+    }
+  };
+
+  // src/indicators/fvg-inversion-indicator.ts
+  var defaultFvgOptions = {
+    name: "FVG Inversion",
+    atrLength: 14,
+    minGapAtr: 0.1,
+    maxOpenBars: 50,
+    maxDisplayAgeBars: 300,
+    showOpenFvg: false,
+    showFilled: false,
+    showLabels: true,
+    bullColor: "#26a69a",
+    bearColor: "#ef5350",
+    boxOpacity: 28,
+    filledOpacity: 10,
+    visible: true
+  };
+  function wilderAtr2(bars, period) {
+    const trs = [];
+    for (let i = 0; i < bars.length; i++) {
+      const b = bars[i];
+      if (i === 0) {
+        trs.push(b.high - b.low);
+      } else {
+        const pc = bars[i - 1].close;
+        trs.push(Math.max(b.high - b.low, Math.abs(b.high - pc), Math.abs(b.low - pc)));
+      }
+    }
+    const out = new Array(bars.length).fill(null);
+    if (bars.length < period) return out;
+    let run = 0;
+    for (let i = 0; i < period; i++) run += trs[i];
+    run /= period;
+    out[period - 1] = run;
+    for (let i = period; i < bars.length; i++) {
+      run = (run * (period - 1) + trs[i]) / period;
+      out[i] = run;
+    }
+    return out;
+  }
+  function computeFvgs(bars, o) {
+    const atr = wilderAtr2(bars, o.atrLength);
+    const n = bars.length;
+    const boxes = [];
+    for (let i = 2; i < n; i++) {
+      const a = atr[i];
+      if (a === null || a <= 0) continue;
+      const minGap = a * o.minGapAtr;
+      if (bars[i - 2].high < bars[i].low) {
+        const gapBottom = bars[i - 2].high, gapTop = bars[i].low;
+        if (gapTop - gapBottom >= minGap) {
+          boxes.push({ type: "bull", gapBottom, gapTop, firstBar: i - 2, formBar: i, state: "open", endBar: i, invertedBar: null });
+        }
+      }
+      if (bars[i - 2].low > bars[i].high) {
+        const gapTop = bars[i - 2].low, gapBottom = bars[i].high;
+        if (gapTop - gapBottom >= minGap) {
+          boxes.push({ type: "bear", gapBottom, gapTop, firstBar: i - 2, formBar: i, state: "open", endBar: i, invertedBar: null });
+        }
+      }
+    }
+    for (const box of boxes) {
+      for (let k = box.formBar + 1; k < n; k++) {
+        if (o.maxOpenBars > 0 && k > box.formBar + o.maxOpenBars) {
+          box.state = "expired";
+          box.endBar = box.formBar + o.maxOpenBars;
+          break;
+        }
+        if (box.type === "bull") {
+          if (bars[k].close < box.gapBottom) {
+            box.state = "inverted";
+            box.invertedBar = k;
+            box.endBar = n - 1;
+            break;
+          }
+          if (bars[k].low <= box.gapBottom) {
+            box.state = "filled";
+            box.endBar = k;
+            break;
+          }
+        } else {
+          if (bars[k].close > box.gapTop) {
+            box.state = "inverted";
+            box.invertedBar = k;
+            box.endBar = n - 1;
+            break;
+          }
+          if (bars[k].high >= box.gapTop) {
+            box.state = "filled";
+            box.endBar = k;
+            break;
+          }
+        }
+      }
+      if (box.state === "open") box.endBar = n - 1;
+      if (box.state === "inverted" && box.invertedBar !== null) {
+        for (let m = box.invertedBar + 1; m < n; m++) {
+          if (box.type === "bull") {
+            if (bars[m].close > box.gapTop) {
+              box.state = "invalidated";
+              box.endBar = m;
+              break;
+            }
+          } else {
+            if (bars[m].close < box.gapBottom) {
+              box.state = "invalidated";
+              box.endBar = m;
+              break;
+            }
+          }
+        }
+      }
+    }
+    return boxes;
+  }
+  function rgbaFrom2(color, alpha) {
+    const hex = color.replace("#", "").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return color;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+  var FvgInversionIndicator = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const merged = { ...defaultFvgOptions, ...options };
+      super(merged);
+      this._boxes = [];
+      this._fOptions = { ...defaultFvgOptions, ...this._options };
+    }
+    _getAllOptions() {
+      return { ...this._fOptions };
+    }
+    setSettingValue(key, value) {
+      this._fOptions[key] = value;
+      this._options[key] = value;
+      if (this._sourceData.length > 0) this.calculate(this._sourceData);
+      this._dataChanged.fire();
+      return true;
+    }
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      this._data = [];
+      if (sourceData.length === 0) {
+        this._boxes = [];
+        return;
+      }
+      this._boxes = computeFvgs(sourceData, this._fOptions);
+      const byBar = {};
+      for (const box of this._boxes) {
+        (byBar[box.formBar] = byBar[box.formBar] || []).push(box);
+      }
+      this._data = sourceData.map((bar, i) => {
+        const arr = byBar[i];
+        return arr && arr.length > 0 ? { time: bar.time, value: (arr[0].gapTop + arr[0].gapBottom) / 2, values: arr.map((b) => (b.gapTop + b.gapBottom) / 2) } : { time: bar.time, value: NaN, values: [] };
+      });
+    }
+    getRange() {
+      if (this._sourceData.length === 0) return { min: 0, max: 100 };
+      let min = Infinity, max = -Infinity;
+      for (const bar of this._sourceData) {
+        if (bar.low < min) min = bar.low;
+        if (bar.high > max) max = bar.high;
+      }
+      return { min, max };
+    }
+    getDescription() {
+      const open = this._boxes.filter((b) => b.state === "open").length;
+      const inverted = this._boxes.filter((b) => b.state === "inverted").length;
+      const filled = this._boxes.filter((b) => b.state === "filled").length;
+      const invalidated = this._boxes.filter((b) => b.state === "invalidated").length;
+      const expired = this._boxes.filter((b) => b.state === "expired").length;
+      return `FVG Inversion: ${open} acik, ${inverted} donmus (IFVG), ${filled + invalidated + expired} gecersiz`;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr) {
+      if (this._boxes.length === 0 || this._sourceData.length === 0) return;
+      const lastBar = this._sourceData.length - 1;
+      const minFirstBar = this._fOptions.maxDisplayAgeBars > 0 ? lastBar - this._fOptions.maxDisplayAgeBars : -Infinity;
+      ctx.save();
+      for (const box of this._boxes) {
+        if ((box.state === "filled" || box.state === "invalidated" || box.state === "expired") && !this._fOptions.showFilled) continue;
+        if (box.state === "open" && !this._fOptions.showOpenFvg) continue;
+        if (box.formBar < minFirstBar) continue;
+        const origColor = box.type === "bull" ? this._fOptions.bullColor : this._fOptions.bearColor;
+        const invColor = box.type === "bull" ? this._fOptions.bearColor : this._fOptions.bullColor;
+        const yTop = priceScale.priceToCoordinate(box.gapTop) * vpr;
+        const yBottom = priceScale.priceToCoordinate(box.gapBottom) * vpr;
+        const top = Math.min(yTop, yBottom);
+        const height = Math.max(1, Math.abs(yBottom - yTop));
+        if ((box.state === "inverted" || box.state === "invalidated") && box.invertedBar !== null) {
+          const xInv = timeScale.indexToCoordinate(box.invertedBar) * hpr;
+          if (this._fOptions.showOpenFvg) {
+            const x1 = timeScale.indexToCoordinate(box.firstBar) * hpr;
+            const preAlpha = this._fOptions.filledOpacity / 100;
+            ctx.fillStyle = rgbaFrom2(origColor, preAlpha);
+            ctx.fillRect(Math.min(x1, xInv), top, Math.max(1, Math.abs(xInv - x1)), height);
+          }
+          const x2 = timeScale.indexToCoordinate(box.endBar) * hpr;
+          const postAlpha = box.state === "invalidated" ? this._fOptions.filledOpacity / 100 : this._fOptions.boxOpacity / 100;
+          ctx.fillStyle = rgbaFrom2(invColor, postAlpha);
+          ctx.fillRect(Math.min(xInv, x2), top, Math.max(1, Math.abs(x2 - xInv)), height);
+          if (box.state === "inverted") {
+            ctx.strokeStyle = rgbaFrom2(invColor, 0.85);
+            ctx.lineWidth = 1 * hpr;
+            ctx.strokeRect(Math.min(xInv, x2), top, Math.max(1, Math.abs(x2 - xInv)), height);
+          }
+          if (this._fOptions.showLabels && box.state === "inverted") {
+            ctx.fillStyle = rgbaFrom2(invColor, 0.95);
+            ctx.font = `${10 * hpr}px sans-serif`;
+            ctx.textAlign = "left";
+            ctx.textBaseline = box.type === "bull" ? "top" : "bottom";
+            ctx.fillText("IFVG", xInv + 3 * hpr, box.type === "bull" ? top + height + 2 * vpr : top - 2 * vpr);
+          }
+        } else {
+          const x1 = timeScale.indexToCoordinate(box.firstBar) * hpr;
+          const x2 = timeScale.indexToCoordinate(box.endBar) * hpr;
+          const alpha = box.state === "filled" || box.state === "expired" ? this._fOptions.filledOpacity / 100 : this._fOptions.boxOpacity / 100;
+          ctx.fillStyle = rgbaFrom2(origColor, alpha);
+          ctx.fillRect(Math.min(x1, x2), top, Math.max(1, Math.abs(x2 - x1)), height);
+          if (box.state === "open") {
+            ctx.strokeStyle = rgbaFrom2(origColor, 0.6);
+            ctx.lineWidth = 1 * hpr;
+            ctx.strokeRect(Math.min(x1, x2), top, Math.max(1, Math.abs(x2 - x1)), height);
+            if (this._fOptions.showLabels) {
+              ctx.fillStyle = rgbaFrom2(origColor, 0.9);
+              ctx.font = `${10 * hpr}px sans-serif`;
+              ctx.textAlign = "left";
+              ctx.textBaseline = box.type === "bull" ? "top" : "bottom";
+              ctx.fillText("FVG", x1 + 3 * hpr, box.type === "bull" ? top + height + 2 * vpr : top - 2 * vpr);
+            }
+          }
+        }
+      }
+      ctx.restore();
+    }
+  };
+
+  // src/indicators/eqhl-v2-indicator.ts
+  var defaultEqHLOptions = {
+    name: "Equal Highs/Lows V2",
+    pivotBars: 5,
+    atrLength: 14,
+    useAcademicGamma: false,
+    toleranceMult: 0.4,
+    gammaToleranceMult: 1,
+    strictSideRatio: 0.25,
+    safeSideRatio: 0.5,
+    minGapBars: 5,
+    maxLookbackBars: 50,
+    hideSwept: false,
+    showLabels: true,
+    eqhColor: "#ef5350",
+    eqlColor: "#26a69a",
+    sweptOpacity: 35,
+    lineWidth: 1,
+    visible: true
+  };
+  function isEqualMatch(type, newPrice, levelPrice, safeTolerance, strictTolerance) {
+    if (type === "low") {
+      return newPrice < levelPrice ? levelPrice - newPrice <= strictTolerance : newPrice - levelPrice <= safeTolerance;
+    }
+    return newPrice > levelPrice ? newPrice - levelPrice <= strictTolerance : levelPrice - newPrice <= safeTolerance;
+  }
+  function wilderAtr3(bars, period) {
+    const trs = [];
+    for (let i = 0; i < bars.length; i++) {
+      const b = bars[i];
+      if (i === 0) {
+        trs.push(b.high - b.low);
+      } else {
+        const pc = bars[i - 1].close;
+        trs.push(Math.max(b.high - b.low, Math.abs(b.high - pc), Math.abs(b.low - pc)));
+      }
+    }
+    const out = new Array(bars.length).fill(null);
+    if (bars.length < period) return out;
+    let run = 0;
+    for (let i = 0; i < period; i++) run += trs[i];
+    run /= period;
+    out[period - 1] = run;
+    for (let i = period; i < bars.length; i++) {
+      run = (run * (period - 1) + trs[i]) / period;
+      out[i] = run;
+    }
+    return out;
+  }
+  function avgAbsChange(bars) {
+    if (bars.length < 2) return 0;
+    let sum = 0;
+    for (let i = 1; i < bars.length; i++) sum += Math.abs(bars[i].close - bars[i - 1].close);
+    return sum / (bars.length - 1);
+  }
+  function computeLevels(bars, o) {
+    const atr = wilderAtr3(bars, o.atrLength);
+    const gammaTolerance = avgAbsChange(bars) * o.gammaToleranceMult;
+    const n = bars.length;
+    const pb = Math.max(1, o.pivotBars);
+    const activeHigh = [];
+    const activeLow = [];
+    const all = [];
+    for (let i = 0; i < n; i++) {
+      for (let k = activeHigh.length - 1; k >= 0; k--) {
+        const lvl = activeHigh[k];
+        if (bars[i].high > lvl.price + lvl.strictTolerance) {
+          lvl.swept = true;
+          lvl.sweptBar = i;
+          activeHigh.splice(k, 1);
+        }
+      }
+      for (let k = activeLow.length - 1; k >= 0; k--) {
+        const lvl = activeLow[k];
+        if (bars[i].low < lvl.price - lvl.strictTolerance) {
+          lvl.swept = true;
+          lvl.sweptBar = i;
+          activeLow.splice(k, 1);
+        }
+      }
+      if (i < 2 * pb) continue;
+      const p = i - pb;
+      let tolerance;
+      if (o.useAcademicGamma) {
+        tolerance = gammaTolerance;
+        if (tolerance <= 0) continue;
+      } else {
+        const a = atr[p];
+        if (a === null || a <= 0) continue;
+        tolerance = a * o.toleranceMult;
+      }
+      const strictTolerance = tolerance * o.strictSideRatio;
+      const safeTolerance = tolerance * o.safeSideRatio;
+      const hp = bars[p].high, lp = bars[p].low;
+      let isPH = true, isPL = true;
+      for (let k = i - 2 * pb; k <= i; k++) {
+        if (k === p) continue;
+        if (bars[k].high > hp) isPH = false;
+        if (bars[k].low < lp) isPL = false;
+      }
+      if (isPH) {
+        let matched = null;
+        for (const lvl of activeHigh) {
+          if (p - lvl.lastBar > o.maxLookbackBars) continue;
+          if (p - lvl.lastBar < o.minGapBars) continue;
+          if (!isEqualMatch("high", hp, lvl.price, safeTolerance, strictTolerance)) continue;
+          const diff = Math.abs(hp - lvl.price);
+          if (!matched || diff < Math.abs(hp - matched.price)) matched = lvl;
+        }
+        if (matched) {
+          matched.price = Math.max(matched.price, hp);
+          matched.touches++;
+          matched.lastBar = p;
+          matched.tolerance = tolerance;
+          matched.strictTolerance = strictTolerance;
+        } else {
+          const lvl = { type: "high", price: hp, firstBar: p, lastBar: p, touches: 1, tolerance, strictTolerance, swept: false, sweptBar: null };
+          activeHigh.push(lvl);
+          all.push(lvl);
+        }
+      }
+      if (isPL) {
+        let matched = null;
+        for (const lvl of activeLow) {
+          if (p - lvl.lastBar > o.maxLookbackBars) continue;
+          if (p - lvl.lastBar < o.minGapBars) continue;
+          if (!isEqualMatch("low", lp, lvl.price, safeTolerance, strictTolerance)) continue;
+          const diff = Math.abs(lp - lvl.price);
+          if (!matched || diff < Math.abs(lp - matched.price)) matched = lvl;
+        }
+        if (matched) {
+          matched.price = Math.min(matched.price, lp);
+          matched.touches++;
+          matched.lastBar = p;
+          matched.tolerance = tolerance;
+          matched.strictTolerance = strictTolerance;
+        } else {
+          const lvl = { type: "low", price: lp, firstBar: p, lastBar: p, touches: 1, tolerance, strictTolerance, swept: false, sweptBar: null };
+          activeLow.push(lvl);
+          all.push(lvl);
+        }
+      }
+    }
+    return all;
+  }
+  function rgbaFrom3(color, alpha) {
+    const hex = color.replace("#", "").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return color;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+  var EqHLIndicatorV2 = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const merged = { ...defaultEqHLOptions, ...options };
+      super(merged);
+      this._levels = [];
+      this._eOptions = { ...defaultEqHLOptions, ...this._options };
+    }
+    _getAllOptions() {
+      return { ...this._eOptions };
+    }
+    setSettingValue(key, value) {
+      this._eOptions[key] = value;
+      this._options[key] = value;
+      if (this._sourceData.length > 0) this.calculate(this._sourceData);
+      this._dataChanged.fire();
+      return true;
+    }
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      this._data = [];
+      if (sourceData.length === 0) {
+        this._levels = [];
+        return;
+      }
+      this._levels = computeLevels(sourceData, this._eOptions);
+      const byBar = {};
+      for (const lvl of this._levels) {
+        if (lvl.touches < 2) continue;
+        (byBar[lvl.lastBar] = byBar[lvl.lastBar] || []).push(lvl);
+      }
+      this._data = sourceData.map((bar, i) => {
+        const arr = byBar[i];
+        return arr && arr.length > 0 ? { time: bar.time, value: arr[0].price, values: arr.map((l) => l.price) } : { time: bar.time, value: NaN, values: [] };
+      });
+    }
+    getRange() {
+      if (this._sourceData.length === 0) return { min: 0, max: 100 };
+      let min = Infinity, max = -Infinity;
+      for (const bar of this._sourceData) {
+        if (bar.low < min) min = bar.low;
+        if (bar.high > max) max = bar.high;
+      }
+      return { min, max };
+    }
+    getDescription() {
+      const confirmed = this._levels.filter((l) => l.touches >= 2);
+      const active = confirmed.filter((l) => !l.swept).length;
+      const swept = confirmed.filter((l) => l.swept).length;
+      const method = this._eOptions.useAcademicGamma ? `gamma x${this._eOptions.gammaToleranceMult.toFixed(2)}` : `ATR x${this._eOptions.toleranceMult.toFixed(2)}`;
+      return `EQH/EQL V2: ${active} aktif, ${swept} supurulmus (${method})`;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr) {
+      if (this._levels.length === 0 || this._sourceData.length === 0) return;
+      const lastBar = this._sourceData.length - 1;
+      ctx.save();
+      for (const lvl of this._levels) {
+        if (lvl.touches < 2) continue;
+        if (lvl.swept && this._eOptions.hideSwept) continue;
+        const color = lvl.type === "high" ? this._eOptions.eqhColor : this._eOptions.eqlColor;
+        const endBar = lvl.swept && lvl.sweptBar !== null ? lvl.sweptBar : lastBar;
+        const x1 = timeScale.indexToCoordinate(lvl.firstBar) * hpr;
+        const x2 = timeScale.indexToCoordinate(endBar) * hpr;
+        const y = priceScale.priceToCoordinate(lvl.price) * vpr;
+        const alpha = lvl.swept ? this._eOptions.sweptOpacity / 100 : 0.9;
+        ctx.strokeStyle = rgbaFrom3(color, alpha);
+        ctx.lineWidth = this._eOptions.lineWidth * hpr;
+        ctx.setLineDash(lvl.swept ? [4 * hpr, 3 * hpr] : []);
+        ctx.beginPath();
+        ctx.moveTo(x1, y);
+        ctx.lineTo(x2, y);
+        ctx.stroke();
+        if (lvl.swept && lvl.sweptBar !== null) {
+          const sx = timeScale.indexToCoordinate(lvl.sweptBar) * hpr;
+          const sy = y;
+          const r = 4 * hpr;
+          ctx.strokeStyle = rgbaFrom3(color, 0.9);
+          ctx.lineWidth = 1.5 * hpr;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(sx - r, sy - r);
+          ctx.lineTo(sx + r, sy + r);
+          ctx.moveTo(sx - r, sy + r);
+          ctx.lineTo(sx + r, sy - r);
+          ctx.stroke();
+        }
+        if (this._eOptions.showLabels) {
+          const label = `${lvl.type === "high" ? "EQH" : "EQL"}${lvl.touches > 2 ? " x" + lvl.touches : ""}${lvl.swept ? " (supuruldu)" : ""}`;
+          ctx.font = `${10 * hpr}px sans-serif`;
+          ctx.fillStyle = rgbaFrom3(color, Math.min(1, alpha + 0.15));
+          ctx.textAlign = "left";
+          ctx.textBaseline = lvl.type === "high" ? "bottom" : "top";
+          ctx.fillText(label, x2 + 4 * hpr, y);
+        }
+      }
+      ctx.restore();
+    }
+  };
+
+  // src/indicators/judas-swing-indicator.ts
+  var defaultJudasOptions = {
+    name: "Judas Swing",
+    timezone: "America/New_York",
+    refStartH: 20,
+    refEndH: 0,
+    maxConfirmBars: 60,
+    requireFvg: true,
+    requireRetest: true,
+    maxRetestBars: 40,
+    requireMss: true,
+    mssLookbackBars: 10,
+    mssPivotBars: 2,
+    enforceMssCutoff: false,
+    mssCutoffH: 5,
+    requirePremiumDiscount: true,
+    drawLastNDays: 15,
+    showRefRange: true,
+    showMssLevel: true,
+    showFvgBox: true,
+    showTargets: true,
+    showFailed: false,
+    showLabels: true,
+    bullColor: "#26a69a",
+    bearColor: "#ef5350",
+    refRangeColor: "#787b86",
+    fvgColor: "#ab47bc",
+    failedColor: "#787b86",
+    lineWidth: 2,
+    visible: true
+  };
+  function findPostSweepPivot(sourceData, sweepBar, uptoBar, dir, pivotBars) {
+    for (let p = uptoBar - 1 - pivotBars; p >= sweepBar; p--) {
+      if (p - pivotBars < sweepBar) break;
+      const val = dir === "high" ? sourceData[p].low : sourceData[p].high;
+      let isPivot = true;
+      for (let k = p - pivotBars; k <= p + pivotBars; k++) {
+        if (k === p) continue;
+        if (dir === "high" ? sourceData[k].low < val : sourceData[k].high > val) {
+          isPivot = false;
+          break;
+        }
+      }
+      if (isPivot) return val;
+    }
+    return null;
+  }
+  function rgbaFrom4(color, alpha) {
+    const hex = color.replace("#", "").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return color;
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+  var JudasSwingIndicator = class extends OverlayIndicator {
+    constructor(options = {}) {
+      const merged = { ...defaultJudasOptions, ...options };
+      super(merged);
+      this._occs = [];
+      this._fmt = null;
+      this._fmtTz = "";
+      this._jOptions = { ...defaultJudasOptions, ...this._options };
+    }
+    _getAllOptions() {
+      return { ...this._jOptions };
+    }
+    setSettingValue(key, value) {
+      this._jOptions[key] = value;
+      this._options[key] = value;
+      if (this._sourceData.length > 0) this.calculate(this._sourceData);
+      this._dataChanged.fire();
+      return true;
+    }
+    _getFormatter(tz) {
+      if (!this._fmt || this._fmtTz !== tz) {
+        try {
+          this._fmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+          this._fmtTz = tz;
+        } catch (e) {
+          this._fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", hour12: false });
+          this._fmtTz = "UTC";
+        }
+      }
+      return this._fmt;
+    }
+    _computeMinutes(bars) {
+      const fmt = this._getFormatter(this._jOptions.timezone);
+      const out = new Array(bars.length);
+      for (let i = 0; i < bars.length; i++) {
+        const parts = fmt.formatToParts(new Date(bars[i].time));
+        let h = 0, m = 0;
+        for (const p of parts) {
+          if (p.type === "hour") h = parseInt(p.value, 10);
+          else if (p.type === "minute") m = parseInt(p.value, 10);
+        }
+        if (h === 24) h = 0;
+        out[i] = h * 60 + m;
+      }
+      return out;
+    }
+    /** Referans aralik + Judas penceresi taramasi ve state machine - tek ileri gecis. */
+    calculate(sourceData) {
+      this._sourceData = sourceData;
+      this._data = sourceData.map((b) => ({ time: b.time, value: NaN }));
+      this._occs = [];
+      if (sourceData.length === 0) return;
+      const o = this._jOptions;
+      const minutes = this._computeMinutes(sourceData);
+      const refS = Math.round(o.refStartH * 60), refE = Math.round(o.refEndH * 60);
+      const cutoffMin = Math.round(o.mssCutoffH * 60);
+      const inRef = (m) => refS < refE ? m >= refS && m < refE : m >= refS || m < refE;
+      let ref = null;
+      let pendingRef = null;
+      let occ = null;
+      for (let i = 0; i < sourceData.length; i++) {
+        const m = minutes[i];
+        const b = sourceData[i];
+        if (inRef(m)) {
+          if (!ref) {
+            if (occ && (occ.state === "swept" || occ.state === "displaced")) {
+              occ.state = "failed";
+              occ.resolvedBar = i;
+            }
+            occ = null;
+            pendingRef = null;
+            ref = { startIdx: i, endIdx: i, high: b.high, low: b.low, midnightOpen: null };
+          } else {
+            ref.endIdx = i;
+            if (b.high > ref.high) ref.high = b.high;
+            if (b.low < ref.low) ref.low = b.low;
+          }
+        } else if (ref) {
+          ref.midnightOpen = b.open;
+          pendingRef = ref;
+          ref = null;
+        }
+        if (!pendingRef) continue;
+        if (o.enforceMssCutoff && occ && (occ.state === "swept" || occ.state === "displaced") && m >= cutoffMin) {
+          occ.state = "failed";
+          occ.resolvedBar = i;
+          occ = null;
+          pendingRef = null;
+          continue;
+        }
+        if (!occ) {
+          const brokeHigh = b.high > pendingRef.high;
+          const brokeLow = b.low < pendingRef.low;
+          if (brokeHigh || brokeLow) {
+            const dir = brokeHigh && brokeLow ? Math.abs(b.close - pendingRef.high) <= Math.abs(b.close - pendingRef.low) ? "high" : "low" : brokeHigh ? "high" : "low";
+            const sweepPrice = dir === "high" ? b.high : b.low;
+            const lookStart = Math.max(pendingRef.endIdx, i - o.mssLookbackBars);
+            let mssLevel = dir === "high" ? pendingRef.low : pendingRef.high;
+            if (lookStart < i) {
+              if (dir === "high") {
+                let lo = Infinity;
+                for (let k = lookStart; k < i; k++) if (sourceData[k].low < lo) lo = sourceData[k].low;
+                mssLevel = lo;
+              } else {
+                let hi = -Infinity;
+                for (let k = lookStart; k < i; k++) if (sourceData[k].high > hi) hi = sourceData[k].high;
+                mssLevel = hi;
+              }
+            }
+            const mo = pendingRef.midnightOpen;
+            const contextOk = !o.requirePremiumDiscount || mo === null || (dir === "high" ? sweepPrice > mo : sweepPrice < mo);
+            occ = {
+              ref: pendingRef,
+              sweepDir: dir,
+              sweepBar: i,
+              sweepPrice,
+              state: contextOk ? "swept" : "failed",
+              displacedBar: null,
+              confirmBar: null,
+              confirmPrice: null,
+              targetPrice: dir === "high" ? pendingRef.low : pendingRef.high,
+              resolvedBar: i,
+              fvgTop: null,
+              fvgBottom: null,
+              fvgLeftBar: null,
+              mssLevel
+            };
+            this._occs.push(occ);
+            if (!contextOk) {
+              occ = null;
+              pendingRef = null;
+            }
+          }
+        } else if (occ.state === "swept") {
+          const barsSince = i - occ.sweepBar;
+          if (barsSince > o.maxConfirmBars) {
+            occ.state = "failed";
+            occ.resolvedBar = i;
+            occ = null;
+            pendingRef = null;
+          } else {
+            if (o.requireMss) {
+              const postPivot = findPostSweepPivot(sourceData, occ.sweepBar, i, occ.sweepDir, o.mssPivotBars);
+              if (postPivot !== null) {
+                occ.mssLevel = occ.sweepDir === "low" ? Math.min(occ.mssLevel, postPivot) : Math.max(occ.mssLevel, postPivot);
+              }
+            }
+            const shiftLevel = o.requireMss ? occ.mssLevel : occ.sweepDir === "high" ? occ.ref.high : occ.ref.low;
+            const backThrough = occ.sweepDir === "high" ? b.close < shiftLevel : b.close > shiftLevel;
+            if (o.requireFvg && i - 2 >= occ.sweepBar) {
+              const left = sourceData[i - 2];
+              if (occ.sweepDir === "high" && left.low > b.high) {
+                occ.fvgTop = left.low;
+                occ.fvgBottom = b.high;
+                occ.fvgLeftBar = i - 2;
+              } else if (occ.sweepDir === "low" && left.high < b.low) {
+                occ.fvgTop = b.low;
+                occ.fvgBottom = left.high;
+                occ.fvgLeftBar = i - 2;
+              }
+            }
+            const fvgOk = !o.requireFvg || occ.fvgTop !== null;
+            if (backThrough && fvgOk) {
+              if (o.requireRetest && occ.fvgTop !== null) {
+                occ.state = "displaced";
+                occ.displacedBar = i;
+              } else {
+                occ.state = "confirmed";
+                occ.confirmBar = i;
+                occ.confirmPrice = b.close;
+                occ.resolvedBar = i;
+                occ = null;
+                pendingRef = null;
+              }
+            }
+          }
+        } else if (occ.state === "displaced") {
+          const barsSinceDisp = i - occ.displacedBar;
+          if (barsSinceDisp > o.maxRetestBars) {
+            occ.state = "failed";
+            occ.resolvedBar = i;
+            occ = null;
+            pendingRef = null;
+          } else {
+            const fTop = occ.fvgTop, fBottom = occ.fvgBottom;
+            const touched = b.low <= fTop && b.high >= fBottom;
+            if (touched) {
+              occ.state = "confirmed";
+              occ.confirmBar = i;
+              occ.confirmPrice = occ.sweepDir === "low" ? fTop : fBottom;
+              occ.resolvedBar = i;
+              occ = null;
+              pendingRef = null;
+            }
+          }
+        }
+      }
+    }
+    getRange() {
+      if (this._sourceData.length === 0) return { min: 0, max: 100 };
+      let min = Infinity, max = -Infinity;
+      for (const bar of this._sourceData) {
+        if (bar.low < min) min = bar.low;
+        if (bar.high > max) max = bar.high;
+      }
+      return { min, max };
+    }
+    getDescription() {
+      const confirmed = this._occs.filter((o) => o.state === "confirmed").length;
+      const failed = this._occs.filter((o) => o.state === "failed").length;
+      return `Judas Swing: ${confirmed} onaylanmis, ${failed} basarisiz`;
+    }
+    _cutoffTime() {
+      const src = this._sourceData;
+      return src[src.length - 1].time - this._jOptions.drawLastNDays * 864e5;
+    }
+    drawOverlay(ctx, timeScale, priceScale, hpr, vpr) {
+      if (this._occs.length === 0 || this._sourceData.length === 0) return;
+      const o = this._jOptions;
+      const src = this._sourceData;
+      const lastBar = src.length - 1;
+      const cutoff = this._cutoffTime();
+      ctx.save();
+      for (const occ of this._occs) {
+        if (src[occ.ref.startIdx].time < cutoff) continue;
+        if (occ.state === "failed" && !o.showFailed) continue;
+        const isBull = occ.sweepDir === "low";
+        const color = occ.state === "failed" ? o.failedColor : isBull ? o.bullColor : o.bearColor;
+        const endBar = occ.state === "confirmed" && occ.confirmBar !== null ? occ.confirmBar : occ.resolvedBar;
+        if (o.showRefRange) {
+          const x1 = timeScale.indexToCoordinate(occ.ref.startIdx) * hpr;
+          const x2 = timeScale.indexToCoordinate(occ.ref.endIdx) * hpr;
+          const yTop = priceScale.priceToCoordinate(occ.ref.high) * vpr;
+          const yBot = priceScale.priceToCoordinate(occ.ref.low) * vpr;
+          ctx.strokeStyle = rgbaFrom4(o.refRangeColor, 0.5);
+          ctx.setLineDash([3 * hpr, 3 * hpr]);
+          ctx.lineWidth = 1 * hpr;
+          ctx.strokeRect(x1, Math.min(yTop, yBot), x2 - x1, Math.abs(yBot - yTop));
+          const lvlEndX = timeScale.indexToCoordinate(Math.max(occ.ref.endIdx, endBar)) * hpr;
+          ctx.beginPath();
+          ctx.moveTo(x2, yTop);
+          ctx.lineTo(lvlEndX, yTop);
+          ctx.moveTo(x2, yBot);
+          ctx.lineTo(lvlEndX, yBot);
+          ctx.stroke();
+        }
+        if (o.showMssLevel && o.requireMss) {
+          const mx1 = timeScale.indexToCoordinate(occ.sweepBar) * hpr;
+          const mx2 = timeScale.indexToCoordinate(Math.max(occ.sweepBar + 1, endBar)) * hpr;
+          const my = priceScale.priceToCoordinate(occ.mssLevel) * vpr;
+          ctx.setLineDash([2 * hpr, 2 * hpr]);
+          ctx.strokeStyle = rgbaFrom4(color, occ.state === "failed" ? 0.3 : 0.7);
+          ctx.lineWidth = 1 * hpr;
+          ctx.beginPath();
+          ctx.moveTo(mx1, my);
+          ctx.lineTo(mx2, my);
+          ctx.stroke();
+          if (o.showLabels) {
+            ctx.font = `${8 * hpr}px sans-serif`;
+            ctx.fillStyle = rgbaFrom4(color, 0.8);
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText("MSS", mx2 + 3 * hpr, my);
+          }
+        }
+        const sx = timeScale.indexToCoordinate(occ.sweepBar) * hpr;
+        const sy = priceScale.priceToCoordinate(occ.sweepPrice) * vpr;
+        const r = 4 * hpr;
+        ctx.setLineDash([]);
+        ctx.strokeStyle = rgbaFrom4(color, occ.state === "failed" ? 0.4 : 0.9);
+        ctx.lineWidth = 1.5 * hpr;
+        ctx.beginPath();
+        ctx.moveTo(sx - r, sy - r);
+        ctx.lineTo(sx + r, sy + r);
+        ctx.moveTo(sx - r, sy + r);
+        ctx.lineTo(sx + r, sy - r);
+        ctx.stroke();
+        if (o.showFvgBox && occ.fvgTop !== null && occ.fvgBottom !== null && occ.fvgLeftBar !== null) {
+          const fEnd = occ.confirmBar !== null ? occ.confirmBar : lastBar;
+          const fx1 = timeScale.indexToCoordinate(occ.fvgLeftBar) * hpr;
+          const fx2 = timeScale.indexToCoordinate(Math.max(occ.fvgLeftBar + 2, fEnd)) * hpr;
+          const fyTop = priceScale.priceToCoordinate(occ.fvgTop) * vpr;
+          const fyBot = priceScale.priceToCoordinate(occ.fvgBottom) * vpr;
+          const fAlpha = occ.state === "failed" ? 0.4 : 1;
+          ctx.setLineDash([]);
+          ctx.fillStyle = rgbaFrom4(o.fvgColor, 0.15 * fAlpha);
+          ctx.fillRect(fx1, Math.min(fyTop, fyBot), fx2 - fx1, Math.abs(fyBot - fyTop));
+          ctx.strokeStyle = rgbaFrom4(o.fvgColor, 0.6 * fAlpha);
+          ctx.lineWidth = 1 * hpr;
+          ctx.strokeRect(fx1, Math.min(fyTop, fyBot), fx2 - fx1, Math.abs(fyBot - fyTop));
+          if (o.showLabels) {
+            ctx.font = `${9 * hpr}px sans-serif`;
+            ctx.fillStyle = rgbaFrom4(o.fvgColor, 0.9 * fAlpha);
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText("FVG", fx1 + 3 * hpr, (fyTop + fyBot) / 2);
+          }
+        }
+        if (occ.state === "confirmed" && occ.confirmBar !== null) {
+          const cx = timeScale.indexToCoordinate(occ.confirmBar) * hpr;
+          const cy = priceScale.priceToCoordinate(occ.confirmPrice) * vpr;
+          const ah = 8 * vpr;
+          ctx.fillStyle = rgbaFrom4(color, 0.95);
+          ctx.beginPath();
+          if (isBull) {
+            ctx.moveTo(cx, cy - ah);
+            ctx.lineTo(cx - ah * 0.6, cy + ah * 0.3);
+            ctx.lineTo(cx + ah * 0.6, cy + ah * 0.3);
+          } else {
+            ctx.moveTo(cx, cy + ah);
+            ctx.lineTo(cx - ah * 0.6, cy - ah * 0.3);
+            ctx.lineTo(cx + ah * 0.6, cy - ah * 0.3);
+          }
+          ctx.closePath();
+          ctx.fill();
+          if (o.showLabels) {
+            ctx.font = `bold ${10 * hpr}px sans-serif`;
+            ctx.fillStyle = rgbaFrom4(color, 0.95);
+            ctx.textAlign = "left";
+            ctx.textBaseline = isBull ? "bottom" : "top";
+            ctx.fillText(isBull ? "JUDAS \u25B2" : "JUDAS \u25BC", cx + 6 * hpr, cy);
+          }
+          if (o.showTargets) {
+            const tx2 = timeScale.indexToCoordinate(lastBar) * hpr;
+            const ty = priceScale.priceToCoordinate(occ.targetPrice) * vpr;
+            ctx.setLineDash([2 * hpr, 4 * hpr]);
+            ctx.strokeStyle = rgbaFrom4(color, 0.5);
+            ctx.lineWidth = 1 * hpr;
+            ctx.beginPath();
+            ctx.moveTo(cx, ty);
+            ctx.lineTo(tx2, ty);
+            ctx.stroke();
+            const stopY = priceScale.priceToCoordinate(occ.sweepPrice) * vpr;
+            ctx.strokeStyle = rgbaFrom4(color, 0.3);
+            ctx.beginPath();
+            ctx.moveTo(cx, stopY);
+            ctx.lineTo(tx2, stopY);
+            ctx.stroke();
+          }
+        }
+      }
+      ctx.restore();
+    }
+  };
+
   // src/indicators/indicator-manager.ts
   var IndicatorManager = class {
     constructor() {
@@ -27963,6 +29399,11 @@ ${note}`;
         else if (indicator instanceof TrendlineBreakoutIndicator) typeId = "TrendlineBreakout";
         else if (indicator instanceof DeMarkPivotIndicator) typeId = "DeMarkPivot";
         else if (indicator instanceof SMCIndicator) typeId = "SMC";
+        else if (indicator instanceof BobbinIndicator) typeId = "Bobbin";
+        else if (indicator instanceof FVGIndicator) typeId = "FVG";
+        else if (indicator instanceof FvgInversionIndicator) typeId = "FvgInversion";
+        else if (indicator instanceof EqHLIndicatorV2) typeId = "EqHLV2";
+        else if (indicator instanceof JudasSwingIndicator) typeId = "JudasSwing";
         serialized.push({
           id: indicator.id,
           type: indicator.type,
@@ -28071,6 +29512,21 @@ ${note}`;
           break;
         case "SMC":
           indicator = new SMCIndicator(item.options);
+          break;
+        case "Bobbin":
+          indicator = new BobbinIndicator(item.options);
+          break;
+        case "FVG":
+          indicator = new FVGIndicator(item.options);
+          break;
+        case "FvgInversion":
+          indicator = new FvgInversionIndicator(item.options);
+          break;
+        case "EqHLV2":
+          indicator = new EqHLIndicatorV2(item.options);
+          break;
+        case "JudasSwing":
+          indicator = new JudasSwingIndicator(item.options);
           break;
         default:
           console.warn(`Unknown indicator typeId: ${typeId}`);
@@ -29607,6 +31063,46 @@ ${note}`;
       shortName: "SF",
       description: "\xDCst timeframe Heikin Ashi pivotlar\u0131ndan otomatik destek/diren\xE7 kutular\u0131 \xE7izer",
       category: "custom",
+      type: "overlay"
+    },
+    {
+      id: "bobbin",
+      name: "Bobbin",
+      shortName: "Bobbin",
+      description: 'Ard\u0131\u015F\u0131k g\xF6vde-renk dizilerindeki tekd\xFCze/dar bantl\u0131 "bobin" b\xF6lgelerini istatistiksel bir skor modeliyle tespit eder',
+      category: "custom",
+      type: "overlay"
+    },
+    {
+      id: "fvg",
+      name: "Fair Value Gap",
+      shortName: "FVG",
+      description: "3 mumluk dengesizlik (imbalance) b\xF6lgelerini ATR/displacement filtreleriyle \xE7izer, Londra seans\u0131 ve 1:2 hedef \xE7izgisi vurgulu",
+      category: "pattern",
+      type: "overlay"
+    },
+    {
+      id: "fvg-inversion",
+      name: "FVG Inversion",
+      shortName: "IFVG",
+      description: "Kendi y\xF6n\xFCn\xFCn tersine g\xF6vde-kapan\u0131\u015Fla k\u0131r\u0131lan Fair Value Gap b\xF6lgelerini (IFVG) tespit eder",
+      category: "pattern",
+      type: "overlay"
+    },
+    {
+      id: "eqhl-v2",
+      name: "Equal Highs/Lows V2",
+      shortName: "EQH/EQL",
+      description: "ATR veya akademik gama tolerans\u0131yla e\u015Fit tepe/dip likidite seviyelerini k\xFCmeleyip s\xFCp\xFCr\xFClmeyi i\u015Faretler",
+      category: "pattern",
+      type: "overlay"
+    },
+    {
+      id: "judas-swing",
+      name: "Judas Swing",
+      shortName: "Judas",
+      description: "ICT Judas Swing: referans aral\u0131k d\u0131\u015F\u0131na sahte k\u0131r\u0131l\u0131m, MSS, FVG onay\u0131 ve retest ile giri\u015F sinyali",
+      category: "pattern",
       type: "overlay"
     }
   ];
@@ -39170,12 +40666,18 @@ ${note}`;
     _calculateCountdown() {
       const timeframe = this._model.timeframe;
       if (!timeframe) return null;
-      const intervalMs = this._parseTimeframeToMs(timeframe);
-      if (intervalMs === 0) return null;
       const now = Date.now();
-      const currentCandleStart = Math.floor(now / intervalMs) * intervalMs;
-      const nextCandleStart = currentCandleStart + intervalMs;
-      const remainingMs = nextCandleStart - now;
+      let remainingMs;
+      if (timeframe === "M" || timeframe === "1mo") {
+        const d = new Date(now);
+        remainingMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - now;
+      } else {
+        const intervalMs = this._parseTimeframeToMs(timeframe);
+        if (intervalMs === 0) return null;
+        const currentCandleStart = Math.floor(now / intervalMs) * intervalMs;
+        const nextCandleStart = currentCandleStart + intervalMs;
+        remainingMs = nextCandleStart - now;
+      }
       if (remainingMs <= 0) return null;
       const totalSeconds = Math.floor(remainingMs / 1e3);
       const hours = Math.floor(totalSeconds / 3600);
@@ -39308,6 +40810,7 @@ ${note}`;
         this._model.timeScale,
         { height: indicator.paneHeight }
       );
+      pane.setTheme(this._currentTheme);
       const canvas = pane.canvas;
       if (canvas) {
         canvas.addEventListener("wheel", this._onWheel.bind(this), { passive: false });
@@ -39557,6 +41060,21 @@ ${note}`;
             symbol: this._model.symbol,
             exchange: this._currentExchange
           }));
+          break;
+        case "bobbin":
+          this.addOverlayIndicator(new BobbinIndicator({}));
+          break;
+        case "fvg":
+          this.addOverlayIndicator(new FVGIndicator({}));
+          break;
+        case "fvg-inversion":
+          this.addOverlayIndicator(new FvgInversionIndicator({}));
+          break;
+        case "eqhl-v2":
+          this.addOverlayIndicator(new EqHLIndicatorV2({}));
+          break;
+        case "judas-swing":
+          this.addOverlayIndicator(new JudasSwingIndicator({}));
           break;
         default:
           console.warn(`Unknown indicator: ${indicatorId}`);
