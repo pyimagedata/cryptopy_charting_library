@@ -80,3 +80,5 @@ export {
 
 // Data Providers (Modular data source system)
 export * from './data-providers';
+
+export { WatchlistPanel, WatchlistRow, WatchlistProvider } from './gui/watchlist/watchlist_panel';

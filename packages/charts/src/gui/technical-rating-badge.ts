@@ -191,6 +191,11 @@ export class TechnicalRatingBadge {
     /**
      * Show/hide the badge
      */
+    /** Sagdaki bir panel (izleme listesi) acikken kart onun soluna kayar. */
+    setRightOffset(px: number): void {
+        this._element.style.right = `${85 + px}px`;
+    }
+
     setVisible(visible: boolean): void {
         this._element.style.display = visible ? 'flex' : 'none';
     }

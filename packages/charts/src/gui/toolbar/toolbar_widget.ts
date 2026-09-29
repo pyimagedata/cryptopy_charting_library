@@ -96,6 +96,9 @@ export class ToolbarWidget {
     private readonly _priceScaleModeChanged = new Delegate<'normal' | 'logarithmic'>();
     private readonly _timezoneChanged = new Delegate<string>();
     private _domEnabled: boolean = false;
+    private _watchlistEnabled: boolean = false;
+    private _watchlistBtn: HTMLButtonElement | null = null;
+    private readonly _watchlistToggled = new Delegate<boolean>();
     private _currentTheme: 'dark' | 'light' = 'dark';
 
     constructor(container: HTMLElement, options: Partial<ToolbarOptions> = {}) {
@@ -135,6 +138,10 @@ export class ToolbarWidget {
 
     get domToggled(): Delegate<boolean> {
         return this._domToggled;
+    }
+
+    get watchlistToggled(): Delegate<boolean> {
+        return this._watchlistToggled;
     }
 
     get languageChanged(): Delegate<string> {
@@ -271,6 +278,9 @@ export class ToolbarWidget {
 
         // DOM (Orderbook) toggle button
         this._createDomButton();
+
+        // Izleme listesi (watch list) toggle button
+        this._createWatchlistButton();
 
         // Timezone Selector
         this._createTimezoneSelector();
@@ -485,6 +495,47 @@ export class ToolbarWidget {
             this._indicatorsClicked.fire();
         });
 
+        this._element!.appendChild(btn);
+    }
+
+    /** Panel disaridan (ör. onceki oturumdan) acildiginda/kapandiginda dugmeyi senkronlar. */
+    setWatchlistActive(active: boolean): void {
+        this._watchlistEnabled = active;
+        this._styleWatchlistButton(false);
+    }
+
+    private _styleWatchlistButton(hover: boolean): void {
+        const btn = this._watchlistBtn;
+        if (!btn) return;
+        btn.style.background = this._watchlistEnabled ? 'rgba(0, 212, 170, 0.15)' : hover ? '#2a2e39' : 'transparent';
+        btn.style.color = this._watchlistEnabled ? '#00d4aa' : hover ? '#d1d4dc' : '#787b86';
+    }
+
+    private _createWatchlistButton(): void {
+        const btn = document.createElement('button');
+        btn.className = 'toolbar-watchlist';
+        btn.title = 'İzleme listesi';
+        btn.style.cssText = `
+            display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+            border: none; border-radius: 4px; font-size: 13px; cursor: pointer;
+            transition: background 0.15s, color 0.15s; flex-shrink: 0;
+        `;
+        const icon = document.createElement('span');
+        icon.style.display = 'flex';
+        icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 8h18M5 14h18M5 20h11"/><path d="m21 17 1.1 2.2 2.4.35-1.75 1.7.42 2.4L21 22.5l-2.17 1.15.42-2.4-1.75-1.7 2.4-.35L21 17Z" fill="currentColor" stroke="none"/></svg>`;
+        btn.appendChild(icon);
+        const label = document.createElement('span');
+        label.textContent = 'Liste';
+        btn.appendChild(label);
+        this._watchlistBtn = btn;
+        this._styleWatchlistButton(false);
+        btn.addEventListener('mouseenter', () => this._styleWatchlistButton(true));
+        btn.addEventListener('mouseleave', () => this._styleWatchlistButton(false));
+        btn.addEventListener('click', () => {
+            this._watchlistEnabled = !this._watchlistEnabled;
+            this._styleWatchlistButton(true);
+            this._watchlistToggled.fire(this._watchlistEnabled);
+        });
         this._element!.appendChild(btn);
     }
 
@@ -863,6 +914,7 @@ export class ToolbarWidget {
         this._chartTypeChanged.destroy();
         this._indicatorsClicked.destroy();
         this._domToggled.destroy();
+        this._watchlistToggled.destroy();
         this._languageChanged.destroy();
         this._themeToggled.destroy();
         this._priceScaleModeChanged.destroy();

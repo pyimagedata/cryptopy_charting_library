@@ -12,6 +12,7 @@ import { PaneWidget } from './pane-widget';
 import { PriceAxisWidget } from './price-axis-widget';
 import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
+import { WatchlistPanel } from './watchlist/watchlist_panel';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
 import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, SpotCompareIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator } from '../indicators';
@@ -85,6 +86,7 @@ export class ChartWidget implements Disposable {
 
     // Layout elements
     private _chartRow: HTMLElement | null = null;
+    private _watchlistPanel: WatchlistPanel | null = null;
     private _timeAxisRow: HTMLElement | null = null;
     private _indicatorContainer: HTMLElement | null = null;
 
@@ -650,6 +652,8 @@ export class ChartWidget implements Disposable {
             this._toolbarWidget.setTheme(theme);
         }
 
+        this._watchlistPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
+
         // Update drawing settings modal if open
         if (this._drawingSettingsModal) {
             this._drawingSettingsModal.setTheme(theme);
@@ -1151,11 +1155,15 @@ export class ChartWidget implements Disposable {
             indicatorPanesHeight += pane.height;
         }
 
-        const paneWidth = this._width - priceAxisWidth - drawingToolbarWidth;
+        // Izleme listesi acikken grafik onun genisligi kadar daralir.
+        const watchlistWidth = this._watchlistPanel?.visible ? WatchlistPanel.WIDTH : 0;
+        const usableWidth = this._width - watchlistWidth;
+        this._technicalRatingBadge?.setRightOffset(watchlistWidth);
+        const paneWidth = usableWidth - priceAxisWidth - drawingToolbarWidth;
         const paneHeight = this._height - timeAxisHeight - toolbarHeight - indicatorPanesHeight;
 
         // Update model
-        this._model.setSize(this._width, paneHeight);
+        this._model.setSize(usableWidth, paneHeight);
         this._model.timeScale.setWidth(paneWidth);
         this._model.rightPriceScale.setHeight(paneHeight);
 
@@ -1177,7 +1185,7 @@ export class ChartWidget implements Disposable {
 
         // Update indicator pane widths
         for (const pane of this._indicatorPanes.values()) {
-            pane.setWidth(this._width - drawingToolbarWidth, priceAxisWidth);
+            pane.setWidth(usableWidth - drawingToolbarWidth, priceAxisWidth);
         }
 
         // Update CSS Custom Properties dynamically (for runtime changes)
@@ -1263,7 +1271,38 @@ export class ChartWidget implements Disposable {
         this._technicalRatingBadge?.updateRating(this._model.symbol, timeframe, this._currentExchange);
     }
 
+    /** Toolbar'daki "Liste" dugmesiyle acilan izleme listesi paneli. */
+    private _createWatchlist(): void {
+        if (!this._element || !this._toolbarWidget) return;
+        this._watchlistPanel?.destroy();
+        const panel = new WatchlistPanel(this._element, this._toolbarWidget.height);
+        this._watchlistPanel = panel;
+        panel.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+        panel.setActiveSymbol(this._model.symbol);
+
+        this._toolbarWidget.watchlistToggled.subscribe((enabled) => panel.setVisible(enabled));
+        panel.visibilityChanged.subscribe((visible) => {
+            this._toolbarWidget?.setWatchlistActive(visible);
+            this._updateLayout();
+            this._scheduleDraw();
+        });
+        panel.symbolSelected.subscribe((sel) => {
+            const type: SymbolInfo['type'] =
+                sel.assetClass === 'crypto' ? 'crypto' : sel.exchange === 'COMEX' ? 'futures' : 'forex';
+            this._onSymbolChange({
+                symbol: sel.code,
+                full_name: `${sel.exchange}:${sel.code}`,
+                description: sel.name,
+                exchange: sel.exchange,
+                type,
+            });
+        });
+
+        if (WatchlistPanel.wasOpen()) panel.setVisible(true);
+    }
+
     private _onSymbolChange(symbol: SymbolInfo): void {
+        this._watchlistPanel?.setActiveSymbol(symbol.symbol);
         console.log('🔍 Symbol changed to:', symbol.symbol, '@ Exchange:', symbol.exchange);
 
         // Update state manager - this saves current symbol's drawings and loads new symbol's drawings
@@ -2950,6 +2989,8 @@ export class ChartWidget implements Disposable {
         }
         this._indicatorPanes.clear();
 
+        this._watchlistPanel?.destroy();
+        this._watchlistPanel = null;
         this._toolbarWidget?.dispose();
         this._drawingToolbarWidget?.dispose();
         this._symbolSearch?.dispose();
@@ -3066,6 +3107,8 @@ export class ChartWidget implements Disposable {
                 : 'normal',
             timezone: this._timeAxisWidget ? this._timeAxisWidget.timezone : this._resolveInitialTimezone(),
         });
+
+        this._createWatchlist();
 
         // Listen for language changes
         this._toolbarWidget.languageChanged.subscribe((lang: string) => {
