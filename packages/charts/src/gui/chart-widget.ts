@@ -536,8 +536,12 @@ export class ChartWidget implements Disposable {
     /** Sembol/zaman dilimi bilgisine ihtiyac duyan indikatorlere (ör. spot karsilastirma) guncel degeri verir. */
     private _pushIndicatorContext(): void {
         for (const ind of this._indicatorManager.overlayIndicators) {
-            const withCtx = ind as unknown as { setContext?: (c: { symbol: string; timeframe: string }) => void };
-            withCtx.setContext?.({ symbol: this._model.symbol, timeframe: this._model.timeframe });
+            const withCtx = ind as unknown as { setContext?: (c: { symbol: string; timeframe: string; exchange?: string }) => void };
+            withCtx.setContext?.({
+                symbol: this._model.symbol,
+                timeframe: this._model.timeframe,
+                exchange: this._currentExchange || this._model.exchange,
+            });
         }
     }
 

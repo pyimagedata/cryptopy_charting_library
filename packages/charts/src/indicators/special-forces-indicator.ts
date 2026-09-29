@@ -320,6 +320,11 @@ export class SpecialForcesIndicator extends OverlayIndicator {
     private _bobbinBoxes: BobbinBox[] = [];
     private _engulfBoxes: EngulfBox[] = [];
     private _fetchToken = 0;
+    private _ctxTimeframe = '';
+    // Devam eden / son biten HTF hesabinin anahtari (symbol|exchange|tf).
+    private _inFlightKey: string | null = null;
+    private _lastDoneKey = '';
+    private _lastDoneAt = 0;
     private _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(options: Partial<SpecialForcesIndicatorOptions> = {}) {
@@ -334,6 +339,25 @@ export class SpecialForcesIndicator extends OverlayIndicator {
 
     get boxes(): SRBox[] {
         return this._boxes;
+    }
+
+    /**
+     * chart-widget her veri guncellemesinden once cagirir. Sembol/borsa
+     * olusturma aninda sabitlenirse (ya da kayittan geri yuklenirse) grafik
+     * baska bir sembole gecince eski sembolun HTF verisiyle kutu cizilirdi.
+     */
+    setContext(ctx: { symbol: string; timeframe: string; exchange?: string }): void {
+        this._ctxTimeframe = ctx.timeframe;
+        const exchange = ctx.exchange || this._sfOptions.exchange;
+        if (ctx.symbol === this._sfOptions.symbol && exchange === this._sfOptions.exchange) return;
+        this._sfOptions.symbol = ctx.symbol;
+        this._sfOptions.exchange = exchange;
+        (this._options as any).symbol = ctx.symbol;
+        (this._options as any).exchange = exchange;
+        this._boxes = [];
+        this._bobbinBoxes = [];
+        this._engulfBoxes = [];
+        this._lastDoneKey = '';
     }
 
     calculate(sourceData: BarData[]): void {
@@ -362,7 +386,15 @@ export class SpecialForcesIndicator extends OverlayIndicator {
         }
         this._debounceTimer = setTimeout(() => {
             this._debounceTimer = null;
-            void this._recompute(this._sourceData);
+            // Canli tick'ler ~her saniye calculate() tetikler; HTF veri cekmek bundan
+            // uzun surdugu icin her tick hesabi bastan baslatip oncekini iptal
+            // ediyordu ve kutular HIC olusmuyordu (sayfa yenilenince / sembol
+            // degisince). Ayni sembol+borsa+zaman diliminde hesap surerken ya da
+            // yeni bittiyse tekrar baslatma; baglam degisirse yenisi eskisini iptal eder.
+            const key = `${this._sfOptions.symbol}|${this._sfOptions.exchange}|${this._currentTimeframeGuess(this._sourceData)}`;
+            if (this._inFlightKey === key) return;
+            if (this._lastDoneKey === key && Date.now() - this._lastDoneAt < 30_000) return;
+            void this._recompute(this._sourceData, key);
         }, 500);
     }
 
@@ -491,11 +523,13 @@ export class SpecialForcesIndicator extends OverlayIndicator {
         return time > 1e12 ? time : time * 1000;
     }
 
-    private async _recompute(sourceData: BarData[]): Promise<void> {
+    private async _recompute(sourceData: BarData[], key: string = ''): Promise<void> {
         const token = ++this._fetchToken;
+        this._inFlightKey = key;
         const mainTf = this._currentTimeframeGuess(sourceData);
         const config = TIMEFRAME_CONFIG[mainTf];
         if (!config) {
+            this._inFlightKey = null;
             return;
         }
         const [tf1, tf2, mult1, mult2] = config;
@@ -516,9 +550,14 @@ export class SpecialForcesIndicator extends OverlayIndicator {
 
             const currentPrice = sourceData[sourceData.length - 1].close;
             this._boxes = this._selectNearestLevels(allBoxes, currentPrice);
+            this._lastDoneKey = key;
+            this._lastDoneAt = Date.now();
             this._dataChanged.fire();
         } catch (error) {
             console.warn('SpecialForcesIndicator: HTF veri çekilemedi', error);
+        } finally {
+            // Iptal edilmis (baska baglama ait) bir calisma yenisinin durumunu ezmesin.
+            if (token === this._fetchToken) this._inFlightKey = null;
         }
     }
 
@@ -638,6 +677,9 @@ export class SpecialForcesIndicator extends OverlayIndicator {
     }
 
     private _currentTimeframeGuess(sourceData: BarData[]): string {
+        // Gercek zaman dilimi biliniyorsa onu kullan: son iki mumun araligı
+        // COMEX'in kapali saatlerinde/hafta sonunda yanlis (2h, 1d...) cikiyor.
+        if (this._ctxTimeframe && TIMEFRAME_CONFIG[this._ctxTimeframe]) return this._ctxTimeframe;
         if (sourceData.length < 2) return '15m';
         const deltaMs = this._toMs(sourceData[sourceData.length - 1].time) - this._toMs(sourceData[sourceData.length - 2].time);
         const minutes = Math.round(deltaMs / 60000);
