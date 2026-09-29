@@ -846,6 +846,8 @@ export class PaneWidget implements Disposable {
         // Find main series for OHLC
         const mainSeries = this._model.serieses[0];
         let ohlcText = '';
+        // Fare altindaki (yoksa son) mum indeksi; overlay legend hook'lari icin.
+        let legendBarIndex: number | null = null;
 
         if (mainSeries) {
             const crosshair = this._model.crosshairPosition;
@@ -858,6 +860,7 @@ export class PaneWidget implements Disposable {
                 barIndex = (this._model.timeScale.pointsCount - 1) as TimePointIndex;
             }
 
+            legendBarIndex = barIndex as number;
             const mainSeriesData = mainSeries instanceof HeikenAshiSeries ? mainSeries.haData : mainSeries.data;
             const bar = mainSeriesData[barIndex];
             const prevBar = barIndex > 0 ? mainSeriesData[barIndex - 1] : null;
@@ -904,7 +907,10 @@ export class PaneWidget implements Disposable {
                 const name = indicator.name || indicator.options.name || 'Indicator';
                 // Get current value if available
                 const lastValue = indicator.data.length > 0 ? indicator.data[indicator.data.length - 1]?.value : null;
-                const valueText = lastValue !== null && !isNaN(lastValue) ? `${lastValue.toFixed(2)}` : '';
+                const legendHook = (indicator as unknown as { getLegendHtml?: (i: number | null, dark: boolean) => string }).getLegendHtml;
+                const valueText = legendHook
+                    ? legendHook.call(indicator, legendBarIndex, isDark)
+                    : (lastValue !== null && !isNaN(lastValue) ? `${lastValue.toFixed(2)}` : '');
                 const opacity = indicator.visible ? '1' : '0.4';
                 const eyeColor = indicator.visible ? '#787b86' : '#ef5350';
 
@@ -1004,6 +1010,11 @@ export class PaneWidget implements Disposable {
                     return;
                 }
 
+                const legendHook = (indicator as unknown as { getLegendHtml?: (i: number | null, dark: boolean) => string }).getLegendHtml;
+                if (legendHook) {
+                    (span as HTMLElement).innerHTML = legendHook.call(indicator, legendBarIndex, isDark);
+                    return;
+                }
                 const lastValue = indicator.data.length > 0 ? indicator.data[indicator.data.length - 1]?.value : null;
                 (span as HTMLElement).textContent = lastValue !== null && !isNaN(lastValue) ? lastValue.toFixed(2) : '';
             });

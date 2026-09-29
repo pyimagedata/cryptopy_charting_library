@@ -50,6 +50,10 @@ export {
     SpecialForcesIndicator,
     SpecialForcesIndicatorOptions,
     SpecialForcesKlinesProvider,
+    SpotCompareIndicator,
+    SpotCompareIndicatorOptions,
+    SpotCompareBar,
+    SpotCompareKlinesProvider,
 } from './indicators';
 
 export * from './patterns';

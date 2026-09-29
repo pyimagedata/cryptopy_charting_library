@@ -14,7 +14,7 @@ import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, SpotCompareIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -528,7 +528,16 @@ export class ChartWidget implements Disposable {
         // Update indicators with new data (only for BarData, not LineData)
         if (data.length > 0 && 'open' in data[0]) {
             const indicatorData = this._resolveIndicatorSourceData(series, data as BarData[]);
+            this._pushIndicatorContext();
             this._indicatorManager.setData(indicatorData);
+        }
+    }
+
+    /** Sembol/zaman dilimi bilgisine ihtiyac duyan indikatorlere (ör. spot karsilastirma) guncel degeri verir. */
+    private _pushIndicatorContext(): void {
+        for (const ind of this._indicatorManager.overlayIndicators) {
+            const withCtx = ind as unknown as { setContext?: (c: { symbol: string; timeframe: string }) => void };
+            withCtx.setContext?.({ symbol: this._model.symbol, timeframe: this._model.timeframe });
         }
     }
 
@@ -2146,6 +2155,7 @@ export class ChartWidget implements Disposable {
                 // Indicators typically need OHLC data. Check first element.
                 if (data.length > 0 && 'open' in (data[0] as any)) {
                     const indicatorData = this._resolveIndicatorSourceData(mainSeries as any, data as BarData[]);
+                    this._pushIndicatorContext();
                     this._indicatorManager.setData(indicatorData);
                 }
             }
@@ -2784,6 +2794,10 @@ export class ChartWidget implements Disposable {
                     symbol: this._model.symbol,
                     exchange: this._currentExchange,
                 }));
+                break;
+            case 'spot-compare':
+                this.addOverlayIndicator(new SpotCompareIndicator({}));
+                this._pushIndicatorContext();
                 break;
             case 'bobbin':
                 this.addOverlayIndicator(new BobbinIndicator({}));
