@@ -1173,14 +1173,19 @@ export class ChartWidget implements Disposable {
         this._timeAxisWidget?.setWidth(paneWidth);
 
         // Offset chart row for drawing toolbar (using CSS variable reference)
+        // Izleme listesi acikken satirlar (dolayisiyla fiyat/zaman eksenleri) da onun
+        // soluna daralir; yoksa eksenler panelin ALTINDA kalirdi.
         if (this._chartRow) {
             this._chartRow.style.marginLeft = 'var(--tv-drawing-toolbar-width)';
+            this._chartRow.style.marginRight = `${watchlistWidth}px`;
         }
         if (this._indicatorContainer) {
             this._indicatorContainer.style.marginLeft = 'var(--tv-drawing-toolbar-width)';
+            this._indicatorContainer.style.width = watchlistWidth ? `calc(100% - ${watchlistWidth}px)` : '100%';
         }
         if (this._timeAxisRow) {
             this._timeAxisRow.style.marginLeft = 'var(--tv-drawing-toolbar-width)';
+            this._timeAxisRow.style.marginRight = `${watchlistWidth}px`;
         }
 
         // Update indicator pane widths
