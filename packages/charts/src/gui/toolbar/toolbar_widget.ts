@@ -4,6 +4,7 @@
 
 import { Delegate } from '../../helpers/delegate';
 import { t } from '../../helpers/translations';
+import { displaySymbol } from '../../helpers/display-aliases';
 
 // SVG Icons for toolbar
 const TOOLBAR_ICONS = {
@@ -162,7 +163,7 @@ export class ToolbarWidget {
         this._options.symbol = symbol;
         const symbolEl = this._element?.querySelector('.toolbar-symbol-name');
         if (symbolEl) {
-            symbolEl.textContent = symbol;
+            symbolEl.textContent = displaySymbol(symbol);
         }
     }
 
@@ -311,7 +312,7 @@ export class ToolbarWidget {
         // Symbol name
         const symbolName = document.createElement('span');
         symbolName.className = 'toolbar-symbol-name';
-        symbolName.textContent = this._options.symbol!;
+        symbolName.textContent = displaySymbol(this._options.symbol!);
         symbolName.style.cssText = `
             font-weight: 600;
             color: #d1d4dc;

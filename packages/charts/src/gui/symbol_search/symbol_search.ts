@@ -10,6 +10,7 @@
 
 import { Delegate } from '../../helpers/delegate';
 import { t } from '../../helpers/translations';
+import { displaySymbol, displayExchange } from '../../helpers/display-aliases';
 
 // ============================================================================
 // Types
@@ -342,6 +343,7 @@ export class SymbolSearch {
 
     private static readonly FOREX_DESCRIPTIONS: Record<string, string> = {
         XAUUSD: 'Gold', XAGUSD: 'Silver', XPTUSD: 'Platinum', XPDUSD: 'Palladium',
+        GC1: 'Gold Futures', SI1: 'Silver Futures',
         USOIL: 'WTI Crude Oil', UKOIL: 'Brent Crude Oil',
     };
 
@@ -859,6 +861,8 @@ export class SymbolSearch {
         if (query) {
             filtered = filtered.filter(s =>
                 s.symbol.toLowerCase().includes(query) ||
+                displaySymbol(s.symbol).toLowerCase().includes(query) ||
+                displayExchange(s.exchange).toLowerCase().includes(query) ||
                 s.description.toLowerCase().includes(query) ||
                 s.full_name.toLowerCase().includes(query)
             );
@@ -916,7 +920,7 @@ export class SymbolSearch {
             font-weight: bold;
             flex-shrink: 0;
         `;
-        logo.textContent = symbol.symbol.substring(0, 2);
+        logo.textContent = displaySymbol(symbol.symbol).substring(0, 2);
         row.appendChild(logo);
 
         // Info
@@ -927,7 +931,7 @@ export class SymbolSearch {
         mainLine.style.cssText = `display: flex; align-items: center; gap: 8px;`;
 
         const symbolName = document.createElement('span');
-        symbolName.textContent = symbol.symbol;
+        symbolName.textContent = displaySymbol(symbol.symbol);
         symbolName.style.cssText = `font-weight: 600; color: #d1d4dc; font-size: 14px;`;
         mainLine.appendChild(symbolName);
 
@@ -951,7 +955,7 @@ export class SymbolSearch {
 
         // Exchange badge
         const exchange = document.createElement('span');
-        exchange.textContent = symbol.exchange;
+        exchange.textContent = displayExchange(symbol.exchange);
         exchange.style.cssText = `
             font-size: 11px;
             color: #787b86;

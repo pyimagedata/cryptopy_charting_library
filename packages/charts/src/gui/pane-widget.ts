@@ -10,6 +10,7 @@ import { AreaRenderer } from '../renderers/area-renderer';
 import { GridRenderer } from '../renderers/grid-renderer';
 import { WatermarkRenderer } from '../renderers/watermark-renderer';
 import { TimePointIndex, coordinate } from '../model/coordinate';
+import { displaySymbol } from '../helpers/display-aliases';
 import { isBarData } from '../model/data';
 import { OverlayIndicatorRenderer } from '../indicators/overlay-indicator-renderer';
 import { OverlayIndicator } from '../indicators/indicator';
@@ -839,6 +840,7 @@ export class PaneWidget implements Disposable {
         const secondaryColor = isDark ? '#787b86' : '#5d606b';
 
         const symbol = this._model.symbol || '---';
+        const shownSymbol = displaySymbol(symbol);
         const timeframe = this._model.timeframe || '---';
 
         // Find main series for OHLC
@@ -951,8 +953,8 @@ export class PaneWidget implements Disposable {
 
             this._legendElement.innerHTML = `
                 <div style="display: flex; align-items: center; white-space: nowrap; pointer-events: none;">
-                    <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${symbol[0]}</div>
-                    <span style="font-weight: bold; color: ${textColor}; font-size: 13px;">${symbol}</span>
+                    <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${shownSymbol[0]}</div>
+                    <span style="font-weight: bold; color: ${textColor}; font-size: 13px;">${shownSymbol}</span>
                     <span style="margin-left: 6px; color: ${secondaryColor}; font-size: 13px;">${this._model.marketTypeDisplayName}</span>
                     <span style="margin-left: 6px; color: ${textColor}; font-size: 13px;">• ${timeframe} • ${this._model.exchangeDisplayName}</span>
                     <div style="width: 8px; height: 8px; border-radius: 50%; background: #26a69a; margin-left: 8px; box-shadow: 0 0 5px #26a69a;"></div>

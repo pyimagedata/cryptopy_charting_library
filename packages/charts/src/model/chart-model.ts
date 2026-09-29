@@ -6,6 +6,7 @@ import { LineSeries, LineSeriesOptions } from './line-series';
 import { AreaSeries, AreaSeriesOptions } from './area-series';
 import { HeikenAshiSeries, HeikenAshiSeriesOptions } from '../series/heiken-ashi-series';
 import { Delegate } from '../helpers/delegate';
+import { displaySymbol, exchangeAlias } from '../helpers/display-aliases';
 
 /**
  * Layout options
@@ -255,7 +256,7 @@ export class ChartModel {
             'OKX': 'OKX',
             'OKX-FUTURES': 'OKX'
         };
-        return names[this._exchange] || this._exchange;
+        return exchangeAlias(this._exchange) ?? (names[this._exchange] || this._exchange);
     }
 
     /** Get market type display name */
@@ -270,7 +271,7 @@ export class ChartModel {
     }
 
     private _updateWatermarkText(): void {
-        const text = `${this._symbol} ${this._timeframe}`.trim();
+        const text = `${displaySymbol(this._symbol)} ${this._timeframe}`.trim();
         this._options.watermark.text = text;
     }
 
