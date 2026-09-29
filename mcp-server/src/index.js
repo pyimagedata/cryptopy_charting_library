@@ -16,6 +16,13 @@ import {
     copyIndicatorToDraft,
     compileDraftIndicator,
 } from './draft-indicators.js';
+import {
+    writeDraftBacktest,
+    readDraftBacktest,
+    deleteDraftBacktest,
+    listDraftBacktests,
+    compileDraftBacktest,
+} from './draft-backtests.js';
 
 const MCP_PORT = Number(process.env.MCP_PORT || 8766);
 const BEARER_TOKEN = process.env.MCP_BEARER_TOKEN;
@@ -460,6 +467,32 @@ const DRAFT_INDICATOR_GUIDE =
     'production automatically. Once an experiment is abandoned or superseded, use delete_draft_indicator to remove ' +
     'its file so list_draft_indicators stays accurate.';
 
+const DRAFT_BACKTEST_GUIDE =
+    'Backtest drafts are PLAIN TypeScript scripts (NOT Indicator subclasses — no calculate()/getRange()/ ' +
+    'getDescription() contract) that run with full access to window.__agentBridge.handleCommand, the exact same ' +
+    'function every other MCP tool call goes through on the browser side. This means a backtest script can fetch ' +
+    'its own data and draw its own results DIRECTLY, with no MCP round-trip per candle or per trade — everything ' +
+    'happens in one load_draft_backtest call:\n\n' +
+    '// Fetch the chart\'s real OHLCV history (ascending time, with bar indices):\n' +
+    'const ctx = await window.__agentBridge.handleCommand({ tool: "get_chart_context", args: { lookback: 5000 } });\n' +
+    '// ctx.bars: { index, time, open, high, low, close, volume }[]\n\n' +
+    '// Walk the bars yourself, decide entries/exits per your strategy, then for EACH simulated trade:\n' +
+    'await window.__agentBridge.handleCommand({ tool: "draw_rectangle", args: {\n' +
+    '  startBarIndex, endBarIndex, priceHigh, priceLow, label: "WIN +1.8R",\n' +
+    '  color: won ? "#26a69a" : "#ef5350", fillColor: won ? "rgba(38,166,154,0.15)" : "rgba(239,83,80,0.15)",\n' +
+    '} });\n' +
+    '// draw_trendline / draw_callout are also available the same way (entry/stop/target lines, labels).\n\n' +
+    'End the script by setting the result the loader reads back:\n' +
+    'globalThis.__draftBacktestResult = { totalTrades, wins, losses, winRate, trades: [...] };\n\n' +
+    'Do not use import/export — the file is compiled standalone and executed as a script. Typical workflow: ' +
+    'write_draft_backtest to save your strategy script as "<name>_bt", load_draft_backtest to compile it, run it ' +
+    'against the real loaded chart, and draw every trade — then look at the chart yourself (capture_chart_screenshot ' +
+    'or ask the user) to verify each entry/stop/target was placed where the strategy rules actually say it should ' +
+    'be, not just trust the summary numbers. Iterate with write_draft_backtest + load_draft_backtest — a previous ' +
+    'run\'s drawings are NOT auto-cleared, so call clear_all_drawings first if re-running the same script would ' +
+    'otherwise double up markers. Once done, delete_draft_backtest to keep list_draft_backtests accurate — ' +
+    'these are throwaway experiments, never wired into anything else automatically.';
+
 server.registerTool(
     'list_indicator_sources',
     {
@@ -598,6 +631,93 @@ server.registerTool(
     async (args) => {
         const { js } = await compileDraftIndicator({ name: args.name });
         const result = await bridge.call('load_draft_indicator', { name: args.name, js, settings: args.settings || {} }, 15000);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+);
+
+server.registerTool(
+    'write_draft_backtest',
+    {
+        title: 'Write a draft backtest script (development only)',
+        description:
+            'Write a new or updated backtest script to the sandboxed backtest-drafts folder — separate from ' +
+            'indicator drafts, never touches production code. The name must end in "_bt" (e.g. "sp_bobin_test_bt"); ' +
+            'the file is saved as "<name>.ts". See the required shape and full workflow in this description:\n\n' + DRAFT_BACKTEST_GUIDE,
+        inputSchema: {
+            name: z.string().describe('Draft name ending in "_bt", e.g. "sp_bobin_test_bt".'),
+            code: z.string().describe('Full TypeScript source of the backtest script.'),
+        },
+    },
+    async (args) => {
+        const result = await writeDraftBacktest(args);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+);
+
+server.registerTool(
+    'list_draft_backtests',
+    {
+        title: 'List saved backtest drafts',
+        description: 'List all backtest scripts currently saved in the sandboxed backtest-drafts folder.',
+        inputSchema: {},
+    },
+    async () => {
+        const result = await listDraftBacktests();
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+);
+
+server.registerTool(
+    'read_draft_backtest',
+    {
+        title: 'Read a saved backtest draft',
+        description: 'Read back the current source of a saved backtest script, e.g. before revising it.',
+        inputSchema: {
+            name: z.string().describe('Draft name, e.g. "sp_bobin_test_bt".'),
+        },
+    },
+    async (args) => {
+        const result = await readDraftBacktest(args);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+);
+
+server.registerTool(
+    'delete_draft_backtest',
+    {
+        title: 'Delete a saved backtest draft',
+        description:
+            'Permanently delete a backtest script from the sandboxed backtest-drafts folder. Use this to clean up ' +
+            'abandoned/finished experiments so list_draft_backtests stays accurate.',
+        inputSchema: {
+            name: z.string().describe('Draft name to delete, e.g. "sp_bobin_test_bt".'),
+        },
+    },
+    async (args) => {
+        const result = await deleteDraftBacktest(args);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+);
+
+server.registerTool(
+    'load_draft_backtest',
+    {
+        title: 'Compile and run a draft backtest script against the live chart',
+        description:
+            'Compile a saved backtest script\'s TypeScript to JS and run it in the browser against the active ' +
+            'chart. The script drives window.__agentBridge.handleCommand itself (fetch real OHLCV via ' +
+            'get_chart_context, draw every simulated trade via draw_rectangle/draw_trendline/draw_callout) so the ' +
+            'whole run happens in ONE call, with the strategy\'s decisions ending up as real drawings on the chart ' +
+            'for visual verification — not just a number. Returns whatever the script set as ' +
+            'globalThis.__draftBacktestResult. This only works in the browser (chart must be open). A run can take ' +
+            'a while if it processes many bars/trades — this is expected.',
+        inputSchema: {
+            name: z.string().describe('Draft name, e.g. "sp_bobin_test_bt".'),
+        },
+    },
+    async (args) => {
+        const { js } = await compileDraftBacktest({ name: args.name });
+        const result = await bridge.call('load_draft_backtest', { name: args.name, js }, 60000);
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
 );
