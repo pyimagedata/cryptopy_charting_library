@@ -2323,16 +2323,23 @@ export class ChartWidget implements Disposable {
         const timeframe = this._model.timeframe;
         if (!timeframe) return null;
 
-        // Parse timeframe to milliseconds
-        const intervalMs = this._parseTimeframeToMs(timeframe);
-        if (intervalMs === 0) return null;
-
         const now = Date.now();
+        let remainingMs: number;
+        if (timeframe === 'M' || timeframe === '1mo') {
+            // Takvim ayi sabit sure degil; ayrica _parseTimeframeToMs "M"yi
+            // (buyuk harf) kucuk harfe cevirip "m" = 1 DAKIKA sanardi.
+            const d = new Date(now);
+            remainingMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - now;
+        } else {
+            // Parse timeframe to milliseconds
+            const intervalMs = this._parseTimeframeToMs(timeframe);
+            if (intervalMs === 0) return null;
 
-        // Calculate next candle close time
-        const currentCandleStart = Math.floor(now / intervalMs) * intervalMs;
-        const nextCandleStart = currentCandleStart + intervalMs;
-        const remainingMs = nextCandleStart - now;
+            // Calculate next candle close time
+            const currentCandleStart = Math.floor(now / intervalMs) * intervalMs;
+            const nextCandleStart = currentCandleStart + intervalMs;
+            remainingMs = nextCandleStart - now;
+        }
 
         if (remainingMs <= 0) return null;
 
@@ -2490,6 +2497,9 @@ export class ChartWidget implements Disposable {
             this._model.timeScale,
             { height: indicator.paneHeight }
         );
+        // Pane varsayilan (koyu) renklerle olusur; setTheme sadece tema DEGISINCE
+        // cagrildigi icin acik temada yeni eklenen panel koyu kaliyordu.
+        pane.setTheme(this._currentTheme);
 
         // Add interaction event listeners
         const canvas = pane.canvas;

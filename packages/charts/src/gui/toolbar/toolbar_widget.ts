@@ -52,7 +52,7 @@ const defaultToolbarOptions: ToolbarOptions = {
     symbol: 'BTCUSDT',
     timeframe: '1h',
     chartType: 'candles',
-    timeframes: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', 'D', 'W'],
+    timeframes: ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '12h', 'D', 'W', 'M'],
     locale: 'en',
     priceScaleMode: 'normal',
     timezone: 'America/New_York',

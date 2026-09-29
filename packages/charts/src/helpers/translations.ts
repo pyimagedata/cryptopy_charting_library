@@ -112,6 +112,7 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         '1h': '1s',
         '2h': '2s',
         '4h': '4s',
+        '12h': '12s',
         'D': 'G',
         'W': 'H',
         'M': 'A',

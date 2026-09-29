@@ -230,7 +230,9 @@ export class ChartModel {
     setExchange(exchange: string): void {
         this._exchange = exchange;
         // Determine market type from exchange string
-        this._marketType = exchange.includes('FUTURES') ? 'futures' : 'spot';
+        // COMEX vadeli/surekli kontrat borsasi (orn. GC1! altin vadeli) ama adinda
+        // kripto borsalari gibi "FUTURES" gecmiyor.
+        this._marketType = (exchange.includes('FUTURES') || exchange === 'COMEX') ? 'futures' : 'spot';
         this._invalidated.fire(InvalidateReason.Data);
     }
 
@@ -260,6 +262,9 @@ export class ChartModel {
     get marketTypeDisplayName(): string {
         if (this._exchange === 'BIST') {
             return 'Hisse';
+        }
+        if (this._exchange === 'COMEX') {
+            return 'Futures';
         }
         return this._marketType === 'futures' ? 'Perpetual Contract' : 'Spot';
     }
