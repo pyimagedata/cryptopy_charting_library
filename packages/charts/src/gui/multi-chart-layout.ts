@@ -13,6 +13,20 @@ export interface MultiChartSlotOptions extends Partial<ChartModelOptions> {
     locale?: string;
 }
 
+/**
+ * Hucrelerin birbirine gore boyutu: her eksen icin goreli agirliklar (fr).
+ * Ornegin 1x2'de columns [3, 2] sol hucrenin sagdakinden 1.5 kat genis
+ * olmasi demek. Uzunluk, layout'un sutun/satir sayisina esit olmali.
+ */
+export interface MultiChartRatios {
+    columns: number[];
+    rows: number[];
+}
+
+export interface MultiChartRatiosChangeEvent extends MultiChartRatios {
+    layout: MultiChartLayoutType;
+}
+
 export interface MultiChartLayoutOptions {
     layout?: MultiChartLayoutType;
     charts?: MultiChartSlotOptions[];
@@ -21,6 +35,8 @@ export interface MultiChartLayoutOptions {
     activeIndex?: number;
     gap?: number;
     locale?: string;
+    /** Baslangic hucre oranlari (sadece `layout` icin gecerli; gecersizse esit bolunur). */
+    ratios?: Partial<MultiChartRatios>;
 }
 
 export interface MultiChartSymbolChangeEvent {
@@ -47,33 +63,35 @@ const defaultOptions: Required<Pick<MultiChartLayoutOptions, 'layout' | 'syncSym
     gap: 8,
 };
 
-const LAYOUT_PRESETS: Record<MultiChartLayoutType, { count: number; columns: string; rows: string; positions: Array<{ col: number; row: number }> }> = {
-    '1x1': { count: 1, columns: 'minmax(0, 1fr)', rows: 'minmax(0, 1fr)', positions: [{ col: 1, row: 1 }] },
-    '2x1': {
-        count: 2,
-        columns: 'minmax(0, 1fr)',
-        rows: 'minmax(0, 1fr) minmax(0, 1fr)',
-        positions: [{ col: 1, row: 1 }, { col: 1, row: 2 }]
-    },
-    '1x2': {
-        count: 2,
-        columns: 'minmax(0, 1fr) minmax(0, 1fr)',
-        rows: 'minmax(0, 1fr)',
-        positions: [{ col: 1, row: 1 }, { col: 2, row: 1 }]
-    },
-    '1x3': {
-        count: 3,
-        columns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)',
-        rows: 'minmax(0, 1fr)',
-        positions: [{ col: 1, row: 1 }, { col: 2, row: 1 }, { col: 3, row: 1 }]
-    },
+type LayoutPreset = { count: number; columns: number; rows: number; positions: Array<{ col: number; row: number }> };
+
+const LAYOUT_PRESETS: Record<MultiChartLayoutType, LayoutPreset> = {
+    '1x1': { count: 1, columns: 1, rows: 1, positions: [{ col: 1, row: 1 }] },
+    '2x1': { count: 2, columns: 1, rows: 2, positions: [{ col: 1, row: 1 }, { col: 1, row: 2 }] },
+    '1x2': { count: 2, columns: 2, rows: 1, positions: [{ col: 1, row: 1 }, { col: 2, row: 1 }] },
+    '1x3': { count: 3, columns: 3, rows: 1, positions: [{ col: 1, row: 1 }, { col: 2, row: 1 }, { col: 3, row: 1 }] },
     '2x2': {
         count: 4,
-        columns: 'minmax(0, 1fr) minmax(0, 1fr)',
-        rows: 'minmax(0, 1fr) minmax(0, 1fr)',
+        columns: 2,
+        rows: 2,
         positions: [{ col: 1, row: 1 }, { col: 2, row: 1 }, { col: 1, row: 2 }, { col: 2, row: 2 }]
     },
 };
+
+/** Bir hucrenin (px) inebilecegi en kucuk boyut -- altina inerse grafik kaybolur. */
+const MIN_PANE_PX = 160;
+/** Ayirici tutamacinin tiklama alani (gorunen gap sadece 8px, tutmak zor olurdu). */
+const DIVIDER_HIT_PX = 14;
+const DIVIDER_ACCENT = 'rgba(41, 98, 255, 0.85)';
+
+type DividerKind = 'col' | 'row' | 'cross';
+interface Divider {
+    kind: DividerKind;
+    /** col/row icin: bu ayirici index ve index+1. iz (track) arasinda. */
+    index: number;
+    element: HTMLElement;
+    line: HTMLElement | null;
+}
 
 export class MultiChartLayout {
     private readonly _container: HTMLElement;
@@ -88,7 +106,13 @@ export class MultiChartLayout {
     private _syncing: boolean = false;
     private _theme: 'dark' | 'light' = 'dark';
     private _domEnabled: boolean = false;
+    private _columnRatios: number[] = [1];
+    private _rowRatios: number[] = [1];
+    private _dividers: Divider[] = [];
+    private _draggingDivider = false;
+    private _gridResizeObserver: ResizeObserver | null = null;
 
+    private readonly _ratiosChanged = new Delegate<MultiChartRatiosChangeEvent>();
     private readonly _activeChartChanged = new Delegate<number>();
     private readonly _symbolChanged = new Delegate<MultiChartSymbolChangeEvent>();
     private readonly _timeframeChanged = new Delegate<MultiChartTimeframeChangeEvent>();
@@ -126,15 +150,22 @@ export class MultiChartLayout {
             min-width: 0;
             min-height: 0;
             display: grid;
+            position: relative;
             background: #0f172a;
         `;
 
         this._container.appendChild(this._element);
         this._element.appendChild(this._grid);
 
+        this._resetRatios(this._options.ratios);
         this._buildLayout(this._options.charts || []);
         this._createToolbar();
         this.setActiveChart(Math.min(this._activeIndex, this._charts.length - 1));
+
+        if (typeof ResizeObserver !== 'undefined') {
+            this._gridResizeObserver = new ResizeObserver(() => this._layoutDividers());
+            this._gridResizeObserver.observe(this._grid);
+        }
     }
 
     get charts(): readonly ChartWidget[] {
@@ -147,6 +178,22 @@ export class MultiChartLayout {
 
     get activeChartChanged(): Delegate<number> {
         return this._activeChartChanged;
+    }
+
+    /** Kullanici bir ayiriciyi surukleyip biraktiginda (ya da cift tikla sifirladiginda) tetiklenir. */
+    get ratiosChanged(): Delegate<MultiChartRatiosChangeEvent> {
+        return this._ratiosChanged;
+    }
+
+    getRatios(): MultiChartRatios {
+        return { columns: [...this._columnRatios], rows: [...this._rowRatios] };
+    }
+
+    /** Hucre oranlarini programatik ayarlar (olay tetiklemez). Gecersiz eksen yok sayilir. */
+    setRatios(ratios: Partial<MultiChartRatios>): void {
+        this._resetRatios(ratios);
+        this._applyGridTemplate();
+        this._layoutDividers();
     }
 
     get symbolChanged(): Delegate<MultiChartSymbolChangeEvent> {
@@ -174,6 +221,7 @@ export class MultiChartLayout {
         }));
 
         this._layout = layout;
+        this._resetRatios();
         this._buildLayout(currentSlots);
         this._createToolbar();
         this.setActiveChart(Math.min(this._activeIndex, this._charts.length - 1));
@@ -208,7 +256,11 @@ export class MultiChartLayout {
         this._slots = [];
         this._toolbarWidget?.dispose();
         this._toolbarWidget = null;
+        this._gridResizeObserver?.disconnect();
+        this._gridResizeObserver = null;
+        this._dividers = [];
         this._element.remove();
+        this._ratiosChanged.destroy();
         this._activeChartChanged.destroy();
         this._symbolChanged.destroy();
         this._timeframeChanged.destroy();
@@ -280,7 +332,8 @@ export class MultiChartLayout {
         this._slots = [];
         this._grid.innerHTML = '';
 
-        const preset = this._applyGridPreset();
+        const preset = LAYOUT_PRESETS[this._layout];
+        this._applyGridTemplate();
 
         for (let i = 0; i < preset.count; i++) {
             const slot = document.createElement('div');
@@ -326,15 +379,202 @@ export class MultiChartLayout {
 
             this._charts.push(chart);
         }
+
+        this._buildDividers();
     }
 
-    private _applyGridPreset() {
-        const preset = LAYOUT_PRESETS[this._layout];
-        this._grid.style.gridTemplateColumns = preset.columns;
-        this._grid.style.gridTemplateRows = preset.rows;
+    private _applyGridTemplate(): void {
+        const track = (ratio: number) => `minmax(0, ${ratio}fr)`;
+        this._grid.style.gridTemplateColumns = this._columnRatios.map(track).join(' ');
+        this._grid.style.gridTemplateRows = this._rowRatios.map(track).join(' ');
         this._grid.style.gridAutoFlow = 'row';
-        this._grid.style.gap = `${this._options.gap ?? defaultOptions.gap}px`;
-        return preset;
+        this._grid.style.gap = `${this._gap}px`;
+    }
+
+    private get _gap(): number {
+        return this._options.gap ?? defaultOptions.gap;
+    }
+
+    /** Esit oranlara doner; `initial` gecerliyse (uzunluk + pozitif sayilar) o eksen icin onu kullanir. */
+    private _resetRatios(initial?: Partial<MultiChartRatios>): void {
+        const preset = LAYOUT_PRESETS[this._layout];
+        const valid = (values: number[] | undefined, length: number): values is number[] =>
+            Array.isArray(values) && values.length === length && values.every((v) => Number.isFinite(v) && v > 0);
+        this._columnRatios = valid(initial?.columns, preset.columns) ? [...initial!.columns!] : new Array(preset.columns).fill(1);
+        this._rowRatios = valid(initial?.rows, preset.rows) ? [...initial!.rows!] : new Array(preset.rows).fill(1);
+    }
+
+    // --- Yeniden boyutlandirma ayiricilari ---
+
+    private _buildDividers(): void {
+        this._dividers = [];
+
+        const addDivider = (kind: DividerKind, index: number): Divider => {
+            const element = document.createElement('div');
+            element.className = `tv-multi-chart-divider tv-multi-chart-divider-${kind}`;
+            element.style.cssText = `
+                position: absolute;
+                z-index: ${kind === 'cross' ? 7 : 6};
+                touch-action: none;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: ${kind === 'col' ? 'col-resize' : kind === 'row' ? 'row-resize' : 'move'};
+            `;
+            let line: HTMLElement | null = null;
+            if (kind !== 'cross') {
+                line = document.createElement('div');
+                line.style.cssText = `
+                    background: ${DIVIDER_ACCENT};
+                    border-radius: 2px;
+                    opacity: 0;
+                    transition: opacity 0.12s;
+                    pointer-events: none;
+                    ${kind === 'col' ? 'width: 3px; height: 100%;' : 'height: 3px; width: 100%;'}
+                `;
+                element.appendChild(line);
+            } else {
+                element.style.borderRadius = '50%';
+            }
+            const divider: Divider = { kind, index, element, line };
+
+            const setHot = (hot: boolean) => {
+                if (divider.line) {
+                    divider.line.style.opacity = hot ? '1' : '0';
+                } else {
+                    element.style.background = hot ? DIVIDER_ACCENT : 'transparent';
+                }
+            };
+            element.addEventListener('pointerenter', () => setHot(true));
+            element.addEventListener('pointerleave', () => {
+                // Surukleme sirasinda pointer capture var, imlec ayiricidan
+                // "cikmis" gorunse de vurgu surukleme bitene kadar kalir.
+                if (!this._draggingDivider) setHot(false);
+            });
+            element.addEventListener('pointerdown', (evt) => this._startDrag(evt, divider, setHot));
+            element.addEventListener('dblclick', () => this._resetAxis(kind));
+
+            this._grid.appendChild(element);
+            this._dividers.push(divider);
+            return divider;
+        };
+
+        const preset = LAYOUT_PRESETS[this._layout];
+        for (let i = 0; i < preset.columns - 1; i++) addDivider('col', i);
+        for (let i = 0; i < preset.rows - 1; i++) addDivider('row', i);
+        // 2x2'de dikey ve yatay ayiricinin kesistigi noktadan ikisi birden surulur.
+        if (preset.columns === 2 && preset.rows === 2) addDivider('cross', 0);
+
+        this._layoutDividers();
+    }
+
+    private _trackSizes(total: number, ratios: number[]): number[] {
+        const available = Math.max(0, total - this._gap * (ratios.length - 1));
+        const sum = ratios.reduce((a, b) => a + b, 0);
+        return ratios.map((r) => (available * r) / sum);
+    }
+
+    /** i. ve i+1. iz arasindaki bosluğun merkezi (grid'in sol/ust kenarindan px). */
+    private _boundaryCenter(sizes: number[], i: number): number {
+        let pos = 0;
+        for (let k = 0; k <= i; k++) pos += sizes[k];
+        return pos + this._gap * i + this._gap / 2;
+    }
+
+    private _layoutDividers(): void {
+        if (this._dividers.length === 0) return;
+        const width = this._grid.clientWidth;
+        const height = this._grid.clientHeight;
+        const colSizes = this._trackSizes(width, this._columnRatios);
+        const rowSizes = this._trackSizes(height, this._rowRatios);
+        const half = DIVIDER_HIT_PX / 2;
+
+        for (const d of this._dividers) {
+            const style = d.element.style;
+            if (d.kind === 'col') {
+                style.left = `${this._boundaryCenter(colSizes, d.index) - half}px`;
+                style.top = '0px';
+                style.width = `${DIVIDER_HIT_PX}px`;
+                style.height = '100%';
+            } else if (d.kind === 'row') {
+                style.top = `${this._boundaryCenter(rowSizes, d.index) - half}px`;
+                style.left = '0px';
+                style.height = `${DIVIDER_HIT_PX}px`;
+                style.width = '100%';
+            } else {
+                style.left = `${this._boundaryCenter(colSizes, 0) - DIVIDER_HIT_PX}px`;
+                style.top = `${this._boundaryCenter(rowSizes, 0) - DIVIDER_HIT_PX}px`;
+                style.width = `${DIVIDER_HIT_PX * 2}px`;
+                style.height = `${DIVIDER_HIT_PX * 2}px`;
+            }
+        }
+    }
+
+    private _startDrag(evt: PointerEvent, divider: Divider, setHot: (hot: boolean) => void): void {
+        evt.preventDefault();
+        const element = divider.element;
+        element.setPointerCapture(evt.pointerId);
+        this._draggingDivider = true;
+        setHot(true);
+        const previousUserSelect = document.body.style.userSelect;
+        document.body.style.userSelect = 'none';
+
+        const onMove = (e: PointerEvent) => {
+            if (divider.kind === 'col' || divider.kind === 'cross') {
+                this._dragTrack('col', divider.kind === 'cross' ? 0 : divider.index, e.clientX);
+            }
+            if (divider.kind === 'row' || divider.kind === 'cross') {
+                this._dragTrack('row', divider.kind === 'cross' ? 0 : divider.index, e.clientY);
+            }
+            this._applyGridTemplate();
+            this._layoutDividers();
+        };
+        const onEnd = (e: PointerEvent) => {
+            element.removeEventListener('pointermove', onMove);
+            element.removeEventListener('pointerup', onEnd);
+            element.removeEventListener('pointercancel', onEnd);
+            if (element.hasPointerCapture(e.pointerId)) element.releasePointerCapture(e.pointerId);
+            document.body.style.userSelect = previousUserSelect;
+            this._draggingDivider = false;
+            setHot(false);
+            this._fireRatiosChanged();
+        };
+        element.addEventListener('pointermove', onMove);
+        element.addEventListener('pointerup', onEnd);
+        element.addEventListener('pointercancel', onEnd);
+    }
+
+    /** i. ve i+1. izin toplam payini korur, aralarindaki siniri imlece tasir (min boyut sinirli). */
+    private _dragTrack(axis: 'col' | 'row', i: number, clientPos: number): void {
+        const rect = this._grid.getBoundingClientRect();
+        const ratios = axis === 'col' ? this._columnRatios : this._rowRatios;
+        const total = axis === 'col' ? rect.width : rect.height;
+        const origin = axis === 'col' ? rect.left : rect.top;
+        const sizes = this._trackSizes(total, ratios);
+
+        let start = 0;
+        for (let k = 0; k < i; k++) start += sizes[k] + this._gap;
+        const pairContent = sizes[i] + sizes[i + 1];
+        const minPx = Math.min(MIN_PANE_PX, pairContent / 2);
+        const wanted = clientPos - origin - start - this._gap / 2;
+        const first = Math.min(Math.max(wanted, minPx), pairContent - minPx);
+
+        const pairRatio = ratios[i] + ratios[i + 1];
+        ratios[i] = (pairRatio * first) / pairContent;
+        ratios[i + 1] = pairRatio - ratios[i];
+    }
+
+    private _resetAxis(kind: DividerKind): void {
+        const preset = LAYOUT_PRESETS[this._layout];
+        if (kind === 'col' || kind === 'cross') this._columnRatios = new Array(preset.columns).fill(1);
+        if (kind === 'row' || kind === 'cross') this._rowRatios = new Array(preset.rows).fill(1);
+        this._applyGridTemplate();
+        this._layoutDividers();
+        this._fireRatiosChanged();
+    }
+
+    private _fireRatiosChanged(): void {
+        this._ratiosChanged.fire({ layout: this._layout, ...this.getRatios() });
     }
 
     private _syncToolbarStateFromActiveChart(): void {
