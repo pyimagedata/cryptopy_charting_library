@@ -1,0 +1,86 @@
+//@version=5
+indicator("Matriks Aylik DeMark Pivot + EMA + OBV", overlay=true, max_bars_back=500)
+
+// Inputs
+pivotTf = input.timeframe("M", "Pivot Periyodu")
+useClassicPrevOpen = input.bool(false, "Klasik DeMark: Onceki ay Open kullan")
+showPivots = input.bool(true, "Pivotlari Goster")
+showEma = input.bool(true, "EMA'lari Goster")
+showClose = input.bool(false, "Kapanis Cizgisini Goster")
+showObv = input.bool(false, "OBV Cizgilerini Goster")
+obvDivider = input.float(250000000.0, "OBV Bolucu")
+
+// Aylik veriler
+mHighPrev = request.security(syminfo.tickerid, pivotTf, high[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+mLowPrev = request.security(syminfo.tickerid, pivotTf, low[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+mClosePrev = request.security(syminfo.tickerid, pivotTf, close[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+mOpenCurrent = request.security(syminfo.tickerid, pivotTf, open, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+mOpenPrev = request.security(syminfo.tickerid, pivotTf, open[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+
+// Matriks kodu:
+// H[i] = Veriler[i-1].High
+// L[i] = Veriler[i-1].Low
+// C[i] = Veriler[i-1].Close
+// O[i] = Veriler[i].Open
+pivotOpen = useClassicPrevOpen ? mOpenPrev : mOpenCurrent
+
+// DeMark Pivot
+x = mClosePrev < pivotOpen ? mLowPrev + mLowPrev + mHighPrev + mClosePrev : mClosePrev > pivotOpen ? mHighPrev + mHighPrev + mLowPrev + mClosePrev : mClosePrev + mClosePrev + mHighPrev + mLowPrev
+
+pp = x / 4.0
+r = mHighPrev - mLowPrev
+
+r1 = 2.0 * pp - mLowPrev
+s1 = 2.0 * pp - mHighPrev
+
+r2 = pp + r
+s2 = pp - r
+
+r3 = r1 + r
+s3 = s1 - r
+
+// EMA'lar
+ema21 = ta.ema(close, 21)
+ema33 = ta.ema(close, 33)
+ema55 = ta.ema(close, 55)
+ema144 = ta.ema(close, 144)
+ema233 = ta.ema(close, 233)
+
+// OBV
+obvRaw = ta.cum(close > close[1] ? volume : close < close[1] ? -volume : 0.0)
+obv = obvRaw / obvDivider
+
+oh1 = ta.highest(obv, 50)
+oh2 = ta.highest(obv, 25)
+oh3 = ta.highest(obv, 10)
+
+ro1 = oh1[1]
+ro2 = oh2[1]
+ro3 = oh3[1]
+
+// Pivot cizgileri
+plot(showPivots ? r3 : na, "Aylik R3", color=color.red, linewidth=1)
+plot(showPivots ? r2 : na, "Aylik R2", color=color.new(color.red, 20), linewidth=1)
+plot(showPivots ? r1 : na, "Aylik R1", color=color.new(color.red, 40), linewidth=1)
+
+plot(showPivots ? pp : na, "Aylik PW", color=color.yellow, linewidth=2)
+
+plot(showPivots ? s1 : na, "Aylik S1", color=color.new(color.lime, 40), linewidth=1)
+plot(showPivots ? s2 : na, "Aylik S2", color=color.new(color.lime, 20), linewidth=1)
+plot(showPivots ? s3 : na, "Aylik S3", color=color.lime, linewidth=1)
+
+// EMA cizgileri
+plot(showEma ? ema21 : na, "EMA 21", color=color.aqua, linewidth=1)
+plot(showEma ? ema33 : na, "EMA 33", color=color.blue, linewidth=1)
+plot(showEma ? ema55 : na, "EMA 55", color=color.purple, linewidth=1)
+plot(showEma ? ema144 : na, "EMA 144", color=color.orange, linewidth=2)
+plot(showEma ? ema233 : na, "EMA 233", color=color.maroon, linewidth=2)
+
+// Matriks Cizgiler[12] = C1
+plot(showClose ? close : na, "Kapanis", color=color.white, linewidth=1)
+
+// OBV cizgileri
+plot(showObv ? obv : na, "OBV", color=color.gray, linewidth=1)
+plot(showObv ? ro1 : na, "RO1 OBV HHV 50 Ref", color=color.fuchsia, linewidth=1)
+plot(showObv ? ro2 : na, "RO2 OBV HHV 25 Ref", color=color.new(color.fuchsia, 30), linewidth=1)
+plot(showObv ? ro3 : na, "RO3 OBV HHV 10 Ref", color=color.new(color.fuchsia, 60), linewidth=1)

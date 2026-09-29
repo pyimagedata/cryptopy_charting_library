@@ -1,0 +1,106 @@
+//@version=5
+indicator("Matriks Haftalık DeMark Pivot + EMA + OBV", overlay=true, max_bars_back=500)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// INPUTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+pivotTf = input.timeframe("W", "Pivot Periyodu")
+
+useClassicPrevOpen = input.bool(false, "Klasik DeMark: Önceki hafta Open kullan", tooltip="Kapalı olursa Matriks kodundaki gibi önceki hafta Close ile bu haftaki Open karşılaştırılır.")
+
+showPivots = input.bool(true, "Pivotları Göster")
+showEma    = input.bool(true, "EMA'ları Göster")
+showClose  = input.bool(false, "Kapanış çizgisini göster")
+showObv    = input.bool(false, "OBV'yi fiyat grafiğinde göster")
+
+obvDivider = input.float(250000000.0, "OBV Bölücü")
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// WEEKLY DATA — MATRİKS 'H' KARŞILIĞI
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+wHighPrev    = request.security(syminfo.tickerid, pivotTf, high[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+wLowPrev     = request.security(syminfo.tickerid, pivotTf, low[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+wClosePrev   = request.security(syminfo.tickerid, pivotTf, close[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+wOpenCurrent = request.security(syminfo.tickerid, pivotTf, open, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+wOpenPrev    = request.security(syminfo.tickerid, pivotTf, open[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+
+pivotOpen = useClassicPrevOpen ? wOpenPrev : wOpenCurrent
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DEMARK PIVOT HESABI
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+x = wClosePrev < pivotOpen ? wLowPrev + wLowPrev + wHighPrev + wClosePrev : wClosePrev > pivotOpen ? wHighPrev + wHighPrev + wLowPrev + wClosePrev : wClosePrev + wClosePrev + wHighPrev + wLowPrev
+
+pp = x / 4.0
+
+rng = wHighPrev - wLowPrev
+
+r1 = 2.0 * pp - wLowPrev
+s1 = 2.0 * pp - wHighPrev
+
+r2 = pp + rng
+s2 = pp - rng
+
+r3 = r1 + rng
+s3 = s1 - rng
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// EMA'LAR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ema21  = ta.ema(close, 21)
+ema33  = ta.ema(close, 33)
+ema55  = ta.ema(close, 55)
+ema144 = ta.ema(close, 144)
+ema233 = ta.ema(close, 233)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// OBV
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+obvRaw = ta.cum(close > close[1] ? volume : close < close[1] ? -volume : 0)
+obv = obvRaw / obvDivider
+
+obvHhv50 = ta.highest(obv, 50)
+obvHhv25 = ta.highest(obv, 25)
+obvHhv10 = ta.highest(obv, 10)
+
+ro1 = obvHhv50[1]
+ro2 = obvHhv25[1]
+ro3 = obvHhv10[1]
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PLOTS — HAFTALIK PIVOTLAR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plot(showPivots ? r3 : na, "Haftalık R3", color=color.red, linewidth=1)
+plot(showPivots ? r2 : na, "Haftalık R2", color=color.new(color.red, 20), linewidth=1)
+plot(showPivots ? r1 : na, "Haftalık R1", color=color.new(color.red, 40), linewidth=1)
+
+plot(showPivots ? pp : na, "Haftalık Pivot", color=color.yellow, linewidth=2)
+
+plot(showPivots ? s1 : na, "Haftalık S1", color=color.new(color.lime, 40), linewidth=1)
+plot(showPivots ? s2 : na, "Haftalık S2", color=color.new(color.lime, 20), linewidth=1)
+plot(showPivots ? s3 : na, "Haftalık S3", color=color.lime, linewidth=1)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PLOTS — EMA'LAR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plot(showEma ? ema21 : na, "EMA 21", color=color.aqua, linewidth=1)
+plot(showEma ? ema33 : na, "EMA 33", color=color.blue, linewidth=1)
+plot(showEma ? ema55 : na, "EMA 55", color=color.purple, linewidth=1)
+plot(showEma ? ema144 : na, "EMA 144", color=color.orange, linewidth=2)
+plot(showEma ? ema233 : na, "EMA 233", color=color.maroon, linewidth=2)
+
+// Matriks kodunda C1 de çizdirilmişti.
+plot(showClose ? close : na, "Kapanış", color=color.white, linewidth=1)
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PLOTS — OBV
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plot(showObv ? obv : na, "OBV / Divider", color=color.gray, linewidth=1)

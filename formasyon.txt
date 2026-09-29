@@ -1,0 +1,1379 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// ©ccryptopy
+
+//@version=5
+indicator('Cryptopy All Patterns', overlay=true, max_bars_back=200, max_lines_count=500)
+prd = input.int(defval=7, title='length-0', group = "Length")
+prd1 = input(defval=true, title='length-1', group = "Length")
+prd2 = input(defval=true, title='length-2', group = "Length")
+prd3 = input(defval=true, title='length-3', group = "Length")
+prd4 = input(defval=true, title='length-4', group = "Length")
+prd5 = input(defval=true, title='length-5', group = "Length")
+prd6 = input(defval=true, title='length-6', group = "Length")
+show_pred = input(defval=false, title='show pred', group = "show")
+
+
+source = input(close)
+responsiveness = math.max(0.00001, input.float(0.9, minval=0.0, maxval=1.0))
+period = input(50)
+sd = ta.stdev(source, 50) * responsiveness
+
+var worm = source
+diff = source - worm
+delta = math.abs(diff) > sd ? math.sign(diff) * sd : diff
+worm += delta
+ma = ta.sma(source, period)
+raw_momentum = (worm - ma) / worm
+current_med = raw_momentum
+min_med = ta.lowest(current_med, period)
+max_med = ta.highest(current_med, period)
+temp = (current_med - min_med) / (max_med - min_med)
+value = 0.5 * 2
+value *= (temp - .5 + .5 * nz(value[1]))
+value := value > .9999 ? .9999 : value
+value := value < -0.9999 ? -0.9999 : value
+temp2 = (1 + value) / (1 - value)
+momentum = .25 * math.log(temp2)
+momentum += .5 * nz(momentum[1])
+
+
+wma = ta.wma(close, 200)
+wma100 = ta.wma(close, 100)
+wma50 = ta.wma(close, 50)
+
+ema20 = ta.ema(close, 20)
+
+ema50 = ta.ema(close, 50)
+ema100 = ta.ema(close, 100)
+ema200 = ta.ema(close, 200)
+
+upcol = color.lime
+dncol = color.red
+
+bull_pennant = input(defval=false, title='bull pennant', group = "patterns")
+bear_pennant = input(defval=false, title='bear pennant', group = "patterns")
+
+bull_flag = input(defval=false, title='bull flag', group = "patterns")
+bear_flag = input(defval=false, title='bear flag', group = "patterns")
+
+bull_wedgec = input(defval=false, title='bull wedgec', group = "patterns")
+bear_wedgec = input(defval=false, title='bear wedgec', group = "patterns")
+
+bull_cah = input(defval = false, title = "bull cup and hadle", group = "patterns")
+hds = input(defval = false, title = "head and shoulders", group = "patterns")
+ihds = input(defval = false, title = "inv head and shoulders", group = "patterns")
+
+double_bottom = input(defval = false, title = "double bottom", group = "patterns")
+double_top = input(defval = false, title = "double top", group = "patterns")
+
+asc_triangle = input(defval = false, title = "ascending triangle", group = "patterns")
+des_triangle = input(defval = false, title = "descending triangle", group = "patterns")
+
+
+bull_wedger = input(defval=false, title='bull wedge reversal', group = "patterns")
+bear_wedger = input(defval=false, title='bear wedge reversal', group = "patterns")
+
+var line_w = input(defval=2, title='line width', group = "Line")
+//var bull_pole_color = input.color(defval=color.red, title='bull pole color', group = "Line")
+// var bear_pole_color = input.color(defval=color.red, title='bear pole color', group = "Line")
+// var bull_line_color = input(defval=color.orange, title='bull pattern color', group = "Line")
+// var bear_line_color = input(defval=color.orange, title='bear pattern color', group = "Line")
+
+var lineMap = map.new<string, line>()
+var labelMap = map.new<string, label>()
+
+
+var myMap = map.new<string, float>()
+if bar_index < 1
+    myMap.put("bull_pennat", 0)
+    myMap.put("bear_pennat", 0)
+    myMap.put("bull_flag", 0)
+    myMap.put("bear_flag", 0)
+    myMap.put("bull_wedgec", 0)
+    myMap.put("bear_wedgec", 0)
+    myMap.put("bull_cah", 0)
+    myMap.put("ihas", 0)
+    myMap.put("has", 0)
+    myMap.put("db", 0)
+    myMap.put("dt", 0)
+    myMap.put("asc", 0)
+    myMap.put("des", 0)
+    myMap.put("bull_wedger", 0)
+    myMap.put("bear_wedger", 0)
+
+
+zigzag_func(prd) =>
+
+    var int i = 1
+
+    float ph = ta.highestbars(high, prd) == 0 ? high : na
+    float pl = ta.lowestbars(low, prd) == 0 ? low : na
+    var dir = 0
+    iff_1 = pl and na(ph) ? -1 : dir
+    dir := ph and na(pl) ? 1 : iff_1
+    var max_array_size = 20
+    var zigzag = array.new_float(0)
+    oldzigzag = array.copy(zigzag)
+
+    bool dirchanged = dir != dir[1]
+    if ph or pl
+        if dirchanged
+            //add_to_zigzag(dir == 1 ? ph : pl, bar_index)
+            value = dir == 1 ? ph : pl
+            bindex = bar_index
+            array.unshift(zigzag, bindex)
+            array.unshift(zigzag, value)
+            if array.size(zigzag) > max_array_size
+                array.pop(zigzag)
+                array.pop(zigzag)
+        else
+            //update_zigzag(dir == 1 ? ph : pl, bar_index)
+            value = dir == 1 ? ph : pl
+            bindex = bar_index
+            if array.size(zigzag) == 0
+                array.unshift(zigzag, bindex)
+                array.unshift(zigzag, value)
+                if array.size(zigzag) > max_array_size
+                    array.pop(zigzag)
+                    array.pop(zigzag)
+            else
+                if (dir == 1 and value > array.get(zigzag, 0)) or (dir == -1 and value < array.get(zigzag, 0))
+                    array.set(zigzag, 0, value)
+                    array.set(zigzag, 1, bindex)
+                0.
+    
+    [zigzag, dir]
+
+pennant_bull_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == 1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close < myMap.get("bull_pennant")
+            line.delete(lineMap.get("bull_pennat1"))
+            line.delete(lineMap.get("bull_pennat2"))
+            line.delete(lineMap.get("bull_pennat3"))
+
+            label.delete(labelMap.get("bull_pennant"))
+
+        if X < A and C < A and B < D and B < A and X < B and A - (A - X)*0.786 < B and A - (A-X)*0.786 < B and close <= A //and close[bar_index-int(D_index)] > ema200
+
+            slope_high = (A - C)/(int(A_index) - int(C_index))
+            bh = A - slope_high*int(A_index)
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*A_index + bh
+
+            slope_low = (B - D)/(B_index - D_index)
+            bl = B - slope_low*B_index
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*A_index + bl
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close > bar_index_high ? 1 : 0
+
+            if bar_index_low < bar_index_high and pred_cond
+
+                myMap.put("bull_pennant", B)
+                
+                line.delete(lineMap.get("bull_pennat1"))
+                line.delete(lineMap.get("bull_pennat2"))
+                line.delete(lineMap.get("bull_pennat3"))
+
+                label.delete(labelMap.get("bull_pennant"))
+
+                lineMap.put("bull_pennat1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_pennat2", line.new(int(A_index), A, bar_index, bar_index_high, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_pennat3", line.new(int(A_index), x_index_low, bar_index, bar_index_low, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                
+                labelMap.put("bull_pennant", label.new(int(A_index), high[bar_index-int(A_index)], text="pennant", yloc = yloc.abovebar, style = label.style_label_down, color = color.green, textcolor = color.white))
+
+
+pennant_bear_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        zigzag_ = array.copy(zigzag)
+        if dir == -1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close > myMap.get("bear_pennant")
+            line.delete(lineMap.get("bear_pennat1"))
+            line.delete(lineMap.get("bear_pennat2"))
+            line.delete(lineMap.get("bear_pennat3"))
+
+            label.delete(labelMap.get("bear_pennant"))
+
+        if X > A and C > A and B > D and B > A and X > B and A - (A-X)*0.786 > B
+
+            slope_low = (A - C)/(int(A_index) - int(C_index))
+            bl = A - slope_low*int(A_index)
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*A_index + bl
+
+            slope_high = (B - D)/(B_index - D_index)
+            bh = B - slope_high*B_index
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*A_index + bh
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close < bar_index_low ? 1 : 0
+
+            if bar_index_low < bar_index_high and pred_cond
+
+                myMap.put("bear_pennant", B)
+
+                line.delete(lineMap.get("bear_pennat1"))
+                line.delete(lineMap.get("bear_pennat2"))
+                line.delete(lineMap.get("bear_pennat3"))
+
+                label.delete(labelMap.get("bear_pennant"))
+                
+                lineMap.put("bear_pennat1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("bear_pennat2", line.new(int(A_index), A, bar_index, bar_index_low, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("bear_pennat3", line.new(int(A_index), x_index_high, bar_index, bar_index_high, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                
+                labelMap.put("bear_pennant", label.new(int(A_index), low[bar_index-int(A_index)], text="pennant", yloc = yloc.belowbar, style = label.style_label_up, color = color.red, textcolor = color.white))
+
+                
+        
+
+flag_bull_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == 1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close < myMap.get("bull_flag")
+            line.delete(lineMap.get("bull_flag1"))
+            line.delete(lineMap.get("bull_flag2"))
+            line.delete(lineMap.get("bull_flag3"))
+
+            label.delete(labelMap.get("bull_flag"))
+
+        if X < A and C <= A and B >= D and B < A and X < B and D > X and A - (A - X)*0.786 < B and D_index - A_index < 150//  and close[bar_index-int(D_index)] > ema200
+
+            slope_high = (A - C)/(A_index - C_index)
+            bh = C - slope_high*C_index
+            bar_index_high = slope_high*int(bar_index) + bh
+            x_index_high = slope_high*X_index + bh
+
+            slope_low = (B - D)/(B_index - D_index)
+            bl = B - slope_low*B_index
+            bar_index_low = slope_low*int(bar_index) + bl
+            x_index_low = slope_low*A_index + bl
+
+            mx = math.max(slope_high, slope_low)
+            mn = math.min(slope_high, slope_low)
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close > bar_index_high ? 1 : 0
+
+            if slope_high/slope_low < 1.5 and slope_high/slope_low > 0.7 and D < slope_high*(bar_index_high) + bh and pred_cond
+
+                myMap.put("bull_flag", D)
+                
+                line.delete(lineMap.get("bull_flag1"))
+                line.delete(lineMap.get("bull_flag2"))
+                line.delete(lineMap.get("bull_flag3"))
+
+                label.delete(labelMap.get("bull_flag"))
+                    
+                lineMap.put("bull_flag1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_flag2", line.new(int(A_index), A, bar_index, bar_index_high, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_flag3", line.new(int(A_index), x_index_low, bar_index, bar_index_low, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                
+                
+                labelMap.put("bull_flag", label.new(int(A_index), high[bar_index-int(A_index)], text="flag", yloc = yloc.abovebar, style = label.style_label_down, color = color.green, textcolor = color.white))
+                    
+
+
+flag_bear_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        zigzag_ = array.copy(zigzag)
+        if dir == -1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close > myMap.get("bear_flag")
+
+            line.delete(lineMap.get("bear_flag1"))
+            line.delete(lineMap.get("bear_flag2"))
+            line.delete(lineMap.get("bear_flag3"))
+
+            label.delete(labelMap.get("bear_flag"))
+
+        if X > A and C > A and B < D and B > A and X > B and D < X and D_index - A_index < 150
+
+            slope_low = (A - C)/(A_index - C_index)
+            bl = A - slope_low*A_index
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*A_index + bl
+
+            slope_high = (B - D)/(B_index - D_index)
+            bh = B - slope_high*B_index
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*A_index + bh
+
+
+            mx = math.max(slope_high, slope_low)
+            mn = math.min(slope_high, slope_low)
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close < bar_index_low ? 1 : 0
+
+            if slope_high/slope_low < 1.5 and slope_high/slope_low > 0.7 and D > slope_low*(D_index) + bl and pred_cond
+
+                myMap.put("bear_flag", D)
+                
+                line.delete(lineMap.get("bear_flag1"))
+                line.delete(lineMap.get("bear_flag2"))
+                line.delete(lineMap.get("bear_flag3"))
+
+                label.delete(labelMap.get("bear_flag"))
+                    
+                lineMap.put("bear_flag1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("bear_flag2", line.new(int(A_index), A, bar_index, bar_index_low, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("bear_flag3", line.new(int(A_index), x_index_high, bar_index, bar_index_high, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                
+                
+                labelMap.put("bear_flag", label.new(int(A_index), low[bar_index-int(A_index)], text="flag", yloc = yloc.belowbar, style = label.style_label_up, color = color.red, textcolor = color.white))
+                    
+                
+                
+                
+wedgec_bull_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == 1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close < myMap.get("bull_wedgec")
+
+            line.delete(lineMap.get("bull_wedgec1"))
+            line.delete(lineMap.get("bull_wedgec2"))
+            line.delete(lineMap.get("bull_wedgec3"))
+
+            label.delete(labelMap.get("bull_wedgec"))
+
+        if X < A and C <= A and B >= D and B < A and X < B and D > X and close < (A - X)*0.382 + D//  and close[bar_index-int(D_index)] > ema200//and A - (A - X)*0.786 < B
+
+            slope_high = (A - C)/(A_index - C_index)
+            bh = C - slope_high*C_index
+            bar_index_high = slope_high*int(bar_index) + bh
+            x_index_high = slope_high*X_index + bh
+
+            slope_low = (B - D)/(B_index - D_index)
+            bl = B - slope_low*B_index
+            bar_index_low = slope_low*int(bar_index) + bl
+            x_index_low = slope_low*A_index + bl
+
+            mx = math.max(slope_high, slope_low)
+            mn = math.min(slope_high, slope_low)
+
+            max = A
+            min = D
+
+            range_ = (max - min)/100
+            a_norm = (A - min) / range_
+            c_norm = (C - min) / range_
+            b_norm = (B - min) / range_
+            d_norm = (D - min) / range_
+
+            slope1 = (a_norm - c_norm)/(A_index - C_index)
+            slope2 = (b_norm - d_norm)/(B_index - D_index)
+
+            tan_alpha = (slope1 - slope2)/(1 + slope1 *slope2)
+            alpha = math.atan(tan_alpha)
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close > bar_index_high ? 1 : 0
+
+            if alpha < -0.099 and pred_cond and slope_high*int(bar_index) + bh > slope_low*int(bar_index) + bl
+
+                myMap.put("bull_wedgec", D)
+                
+                line.delete(lineMap.get("bull_wedgec1"))
+                line.delete(lineMap.get("bull_wedgec2"))
+                line.delete(lineMap.get("bull_wedgec3"))
+
+                label.delete(labelMap.get("bull_wedgec"))
+                
+                lineMap.put("bull_wedgec1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_wedgec2", line.new(int(A_index), A, bar_index, bar_index_high, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_wedgec3", line.new(int(A_index), x_index_low, bar_index, bar_index_low, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+
+                
+                labelMap.put("bull_wedgec", label.new(int(A_index), high[bar_index-int(A_index)], text="wedge cont", yloc = yloc.abovebar, style = label.style_label_down, color = color.green, textcolor = color.white))
+                    
+
+
+wedgec_bear_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        zigzag_ = array.copy(zigzag)
+        if dir == -1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close > myMap.get("bear_wedgec")
+
+            line.delete(lineMap.get("bear_wedgec1"))
+            line.delete(lineMap.get("bear_wedgec2"))
+            line.delete(lineMap.get("bear_wedgec3"))
+
+            label.delete(labelMap.get("bear_wedgec"))
+
+
+        if X > A and C > A and B < D and B > A and X > B and D < X
+
+            slope_low = (A - C)/(A_index - C_index)
+            bl = A - slope_low*A_index
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*A_index + bl
+
+            slope_high = (B - D)/(B_index - D_index)
+            bh = B - slope_high*B_index
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*A_index + bh
+
+
+            mx = math.max(slope_high, slope_low)
+            mn = math.min(slope_high, slope_low)
+
+            max = D
+            min = A
+
+            range_ = (max - min)/100
+            a_norm = (A - min) / range_
+            c_norm = (C - min) / range_
+            b_norm = (B - min) / range_
+            d_norm = (D - min) / range_
+
+            slope1 = (a_norm - c_norm)/(A_index - C_index)
+            slope2 = (b_norm - d_norm)/(B_index - D_index)
+
+            tan_alpha = (slope1 - slope2)/(1 + slope1 *slope2)
+            alpha = math.atan(tan_alpha)
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close < bar_index_low ? 1 : 0
+
+            if alpha > 0.05 and D > slope_low*(D_index) + bl and pred_cond and bar_index_low < bar_index_high
+
+                myMap.put("bear_wedgec", D)
+                
+                line.delete(lineMap.get("bear_wedgec1"))
+                line.delete(lineMap.get("bear_wedgec2"))
+                line.delete(lineMap.get("bear_wedgec3"))
+
+                label.delete(labelMap.get("bear_wedgec"))
+                    
+                lineMap.put("bear_wedgec1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("bear_wedgec2", line.new(int(A_index), A, bar_index, bar_index_low, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("bear_wedgec3", line.new(int(A_index), x_index_high, bar_index, bar_index_high, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+
+                labelMap.put("bear_wedgec", label.new(int(A_index), low[bar_index-int(A_index)], text="wedge cont", yloc = yloc.belowbar, style = label.style_label_up, color = color.red, textcolor = color.white))
+                    
+                
+
+bull_cuphandle_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == 1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close < myMap.get("bull_cah")
+
+            line.delete(lineMap.get("bull_cah1"))
+            line.delete(lineMap.get("bull_cah2"))
+            line.delete(lineMap.get("bull_cah3"))
+            line.delete(lineMap.get("bull_cah4"))
+            line.delete(lineMap.get("bull_cah5"))
+
+            label.delete(labelMap.get("cup_and_handle"))
+
+        if B < D and B < A and B < C
+
+            slope_high = (A - C)/(A_index - C_index)
+            bh = A - slope_high*A_index
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*X_index + bh
+
+            slope_low = (B - D)/(B_index - D_index)
+            bl = B - slope_low*B_index
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*X_index + bl
+
+            max = A
+            min = B
+
+            range_ = (max - min)/100
+            a_norm = (A - min) / range_
+            c_norm = (C - min) / range_
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close > bar_index_high ? 1 : 0
+
+            if math.abs(a_norm - c_norm) < 9 and int(C_index) - int(A_index) > (bar_index - int(C_index))*1 and pred_cond
+
+                myMap.put("bull_cah", D)
+
+                line.delete(lineMap.get("bull_cah1"))
+                line.delete(lineMap.get("bull_cah2"))
+                line.delete(lineMap.get("bull_cah3"))
+                line.delete(lineMap.get("bull_cah4"))
+                line.delete(lineMap.get("bull_cah5"))
+
+                label.delete(labelMap.get("cup_and_handle"))
+
+                lineMap.put("bull_cah1", line.new(int(A_index), A, int(B_index), B, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_cah2", line.new(int(B_index), B, int(C_index), C, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_cah3", line.new(int(C_index), C, int(D_index), D, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_cah4", line.new(int(D_index), D, int(bar_index), C, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_cah5", line.new(int(A_index), C, bar_index, C, xloc = xloc.bar_index, color = color.green,style = line.style_dashed, width = line_w))
+
+                
+                labelMap.put("cup_and_handle", label.new(int(C_index), low[bar_index-int(C_index)], text="cup and handle", yloc = yloc.abovebar, style = label.style_label_down, color = color.green, textcolor = color.white))
+                    
+
+
+has_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == -1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,10)
+        A = array.get(zigzag_,8)
+        B = array.get(zigzag_,6)
+        C = array.get(zigzag_,4)
+        D = array.get(zigzag_,2)
+        E = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,11)
+        A_index = array.get(zigzag_,9)
+        B_index = array.get(zigzag_,7)
+        C_index = array.get(zigzag_,5)
+        D_index = array.get(zigzag_,3)
+        E_index = array.get(zigzag_,1)
+
+        if close > myMap.get("has")
+
+            line.delete(lineMap.get("has1"))
+            line.delete(lineMap.get("has2"))
+            line.delete(lineMap.get("has3"))
+            line.delete(lineMap.get("has4"))
+            line.delete(lineMap.get("has5"))
+            line.delete(lineMap.get("has6"))
+            line.delete(lineMap.get("has7"))
+
+            label.delete(labelMap.get("has"))
+
+        max = C
+        min = B
+
+        range_ = (max - min)/100
+        b_norm = (B - min) / range_
+        d_norm = (D - min) / range_
+
+        slope_ = (b_norm - d_norm)/(B_index - D_index)
+
+
+        if X < A and X < B and B < A and A < C and D < C and E < C and A > D// and math.abs(slope_)*100 < 20
+
+            slope_low = (B - D)/(B_index - D_index)
+            bl = B - slope_low*B_index
+            bar_index_low = slope_low*int(bar_index) + bl
+            x_index_low = slope_low*(X_index) + bl
+
+            slope_n = (A - X)/(A_index - X_index)
+            bn = A - slope_n*A_index
+            
+
+            if math.abs(b_norm - d_norm) < 30 and b_norm - d_norm < 3
+                ind = 0
+                for i = int(X_index) to int(A_index) by 1
+                    if  slope_n*(i) + bn >= slope_low*(i) + bl
+                        ind := i
+                        break
+                
+                pred_cond = 1
+
+                if show_pred == false
+                    pred_cond := close < bar_index_low ? 1 : 0
+
+                if pred_cond
+
+                    myMap.put("has", E)
+                    
+                    line.delete(lineMap.get("has1"))
+                    line.delete(lineMap.get("has2"))
+                    line.delete(lineMap.get("has3"))
+                    line.delete(lineMap.get("has4"))
+                    line.delete(lineMap.get("has5"))
+                    line.delete(lineMap.get("has6"))
+                    line.delete(lineMap.get("has7"))
+
+                    label.delete(labelMap.get("has"))
+                    
+                    lineMap.put("has1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                    lineMap.put("has2", line.new(int(A_index), A, int(B_index), B, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                    lineMap.put("has3", line.new(int(B_index), B, int(C_index), C, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                    lineMap.put("has4", line.new(int(C_index), C, int(D_index), D, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                    lineMap.put("has5", line.new(int(D_index), D, int(E_index), E, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                    lineMap.put("has6", line.new(int(E_index), E, int(bar_index), bar_index_low, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                    lineMap.put("has7", line.new(int(ind), slope_low*(ind) + bl, int(bar_index), bar_index_low, xloc = xloc.bar_index, color = color.red,style = line.style_dashed, width = line_w) )
+
+                    
+                    labelMap.put("has", label.new(int(C_index), low[bar_index-int(C_index)], text="head and shoulders", yloc = yloc.abovebar, style = label.style_label_down, color = color.rgb(255, 0, 13), textcolor = color.white))
+                    
+            
+
+inv_has_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == 1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,10)
+        A = array.get(zigzag_,8)
+        B = array.get(zigzag_,6)
+        C = array.get(zigzag_,4)
+        D = array.get(zigzag_,2)
+        E = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,11)
+        A_index = array.get(zigzag_,9)
+        B_index = array.get(zigzag_,7)
+        C_index = array.get(zigzag_,5)
+        D_index = array.get(zigzag_,3)
+        E_index = array.get(zigzag_,1)
+
+        if close < myMap.get("ihas")
+
+            line.delete(lineMap.get("ihas1"))
+            line.delete(lineMap.get("ihas2"))
+            line.delete(lineMap.get("ihas3"))
+            line.delete(lineMap.get("ihas4"))
+            line.delete(lineMap.get("ihas5"))
+            line.delete(lineMap.get("ihas6"))
+            line.delete(lineMap.get("ihas7"))
+
+            label.delete(labelMap.get("ihas"))
+
+        max = B
+        min = C
+
+        range_ = (max - min)/100
+        b_norm = (B - min) / range_
+        d_norm = (D - min) / range_
+
+        slope_ = (b_norm - d_norm)/(B_index - D_index)
+
+
+        if X > A and X > B and B > A and A > C and D > C and E > C and A < D
+
+            slope_high = (B - D)/(B_index - D_index)
+            bh = B - slope_high*B_index
+            bar_index_high = slope_high*int(bar_index) + bh
+            x_index_high = slope_high*(X_index) + bh
+
+            slope_n = (A - X)/(A_index - X_index)
+            bn = A - slope_n*A_index
+            
+
+            if math.abs(b_norm - d_norm) < 30 and b_norm - d_norm > -3
+                ind = 0
+                for i = int(X_index) to int(A_index) by 1
+                    if  slope_n*(i) + bn <= slope_high*(i) + bh
+                        ind := i
+                        break
+                
+                pred_cond = 1
+
+                if show_pred == false
+                    pred_cond := close > bar_index_high ? 1 : 0
+
+                if pred_cond
+
+                    myMap.put("ihas", E)
+                    
+                    line.delete(lineMap.get("ihas1"))
+                    line.delete(lineMap.get("ihas2"))
+                    line.delete(lineMap.get("ihas3"))
+                    line.delete(lineMap.get("ihas4"))
+                    line.delete(lineMap.get("ihas5"))
+                    line.delete(lineMap.get("ihas6"))
+                    line.delete(lineMap.get("ihas7"))
+
+                    label.delete(labelMap.get("ihas"))
+                    
+                    lineMap.put("ihas1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                    lineMap.put("ihas2", line.new(int(A_index), A, int(B_index), B, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                    lineMap.put("ihas3", line.new(int(B_index), B, int(C_index), C, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                    lineMap.put("ihas4", line.new(int(C_index), C, int(D_index), D, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                    lineMap.put("ihas5", line.new(int(D_index), D, int(E_index), E, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                    lineMap.put("ihas6", line.new(int(E_index), E, int(bar_index), bar_index_high, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                    lineMap.put("ihas7", line.new(int(ind), slope_high*(ind) + bh, int(bar_index), bar_index_high, xloc = xloc.bar_index, color = color.green,style = line.style_dashed, width = line_w) )
+
+                    
+                    labelMap.put("ihas", label.new(int(C_index), low[bar_index-int(C_index)], text="inv head and shoulders", yloc = yloc.belowbar, style = label.style_label_up, color = color.green, textcolor = color.white))
+                    
+                    
+
+double_top_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == -1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,6)
+        A = array.get(zigzag_,4)
+        B = array.get(zigzag_,2)
+        C = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,7)
+        A_index = array.get(zigzag_,5)
+        B_index = array.get(zigzag_,3)
+        C_index = array.get(zigzag_,1)
+
+        if close > myMap.get("dt")
+
+            line.delete(lineMap.get("top1"))
+            line.delete(lineMap.get("top2"))
+            line.delete(lineMap.get("top3"))
+            line.delete(lineMap.get("top4"))
+            line.delete(lineMap.get("top5"))
+
+            label.delete(labelMap.get("double_top"))
+
+        if X < B and B < A and B < C and math.max(close[bar_index - int(C_index)], open[bar_index - int(C_index)]) < A and math.max(close[bar_index - int(A_index)], open[bar_index - int(A_index)]) < C and A - (A-B)*0.2 <= C and A - (A-B)*-0.2 >= C
+            
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close < B ? 1 : 0
+
+            if pred_cond
+
+                myMap.put("dt", C)
+                
+                line.delete(lineMap.get("top1"))
+                line.delete(lineMap.get("top2"))
+                line.delete(lineMap.get("top3"))
+                line.delete(lineMap.get("top4"))
+                line.delete(lineMap.get("top5"))
+
+                label.delete(labelMap.get("double_top"))
+        
+                lineMap.put("top1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("top2", line.new(int(A_index), A, int(B_index), B, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("top3", line.new(int(B_index), B, int(C_index), C, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("top4", line.new(int(C_index), C, int(bar_index), B, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("top5", line.new(int(A_index), B, bar_index, B, xloc = xloc.bar_index, color = color.red,style = line.style_dashed, width = line_w) )
+
+                
+                labelMap.put("double_top", label.new(int(A_index), low[bar_index-int(A_index)], text="double top", yloc = yloc.abovebar, style = label.style_label_down, color = color.rgb(255, 0, 13), textcolor = color.white))
+                    
+                
+
+
+
+double_bottom_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == 1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,6)
+        A = array.get(zigzag_,4)
+        B = array.get(zigzag_,2)
+        C = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,7)
+        A_index = array.get(zigzag_,5)
+        B_index = array.get(zigzag_,3)
+        C_index = array.get(zigzag_,1)
+
+        if close < myMap.get("db")
+
+            line.delete(lineMap.get("bottom1"))
+            line.delete(lineMap.get("bottom2"))
+            line.delete(lineMap.get("bottom3"))
+            line.delete(lineMap.get("bottom4"))
+            line.delete(lineMap.get("bottom5"))
+
+            label.delete(labelMap.get("double_bottom"))
+
+        if X > B and B > A and B > C and math.min(close[bar_index - int(C_index)], open[bar_index - int(C_index)]) > A and math.min(close[bar_index - int(A_index)], open[bar_index - int(A_index)]) > C and A - (A-B)*0.15 >= C and A - (A-B)*-0.15 <= C
+            
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close > B ? 1 : 0
+
+            if pred_cond
+
+                myMap.put("db", C)
+                
+                line.delete(lineMap.get("bottom1"))
+                line.delete(lineMap.get("bottom2"))
+                line.delete(lineMap.get("bottom3"))
+                line.delete(lineMap.get("bottom4"))
+                line.delete(lineMap.get("bottom5"))
+
+                label.delete(labelMap.get("double_bottom"))
+  
+                lineMap.put("bottom1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bottom2", line.new(int(A_index), A, int(B_index), B, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bottom3", line.new(int(B_index), B, int(C_index), C, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bottom4", line.new(int(C_index), C, int(bar_index), B, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bottom5", line.new(int(A_index), B, bar_index, B, xloc = xloc.bar_index, color = color.green,style = line.style_dashed, width = line_w) )
+
+                
+                labelMap.put("double_bottom", label.new(int(A_index), low[bar_index-int(A_index)], text="double bottom", yloc = yloc.belowbar, style = label.style_label_up, color = color.green, textcolor = color.white))
+                    
+
+
+asc_triangle_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == 1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close < myMap.get("asc")
+
+            line.delete(lineMap.get("asc1"))
+            line.delete(lineMap.get("asc2"))
+            line.delete(lineMap.get("asc3"))
+            line.delete(lineMap.get("asc4"))
+            line.delete(lineMap.get("asc5"))
+
+            label.delete(labelMap.get("asc"))
+
+        if B < D and B < A
+
+            slope_high = (A - C)/(int(A_index) - int(C_index))
+            bh = A - slope_high*int(A_index)
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*A_index + bh
+
+            slope_low = (B - D)/(B_index - D_index)
+            bl = B - slope_low*B_index
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*A_index + bl
+
+            max = math.max(A, C)
+            min = B
+
+            range_ = (max - min)/100
+            a_norm = (A - min) / range_
+            c_norm = (C - min) / range_
+            b_norm = (B - min) / range_
+            d_norm = (D - min) / range_
+
+            slope1 = (a_norm - c_norm)/(A_index - C_index)
+            slope2 = (b_norm - d_norm)/(B_index - D_index)
+
+            tan_alpha = (slope1 - slope2)/(1 + slope1 *slope2)
+            alpha = math.atan(tan_alpha)
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close > A ? 1 : 0
+
+            if bar_index_low < bar_index_high and slope2 > 0 and math.abs(a_norm - c_norm) < 9 and pred_cond
+
+                myMap.put("asc", D)
+
+                line.delete(lineMap.get("asc1"))
+                line.delete(lineMap.get("asc2"))
+                line.delete(lineMap.get("asc3"))
+                line.delete(lineMap.get("asc4"))
+                line.delete(lineMap.get("asc5"))
+
+                label.delete(labelMap.get("asc"))
+        
+                lineMap.put("asc1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("asc2", line.new(int(A_index), A, int(B_index), B, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("asc3", line.new(int(B_index), B, int(C_index), C, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("asc4", line.new(int(C_index), C, int(D_index), D, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("asc5", line.new(int(A_index), A, int(bar_index), A, xloc = xloc.bar_index, color = color.green,style = line.style_dashed, width = line_w) )
+
+                
+                labelMap.put("asc", label.new(int(A_index), low[bar_index-int(A_index)], text="ascending triangle", yloc = yloc.abovebar, style = label.style_label_down, color = color.green, textcolor = color.white))
+                    
+
+des_triangle_func(zigzag, dir)=>
+    if array.size(zigzag) > 15
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == -1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,8)
+        A = array.get(zigzag_,6)
+        B = array.get(zigzag_,4)
+        C = array.get(zigzag_,2)
+        D = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,9)
+        A_index = array.get(zigzag_,7)
+        B_index = array.get(zigzag_,5)
+        C_index = array.get(zigzag_,3)
+        D_index = array.get(zigzag_,1)
+
+        if close > myMap.get("des")
+        
+            line.delete(lineMap.get("des1"))
+            line.delete(lineMap.get("des2"))
+            line.delete(lineMap.get("des3"))
+            line.delete(lineMap.get("des4"))
+            line.delete(lineMap.get("des5"))
+
+            label.delete(labelMap.get("des"))
+
+        if X > B and B > D and B > A
+
+            slope_high = (B - D)/(int(B_index) - int(D_index))
+            bh = B - slope_high*int(B_index)
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*A_index + bh
+
+            slope_low = (A - C)/(A_index - C_index)
+            bl = A - slope_low*A_index
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*A_index + bl
+
+            max = B
+            min = math.min(A, C)
+
+            range_ = (max - min)/100
+            a_norm = (A - min) / range_
+            c_norm = (C - min) / range_
+            b_norm = (B - min) / range_
+            d_norm = (D - min) / range_
+
+            slope1 = (a_norm - c_norm)/(A_index - C_index)
+            slope2 = (b_norm - d_norm)/(B_index - D_index)
+
+            tan_alpha = (slope1 - slope2)/(1 + slope1 *slope2)
+            alpha = math.atan(tan_alpha)
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close < A ? 1 : 0
+
+            if bar_index_low < bar_index_high and slope2 > 0 and math.abs(a_norm - c_norm) < 9 and pred_cond
+
+                myMap.put("des", D)
+
+                line.delete(lineMap.get("des1"))
+                line.delete(lineMap.get("des2"))
+                line.delete(lineMap.get("des3"))
+                line.delete(lineMap.get("des4"))
+                line.delete(lineMap.get("des5"))
+
+                label.delete(labelMap.get("des"))
+            
+                lineMap.put("des1", line.new(int(X_index), X, int(A_index), A, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("des2", line.new(int(A_index), A, int(B_index), B, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("des3", line.new(int(B_index), B, int(C_index), C, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("des4", line.new(int(C_index), C, int(D_index), D, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("des5", line.new(int(A_index), A, int(bar_index), A, xloc = xloc.bar_index, color = color.red,style = line.style_dashed, width = line_w) )
+
+                
+                labelMap.put("des", label.new(int(A_index), low[bar_index-int(A_index)], text="descending triangle", yloc = yloc.abovebar, style = label.style_label_down, color = color.red, textcolor = color.white))
+
+
+
+
+bull_wedger_func(zigzag, dir)=>
+
+    if array.size(zigzag) > 15 and close > ema20
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == 1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,10)
+        A = array.get(zigzag_,8)
+        B = array.get(zigzag_,6)
+        C = array.get(zigzag_,4)
+        D = array.get(zigzag_,2)
+        E = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,11)
+        A_index = array.get(zigzag_,9)
+        B_index = array.get(zigzag_,7)
+        C_index = array.get(zigzag_,5)
+        D_index = array.get(zigzag_,3)
+        E_index = array.get(zigzag_,1)
+
+        if close < myMap.get("bull_wedger")
+
+            line.delete(lineMap.get("bull_wedger1"))
+            line.delete(lineMap.get("bull_wedger2"))
+
+            label.delete(labelMap.get("bull_wedger"))
+
+        if E <= C and C < A and D < B// and E_index - A_index < 150
+
+            slope_high = (B - D)/(int(B_index) - int(D_index))
+            bh = B - slope_high*int(B_index)
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*A_index + bh
+
+            slope_low = (A - E)/(A_index - E_index)
+            bl = A - slope_low*A_index
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*A_index + bl
+
+            max = B
+            min = C
+
+            range_ = (max - min)/100
+            a_norm = (A - min) / range_
+            c_norm = (C - min) / range_
+            b_norm = (B - min) / range_
+            d_norm = (D - min) / range_
+            e_norm = (E - min) / range_
+
+            slope1 = (a_norm - c_norm)/(A_index - C_index)
+            slope2 = (c_norm - e_norm)/(C_index - E_index)
+            slope3 = (a_norm - e_norm)/(A_index - E_index)
+            slope4 = (b_norm - d_norm)/(B_index - D_index)
+
+            s1 = math.abs(slope1)
+            s2 = math.abs(slope2)
+
+            slope_ratio = math.max(s1, s2)/math.min(s1, s2)
+            slope_diff = math.max(s1, s2) - math.min(s1, s2)
+
+            theta = math.atan((slope3 - slope4) / (1 + slope3 * slope4))
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close > bar_index_high ? 1 : 0
+
+            if bar_index_low < bar_index_high and slope_diff < 0.3 and theta > 0.06 and pred_cond// and math.min(close[bar_index - int(C_index)], open[bar_index - int(C_index)]) >= slope_low*(C_index) + bl
+
+                myMap.put("bull_wedger", E)
+                
+                line.delete(lineMap.get("bull_wedger1"))
+                line.delete(lineMap.get("bull_wedger2"))
+
+                label.delete(labelMap.get("bull_wedger"))
+                
+                lineMap.put("bull_wedger1", line.new(int(A_index), A, int(bar_index + 10), slope_low*(bar_index + 10) + bl, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                lineMap.put("bull_wedger2", line.new(int(B_index), B, int(bar_index + 10), slope_high*(bar_index + 10) + bh, xloc = xloc.bar_index, color = color.green,style = line.style_solid, width = line_w) )
+                
+                
+                labelMap.put("bull_wedger", label.new(int(E_index), low[bar_index-int(A_index)], text="wedge reversal", yloc = yloc.belowbar, style = label.style_label_up, color = color.green, textcolor = color.white))
+
+                
+
+bear_wedger_func(zigzag, dir)=>
+
+    if array.size(zigzag) > 15 and close < ema20
+        // bull
+        zigzag_ = array.copy(zigzag)
+        if dir == -1
+            array.remove(zigzag_, 0)
+            array.remove(zigzag_, 0)
+
+        X = array.get(zigzag_,10)
+        A = array.get(zigzag_,8)
+        B = array.get(zigzag_,6)
+        C = array.get(zigzag_,4)
+        D = array.get(zigzag_,2)
+        E = array.get(zigzag_,0)
+
+        X_index = array.get(zigzag_,11)
+        A_index = array.get(zigzag_,9)
+        B_index = array.get(zigzag_,7)
+        C_index = array.get(zigzag_,5)
+        D_index = array.get(zigzag_,3)
+        E_index = array.get(zigzag_,1)
+
+        if close > myMap.get("bear_wedger")
+
+            line.delete(lineMap.get("bear_wedger1"))
+            line.delete(lineMap.get("bear_wedger2"))
+
+            label.delete(labelMap.get("bear_wedger"))
+
+        if E > C and C > A and D > B //and E_index - A_index < 150
+
+            slope_high = (A - E)/(int(A_index) - int(E_index))
+            bh = A - slope_high*int(A_index)
+            bar_index_high = slope_high*bar_index + bh
+            x_index_high = slope_high*A_index + bh
+
+            slope_low = (B - D)/(B_index - D_index)
+            bl = B - slope_low*B_index
+            bar_index_low = slope_low*bar_index + bl
+            x_index_low = slope_low*A_index + bl
+
+            max = E
+            min = B 
+
+            range_ = (max - min)/100
+            a_norm = (A - min) / range_
+            c_norm = (C - min) / range_
+            b_norm = (B - min) / range_
+            d_norm = (D - min) / range_
+            e_norm = (E - min) / range_
+
+            slope1 = (a_norm - c_norm)/(A_index - C_index)
+            slope2 = (c_norm - e_norm)/(C_index - E_index)
+            slope3 = (a_norm - e_norm)/(A_index - E_index)
+            slope4 = (b_norm - d_norm)/(B_index - D_index)
+
+            s1 = math.abs(slope1)
+            s2 = math.abs(slope2)
+
+            slope_ratio = math.max(s1, s2)/math.min(s1, s2)
+            slope_diff = math.max(s1, s2) - math.min(s1, s2)
+
+            theta = math.atan((slope3 - slope4) / (1 + slope3 * slope4))
+
+            pred_cond = 1
+
+            if show_pred == false
+                pred_cond := close < bar_index_low ? 1 : 0
+
+            if bar_index_low < bar_index_high and slope_diff < 0.3 and theta < -0.1 and pred_cond// and math.max(close[bar_index - int(C_index)], open[bar_index - int(C_index)]) <= slope_high*(C_index) + bh
+
+                myMap.put("bear_wedger", E)
+                
+                line.delete(lineMap.get("bear_wedger1"))
+                line.delete(lineMap.get("bear_wedger2"))
+
+                label.delete(labelMap.get("bear_wedger"))
+
+                lineMap.put("bear_wedger1", line.new(int(A_index), A, int(bar_index + 10), slope_high*(bar_index + 10) + bh, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+                lineMap.put("bear_wedger2", line.new(int(B_index), B, int(bar_index + 10), slope_low*(bar_index + 10) + bl, xloc = xloc.bar_index, color = color.red,style = line.style_solid, width = line_w) )
+
+                
+                labelMap.put("bear_wedger", label.new(int(E_index), low[bar_index-int(A_index)], text="wedge reversal", yloc = yloc.abovebar, style = label.style_label_down, color = color.red, textcolor = color.white))
+                
+
+
+chart_patterns(zigzag, dir) =>
+
+  
+    if bull_pennant
+        pennant_bull_func(zigzag, dir)
+
+    if bull_flag
+        flag_bull_func(zigzag, dir)
+
+    if bull_wedgec
+        wedgec_bull_func(zigzag, dir)
+
+
+    if bear_pennant
+        pennant_bear_func(zigzag, dir)
+    
+    
+    if bear_flag
+        flag_bear_func(zigzag, dir)
+    
+    
+    if bear_wedgec
+        wedgec_bear_func(zigzag, dir)
+    
+    if bull_cah
+        bull_cuphandle_func(zigzag, dir)
+    
+    if hds
+        has_func(zigzag, dir)
+    
+    if ihds
+        inv_has_func(zigzag, dir)
+    
+    if double_top
+        double_top_func(zigzag, dir)
+    
+    if double_bottom
+        double_bottom_func(zigzag, dir)
+    
+    if asc_triangle
+        asc_triangle_func(zigzag, dir)
+    
+    if des_triangle
+        des_triangle_func(zigzag, dir)
+
+    if bull_wedger and momentum > 0
+        bull_wedger_func(zigzag, dir)
+    
+    if bear_wedger and momentum < 0
+        bear_wedger_func(zigzag, dir)
+
+if prd1
+    [zigzag, dir] = zigzag_func(8)
+    if barstate.islast
+        chart_patterns(zigzag, dir)
+
+if prd2
+    [zigzag, dir] = zigzag_func(12)
+    if barstate.islast
+        chart_patterns(zigzag, dir)
+
+if prd3
+    [zigzag, dir] = zigzag_func(15)
+    if barstate.islast
+        chart_patterns(zigzag, dir)
+
+if prd4
+    [zigzag, dir] = zigzag_func(20)
+    if barstate.islast
+        chart_patterns(zigzag, dir)
+
+// if prd5
+//     [zigzag, dir] = zigzag_func(25)
+//     if barstate.isconfirmed
+//         chart_patterns(zigzag, dir)
+
+// if prd6
+//     [zigzag, dir] = zigzag_func(30)
+//     if barstate.isconfirmed
+//         chart_patterns(zigzag, dir)
+
+if prd > 0
+    [zigzag, dir] = zigzag_func(prd)
+    if barstate.islast
+        chart_patterns(zigzag, dir)
