@@ -81,6 +81,8 @@ var LightweightCharts = (() => {
     detectGartleyPatterns: () => detectGartleyPatterns,
     detectSMCBreaks: () => detectSMCBreaks,
     detectTrendlineBreakouts: () => detectTrendlineBreakouts,
+    displayExchange: () => displayExchange,
+    displaySymbol: () => displaySymbol,
     ensureDefined: () => ensureDefined,
     ensureNotNull: () => ensureNotNull,
     generateAxisValues: () => generateAxisValues,
@@ -91,6 +93,7 @@ var LightweightCharts = (() => {
     niceNumber: () => niceNumber,
     roundTo: () => roundTo,
     scanHarmonicPivots: () => scanHarmonicPivots,
+    setDisplayAliases: () => setDisplayAliases,
     timePointIndex: () => timePointIndex
   });
 
@@ -1024,6 +1027,23 @@ var LightweightCharts = (() => {
     }
   };
 
+  // src/helpers/display-aliases.ts
+  var symbolAliases = {};
+  var exchangeAliases = {};
+  function setDisplayAliases(aliases) {
+    symbolAliases = { ...aliases.symbols || {} };
+    exchangeAliases = { ...aliases.exchanges || {} };
+  }
+  function displaySymbol(symbol) {
+    return Object.prototype.hasOwnProperty.call(symbolAliases, symbol) ? symbolAliases[symbol] : symbol;
+  }
+  function exchangeAlias(exchange) {
+    return Object.prototype.hasOwnProperty.call(exchangeAliases, exchange) ? exchangeAliases[exchange] : void 0;
+  }
+  function displayExchange(exchange) {
+    return exchangeAlias(exchange) ?? exchange;
+  }
+
   // src/model/chart-model.ts
   var defaultChartOptions = {
     width: 0,
@@ -1151,7 +1171,7 @@ var LightweightCharts = (() => {
         "OKX": "OKX",
         "OKX-FUTURES": "OKX"
       };
-      return names[this._exchange] || this._exchange;
+      return exchangeAlias(this._exchange) ?? (names[this._exchange] || this._exchange);
     }
     /** Get market type display name */
     get marketTypeDisplayName() {
@@ -1164,7 +1184,7 @@ var LightweightCharts = (() => {
       return this._marketType === "futures" ? "Perpetual Contract" : "Spot";
     }
     _updateWatermarkText() {
-      const text = `${this._symbol} ${this._timeframe}`.trim();
+      const text = `${displaySymbol(this._symbol)} ${this._timeframe}`.trim();
       this._options.watermark.text = text;
     }
     // --- Getters ---
@@ -15769,6 +15789,7 @@ var LightweightCharts = (() => {
       const textColor = isDark ? "#d1d4dc" : "#131722";
       const secondaryColor = isDark ? "#787b86" : "#5d606b";
       const symbol = this._model.symbol || "---";
+      const shownSymbol = displaySymbol(symbol);
       const timeframe = this._model.timeframe || "---";
       const mainSeries = this._model.serieses[0];
       let ohlcText = "";
@@ -15850,8 +15871,8 @@ var LightweightCharts = (() => {
         this._lastTimeframe = timeframe;
         this._legendElement.innerHTML = `
                 <div style="display: flex; align-items: center; white-space: nowrap; pointer-events: none;">
-                    <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${symbol[0]}</div>
-                    <span style="font-weight: bold; color: ${textColor}; font-size: 13px;">${symbol}</span>
+                    <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${shownSymbol[0]}</div>
+                    <span style="font-weight: bold; color: ${textColor}; font-size: 13px;">${shownSymbol}</span>
                     <span style="margin-left: 6px; color: ${secondaryColor}; font-size: 13px;">${this._model.marketTypeDisplayName}</span>
                     <span style="margin-left: 6px; color: ${textColor}; font-size: 13px;">\u2022 ${timeframe} \u2022 ${this._model.exchangeDisplayName}</span>
                     <div style="width: 8px; height: 8px; border-radius: 50%; background: #26a69a; margin-left: 8px; box-shadow: 0 0 5px #26a69a;"></div>
@@ -16762,7 +16783,7 @@ var LightweightCharts = (() => {
       this._options.symbol = symbol;
       const symbolEl = this._element?.querySelector(".toolbar-symbol-name");
       if (symbolEl) {
-        symbolEl.textContent = symbol;
+        symbolEl.textContent = displaySymbol(symbol);
       }
     }
     setTimeframe(timeframe, emit = true) {
@@ -16870,7 +16891,7 @@ var LightweightCharts = (() => {
       symbolSection.appendChild(searchIcon);
       const symbolName = document.createElement("span");
       symbolName.className = "toolbar-symbol-name";
-      symbolName.textContent = this._options.symbol;
+      symbolName.textContent = displaySymbol(this._options.symbol);
       symbolName.style.cssText = `
             font-weight: 600;
             color: #d1d4dc;
@@ -17605,6 +17626,8 @@ var LightweightCharts = (() => {
         XAGUSD: "Silver",
         XPTUSD: "Platinum",
         XPDUSD: "Palladium",
+        GC1: "Gold Futures",
+        SI1: "Silver Futures",
         USOIL: "WTI Crude Oil",
         UKOIL: "Brent Crude Oil"
       };
@@ -18054,7 +18077,7 @@ var LightweightCharts = (() => {
       }
       if (query) {
         filtered = filtered.filter(
-          (s) => s.symbol.toLowerCase().includes(query) || s.description.toLowerCase().includes(query) || s.full_name.toLowerCase().includes(query)
+          (s) => s.symbol.toLowerCase().includes(query) || displaySymbol(s.symbol).toLowerCase().includes(query) || displayExchange(s.exchange).toLowerCase().includes(query) || s.description.toLowerCase().includes(query) || s.full_name.toLowerCase().includes(query)
         );
       }
       this._renderList(filtered);
@@ -18103,14 +18126,14 @@ var LightweightCharts = (() => {
             font-weight: bold;
             flex-shrink: 0;
         `;
-      logo.textContent = symbol.symbol.substring(0, 2);
+      logo.textContent = displaySymbol(symbol.symbol).substring(0, 2);
       row.appendChild(logo);
       const info = document.createElement("div");
       info.style.cssText = `flex: 1; min-width: 0;`;
       const mainLine = document.createElement("div");
       mainLine.style.cssText = `display: flex; align-items: center; gap: 8px;`;
       const symbolName = document.createElement("span");
-      symbolName.textContent = symbol.symbol;
+      symbolName.textContent = displaySymbol(symbol.symbol);
       symbolName.style.cssText = `font-weight: 600; color: #d1d4dc; font-size: 14px;`;
       mainLine.appendChild(symbolName);
       const description = document.createElement("span");
@@ -18128,7 +18151,7 @@ var LightweightCharts = (() => {
         `;
       row.appendChild(type);
       const exchange = document.createElement("span");
-      exchange.textContent = symbol.exchange;
+      exchange.textContent = displayExchange(symbol.exchange);
       exchange.style.cssText = `
             font-size: 11px;
             color: #787b86;
