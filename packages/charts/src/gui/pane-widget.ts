@@ -141,6 +141,30 @@ export class PaneWidget implements Disposable {
     private _lastSymbol: string = '';
     private _lastTimeframe: string = '';
 
+    // Sol ustteki overlay indikator listesi acik/kapali (TradingView'deki gibi).
+    // Sadece kullanici tercihi: localStorage okunamazsa acik baslar.
+    private static readonly LEGEND_COLLAPSED_KEY = 'chart.legend.overlaysCollapsed';
+    private _legendCollapsed: boolean = PaneWidget._readLegendCollapsed();
+
+    private static _readLegendCollapsed(): boolean {
+        try {
+            return localStorage.getItem(PaneWidget.LEGEND_COLLAPSED_KEY) === '1';
+        } catch {
+            return false;
+        }
+    }
+
+    private _setLegendCollapsed(collapsed: boolean): void {
+        this._legendCollapsed = collapsed;
+        try {
+            localStorage.setItem(PaneWidget.LEGEND_COLLAPSED_KEY, collapsed ? '1' : '0');
+        } catch {
+            // Tercih kaydedilemese de bu oturumda calisir.
+        }
+        this._lastOverlayIndicatorCount = -1;
+        this._updateLegend();
+    }
+
     constructor(container: HTMLElement, model: ChartModel) {
         this._model = model;
         this._gridRenderer = new GridRenderer(model.options.grid);
@@ -901,7 +925,8 @@ export class PaneWidget implements Disposable {
         let overlayIndicatorsHtml = '';
         const overlayIndicators = this._overlayRenderer.indicators;
         if (overlayIndicators.length > 0) {
-            overlayIndicatorsHtml = '<div style="margin-top: 32px; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none;">';
+            const openTag = '<div style="margin-top: 32px; display: flex; flex-direction: column; align-items: flex-start; pointer-events: none;">';
+            overlayIndicatorsHtml = openTag;
             for (let i = 0; i < overlayIndicators.length; i++) {
                 const indicator = overlayIndicators[i];
                 const name = indicator.name || indicator.options.name || 'Indicator';
@@ -937,6 +962,16 @@ export class PaneWidget implements Disposable {
                     </div>
                 `;
             }
+            // Kapali: satirlari at, sadece "⌄ N" dugmesi kalsin.
+            if (this._legendCollapsed) overlayIndicatorsHtml = openTag;
+            const collapseBorder = isDark ? '#363a45' : '#d1d4dc';
+            const chevron = this._legendCollapsed
+                ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="1.5" d="m4.5 7 4.5 4.5L13.5 7"></path></svg>'
+                : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="1.5" d="m4.5 11 4.5-4.5L13.5 11"></path></svg>';
+            const collapseTitle = this._legendCollapsed ? 'Göstergeleri göster' : 'Göstergeleri gizle';
+            overlayIndicatorsHtml += `
+                <button class="overlay-collapse-btn" title="${collapseTitle}" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px; background: none; border: 1px solid ${collapseBorder}; border-radius: 4px; color: ${secondaryColor}; font-size: 12px; cursor: pointer; pointer-events: auto;">${chevron}${this._legendCollapsed ? `<span>${overlayIndicators.length}</span>` : ''}</button>
+            `;
             overlayIndicatorsHtml += '</div>';
         }
 
@@ -979,6 +1014,13 @@ export class PaneWidget implements Disposable {
                     if (action && this.onOverlayIndicatorAction) {
                         this.onOverlayIndicatorAction(action, index);
                     }
+                });
+            });
+
+            this._legendElement.querySelectorAll('.overlay-collapse-btn').forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this._setLegendCollapsed(!this._legendCollapsed);
                 });
             });
 
