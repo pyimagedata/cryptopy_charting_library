@@ -1156,7 +1156,7 @@ export class ChartWidget implements Disposable {
         }
 
         // Izleme listesi acikken grafik onun genisligi kadar daralir.
-        const watchlistWidth = this._watchlistPanel?.visible ? WatchlistPanel.WIDTH : 0;
+        const watchlistWidth = this._watchlistPanel?.visible ? this._watchlistPanel.width : 0;
         const usableWidth = this._width - watchlistWidth;
         this._technicalRatingBadge?.setRightOffset(watchlistWidth);
         const paneWidth = usableWidth - priceAxisWidth - drawingToolbarWidth;
@@ -1288,6 +1288,11 @@ export class ChartWidget implements Disposable {
         this._toolbarWidget.watchlistToggled.subscribe((enabled) => panel.setVisible(enabled));
         panel.visibilityChanged.subscribe((visible) => {
             this._toolbarWidget?.setWatchlistActive(visible);
+            this._updateLayout();
+            this._scheduleDraw();
+        });
+        panel.widthChanged.subscribe(() => {
+            if (!panel.visible) return;
             this._updateLayout();
             this._scheduleDraw();
         });

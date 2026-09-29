@@ -34,6 +34,11 @@ export interface WatchlistSelection {
 
 const KEYS_STORAGE = 'chart.watchlist.keys';
 const OPEN_STORAGE = 'chart.watchlist.open';
+const WIDTH_STORAGE = 'chart.watchlist.width';
+const MIN_WIDTH = 240;
+const DEFAULT_WIDTH = 320;
+// Bu genisligin altinda sadece Hacim sutunu gizlenir, isimler kesilmesin.
+const COMPACT_BELOW = 320;
 const REFRESH_MS = 5000;
 const UP = '#26a69a';
 const DOWN = '#ef5350';
@@ -78,15 +83,18 @@ function formatVolume(v: number): string {
 
 export class WatchlistPanel {
     static defaultProvider: WatchlistProvider | null = null;
-    static readonly WIDTH = 340;
 
     readonly symbolSelected = new Delegate<WatchlistSelection>();
     readonly visibilityChanged = new Delegate<boolean>();
+    readonly widthChanged = new Delegate<number>();
+    private _width = DEFAULT_WIDTH;
+    private readonly _parent: HTMLElement;
 
     private readonly _el: HTMLElement;
     private readonly _list: HTMLElement;
     private readonly _status: HTMLElement;
     private _menu: HTMLElement | null = null;
+    private _handle: HTMLElement | null = null;
     private _rows: WatchlistRow[] = [];
     private _keys: string[] | null = null;
     private _visible = false;
@@ -102,16 +110,20 @@ export class WatchlistPanel {
     };
 
     constructor(parent: HTMLElement, top: number) {
+        this._parent = parent;
+        const storedWidth = Number(readStorage(WIDTH_STORAGE));
+        if (Number.isFinite(storedWidth) && storedWidth > 0) this._width = storedWidth;
         this._el = document.createElement('div');
         this._el.className = 'tv-watchlist';
         this._el.style.cssText = `
             position: absolute; top: ${top}px; right: 0; bottom: 0;
-            width: ${WatchlistPanel.WIDTH}px; display: none; flex-direction: column;
+            width: ${this._width}px; display: none; flex-direction: column;
             z-index: 30; font-size: 12px; box-sizing: border-box; user-select: none;
         `;
         this._list = document.createElement('div');
         this._status = document.createElement('div');
         parent.appendChild(this._el);
+        this._createResizeHandle();
 
         const stored = readStorage(KEYS_STORAGE);
         if (stored) {
@@ -128,6 +140,43 @@ export class WatchlistPanel {
 
     get visible(): boolean {
         return this._visible;
+    }
+
+    get width(): number {
+        return this._width;
+    }
+
+    /** Genislik, panelin yanindaki grafik en az ~320px kalacak sekilde sinirlanir. */
+    private _clampWidth(w: number): number {
+        const max = Math.max(MIN_WIDTH, (this._parent.clientWidth || 1200) - 320);
+        return Math.round(Math.min(Math.max(w, MIN_WIDTH), Math.min(max, 640)));
+    }
+
+    setWidth(w: number, persist = true): void {
+        const next = this._clampWidth(w);
+        if (next === this._width) return;
+        this._width = next;
+        this._el.style.width = `${next}px`;
+        if (persist) writeStorage(WIDTH_STORAGE, String(next));
+        this._applyColumns();
+        this.widthChanged.fire(next);
+    }
+
+    private get _compact(): boolean {
+        return this._width < COMPACT_BELOW;
+    }
+
+    private _gridColumns(): string {
+        return this._compact ? '1fr 82px 64px' : '1fr 82px 64px 58px';
+    }
+
+    /** Genislik degisince sutun duzenini satirlari yeniden kurmadan gunceller. */
+    private _applyColumns(): void {
+        const cols = this._gridColumns();
+        this._el.querySelectorAll<HTMLElement>('[data-wl-grid]').forEach((el) => {
+            el.style.gridTemplateColumns = cols;
+            el.querySelectorAll<HTMLElement>('[data-wl-vol]').forEach((v) => (v.style.display = this._compact ? 'none' : ''));
+        });
     }
 
     /** Onceki oturumda acik birakildiysa true. */
@@ -170,6 +219,45 @@ export class WatchlistPanel {
             this._closeMenu();
         }
         this.visibilityChanged.fire(visible);
+    }
+
+    /** Sol kenardaki surukleme tutamaci: sola cekince panel genisler. */
+    private _createResizeHandle(): void {
+        const handle = document.createElement('div');
+        handle.className = 'wl-resize-handle';
+        handle.title = 'Genişliği ayarla';
+        handle.style.cssText = 'position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:45;touch-action:none;';
+        let startX = 0;
+        let startW = 0;
+        let frame = 0;
+        handle.addEventListener('pointerdown', (e) => {
+            startX = e.clientX;
+            startW = this._width;
+            handle.setPointerCapture(e.pointerId);
+            handle.style.background = 'rgba(41,98,255,0.35)';
+            e.preventDefault();
+        });
+        handle.addEventListener('pointermove', (e) => {
+            if (!handle.hasPointerCapture(e.pointerId)) return;
+            const target = startW + (startX - e.clientX);
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => this.setWidth(target, false));
+        });
+        const end = (e: PointerEvent) => {
+            if (!handle.hasPointerCapture(e.pointerId)) return;
+            handle.releasePointerCapture(e.pointerId);
+            handle.style.background = 'transparent';
+            cancelAnimationFrame(frame);
+            writeStorage(WIDTH_STORAGE, String(this._width));
+        };
+        handle.addEventListener('pointerup', end);
+        handle.addEventListener('pointercancel', end);
+        handle.addEventListener('mouseenter', () => (handle.style.background = 'rgba(41,98,255,0.35)'));
+        handle.addEventListener('mouseleave', () => {
+            if (!handle.hasPointerCapture?.(1)) handle.style.background = 'transparent';
+        });
+        this._handle = handle;
+        this._el.appendChild(handle);
     }
 
     private async _refresh(): Promise<void> {
@@ -288,8 +376,9 @@ export class WatchlistPanel {
 
         // Sutun basliklari
         const cols = document.createElement('div');
-        cols.style.cssText = `display:grid;grid-template-columns:1fr 82px 64px 58px;gap:4px;padding:6px 12px;color:${c.muted};font-size:11px;border-bottom:1px solid ${c.border};flex-shrink:0;`;
-        cols.innerHTML = '<span>Sembol</span><span style="text-align:right">Son</span><span style="text-align:right">Değ%</span><span style="text-align:right">Hacim</span>';
+        cols.setAttribute('data-wl-grid', '');
+        cols.style.cssText = `display:grid;grid-template-columns:${this._gridColumns()};gap:4px;padding:6px 12px;color:${c.muted};font-size:11px;border-bottom:1px solid ${c.border};flex-shrink:0;`;
+        cols.innerHTML = `<span>Sembol</span><span style="text-align:right">Son</span><span style="text-align:right">Değ%</span><span data-wl-vol style="text-align:right;display:${this._compact ? 'none' : ''}">Hacim</span>`;
         this._el.appendChild(cols);
 
         // Satirlar
@@ -298,6 +387,7 @@ export class WatchlistPanel {
 
         this._status.style.cssText = `display:${this._status.textContent ? 'block' : 'none'};padding:6px 12px;color:${c.muted};font-size:11px;border-top:1px solid ${c.border};flex-shrink:0;`;
         this._el.appendChild(this._status);
+        if (this._handle) this._el.appendChild(this._handle);
     }
 
     /** Sadece satirlari yeniler (periyodik guncellemede acik menuyu/baslik durumunu bozmaz). */
@@ -320,7 +410,8 @@ export class WatchlistPanel {
         const isActive = row.code === this._activeCode;
         const baseBg = isActive ? c.active : 'transparent';
         el.draggable = true;
-        el.style.cssText = `display:grid;grid-template-columns:1fr 82px 64px 58px;gap:4px;align-items:center;padding:7px 12px;cursor:pointer;background:${baseBg};position:relative;`;
+        el.setAttribute('data-wl-grid', '');
+        el.style.cssText = `display:grid;grid-template-columns:${this._gridColumns()};gap:4px;align-items:center;padding:7px 12px;cursor:pointer;background:${baseBg};position:relative;`;
 
         const change = row.change_pct;
         const color = change === null ? c.muted : change >= 0 ? UP : DOWN;
@@ -332,7 +423,7 @@ export class WatchlistPanel {
             </span>
             <span style="text-align:right;font-variant-numeric:tabular-nums;">${formatPrice(row.price)}</span>
             <span style="text-align:right;color:${color};font-variant-numeric:tabular-nums;">${pct}</span>
-            <span style="text-align:right;color:${c.muted};font-variant-numeric:tabular-nums;">${formatVolume(row.volume)}</span>
+            <span data-wl-vol style="text-align:right;color:${c.muted};font-variant-numeric:tabular-nums;display:${this._compact ? 'none' : ''};">${formatVolume(row.volume)}</span>
         `;
 
         const remove = document.createElement('button');
@@ -392,6 +483,7 @@ export class WatchlistPanel {
         document.removeEventListener('click', this._onDocClick);
         this.symbolSelected.destroy();
         this.visibilityChanged.destroy();
+        this.widthChanged.destroy();
         this._el.remove();
     }
 }
