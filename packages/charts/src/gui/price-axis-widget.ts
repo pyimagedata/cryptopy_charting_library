@@ -1,3 +1,4 @@
+import { startDragSession } from '../helpers/drag-session';
 import { PriceScale } from '../model/price-scale';
 import { coordinate } from '../model/coordinate';
 
@@ -283,20 +284,18 @@ export class PriceAxisWidget implements Disposable {
 
         this._ctx = this._canvas.getContext('2d');
 
-        const onMouseMove = (e: MouseEvent) => {
-            this._priceScale.scaleTo(e.clientY);
-        };
-
-        const onMouseUp = () => {
-            this._priceScale.endScale();
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-        };
-
+        let endScaleSession: (() => void) | null = null;
         this._canvas.addEventListener('mousedown', (e: MouseEvent) => {
+            if (e.button !== 0) return;
+            endScaleSession?.();
             this._priceScale.startScale(e.clientY);
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
+            endScaleSession = startDragSession(
+                (ev) => this._priceScale.scaleTo(ev.clientY),
+                () => {
+                    this._priceScale.endScale();
+                    endScaleSession = null;
+                },
+            );
             e.preventDefault();
         });
 

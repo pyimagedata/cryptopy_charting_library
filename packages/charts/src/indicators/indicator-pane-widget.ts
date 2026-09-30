@@ -5,6 +5,7 @@
  * Each pane has its own canvas, price scale, and can be resized.
  */
 
+import { startDragSession } from '../helpers/drag-session';
 import { PriceScale } from '../model/price-scale';
 import { TimeScale } from '../model/time-scale';
 import { PanelIndicator, IndicatorDataPoint } from './indicator';
@@ -812,20 +813,18 @@ export class IndicatorPaneWidget implements Disposable {
         this._element.appendChild(this._priceAxisCanvas);
 
         // Add drag scaling to indicator price axis
-        const onScaleMove = (e: MouseEvent) => {
-            this._priceScale.scaleTo(e.clientY);
-        };
-
-        const onScaleUp = () => {
-            this._priceScale.endScale();
-            document.removeEventListener('mousemove', onScaleMove);
-            document.removeEventListener('mouseup', onScaleUp);
-        };
-
+        let endScaleSession: (() => void) | null = null;
         this._priceAxisCanvas.addEventListener('mousedown', (e: MouseEvent) => {
+            if (e.button !== 0) return;
+            endScaleSession?.();
             this._priceScale.startScale(e.clientY);
-            document.addEventListener('mousemove', onScaleMove);
-            document.addEventListener('mouseup', onScaleUp);
+            endScaleSession = startDragSession(
+                (ev) => this._priceScale.scaleTo(ev.clientY),
+                () => {
+                    this._priceScale.endScale();
+                    endScaleSession = null;
+                },
+            );
             e.preventDefault();
         });
 
