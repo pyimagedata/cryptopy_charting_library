@@ -1417,7 +1417,12 @@ export class ChartWidget implements Disposable {
 
         const priceAxisElement = this._priceAxisWidget?.element;
         if (priceAxisElement) {
-            priceAxisElement.addEventListener('mousedown', this._onPriceAxisMouseDown.bind(this));
+            // Fare ile olcekleme SADECE PriceAxisWidget'in kendi canvas dinleyicisinde
+            // (sayfa koordinatlari + kaybolan mouseup guvencesi). Burada ikinci bir
+            // mousedown dinleyicisi ayni PriceScale'i farkli koordinat tabaninda
+            // (pane'e gore) baslatiyordu: surukleme once ters yone (pane'in sayfadaki
+            // ust bosluğu kadar) kayip sonra dogru yone donuyordu. Dokunmatik yol
+            // _onPriceAxisMouseDown'u dogrudan cagiriyor, bu dinleyiciye bagli degil.
             priceAxisElement.addEventListener('dblclick', this._onPriceAxisDoubleClick.bind(this));
 
             // Touch events for price axis scaling
