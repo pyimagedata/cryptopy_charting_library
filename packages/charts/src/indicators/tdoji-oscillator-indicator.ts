@@ -73,6 +73,7 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
     }
 
     getSettingValue(key: string): any {
+        if (key === 'visible') return this._options.visible;
         return (this._tdojiOptions as any)[key];
     }
 

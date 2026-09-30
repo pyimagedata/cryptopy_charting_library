@@ -206,6 +206,11 @@ export abstract class Indicator {
      * Get setting value by key
      */
     getSettingValue(key: string): any {
+        // Gorunurluk icin tek dogru kaynak _options: goz simgesi (setVisible) sadece
+        // onu gunceller. Alt siniflarin tuttugu ayar kopyasi (ör. _optionsEx) eski
+        // kalabiliyordu; ayarlar penceresi "Tamam"da bu eski degeri geri yazip
+        // indikatoru gizliyordu (gizliyken kaydedilip sonra gozle acilan durum).
+        if (key === 'visible') return this._options.visible;
         const allOptions = this._getAllOptions();
         return allOptions[key];
     }

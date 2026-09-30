@@ -146,6 +146,7 @@ export class RSIIndicator extends PanelIndicator {
      * Get setting value by key
      */
     getSettingValue(key: string): any {
+        if (key === 'visible') return this._options.visible;
         return (this._rsiOptions as any)[key];
     }
 
