@@ -3,7 +3,7 @@
  */
 
 import { Delegate } from '../../helpers/delegate';
-import { t } from '../../helpers/translations';
+import { t, getCurrentLanguage } from '../../helpers/translations';
 import { displaySymbol } from '../../helpers/display-aliases';
 
 // SVG Icons for toolbar
@@ -35,6 +35,42 @@ const TOOLBAR_ICONS = {
         <rect x="4" y="24" width="6" height="2" rx="0.5" opacity="0.2"/>
     </svg>`,
 };
+
+const HEIKEN_ASHI_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor"><path d="M9 8v12h3V8H9zm-1-.502C8 7.223 8.215 7 8.498 7h4.004c.275 0 .498.22.498.498v13.004a.493.493 0 0 1-.498.498H8.498A.496.496 0 0 1 8 20.502V7.498z"></path><path d="M10 4h1v3.5h-1z"></path><path d="M17 6v6h3V6h-3zm-1-.5c0-.276.215-.5.498-.5h4.004c.275 0 .498.23.498.5v7c0 .276-.215.5-.498.5h-4.004a.503.503 0 0 1-.498-.5v-7z"></path><path d="M18 2h1v3.5h-1z"></path></svg>`;
+const CHEVRON_ICON = `<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const STAR_ICON = (filled: boolean) => `<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z" fill="${filled ? '#f7b500' : 'none'}" stroke="${filled ? '#f7b500' : 'currentColor'}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+
+// Zaman dilimi dropdown'u: favoriler arac cubugunda dugme olarak kalir,
+// tum liste (gruplu) + ozel zaman dilimleri menude. Ikisi de sadece bu
+// tarayicida saklanir.
+const TF_FAVORITES_STORAGE = 'chart.toolbar.tfFavorites';
+const TF_CUSTOM_STORAGE = 'chart.toolbar.tfCustom';
+const DEFAULT_TF_FAVORITES = ['15m', '1h', '4h', 'D'];
+const TF_GROUPS: { label: string; items: string[] }[] = [
+    { label: 'Minutes', items: ['1m', '3m', '5m', '15m', '30m'] },
+    { label: 'Hours', items: ['1h', '2h', '4h', '12h'] },
+    { label: 'Days', items: ['D', 'W', 'M'] },
+];
+const CUSTOM_TF_RE = /^\d+[mhdw]$/;
+
+function readStoredList(key: string): string[] | null {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : null;
+    } catch {
+        return null;
+    }
+}
+
+function writeStoredList(key: string, list: string[]): void {
+    try {
+        localStorage.setItem(key, JSON.stringify(list));
+    } catch {
+        // Tercih kaydedilemese de bu oturumda calisir.
+    }
+}
 
 export type ChartType = 'candles' | 'line' | 'area' | 'heiken-ashi';
 
@@ -100,6 +136,14 @@ export class ToolbarWidget {
     private _watchlistBtn: HTMLButtonElement | null = null;
     private readonly _watchlistToggled = new Delegate<boolean>();
     private _currentTheme: 'dark' | 'light' = 'dark';
+    private _tfFavorites: string[] = readStoredList(TF_FAVORITES_STORAGE) ?? [...DEFAULT_TF_FAVORITES];
+    private _customTimeframes: string[] = readStoredList(TF_CUSTOM_STORAGE) ?? [];
+    private _tfContainer: HTMLElement | null = null;
+    private _chartTypeTrigger: HTMLButtonElement | null = null;
+    private _menu: HTMLElement | null = null;
+    private _menuAnchor: HTMLElement | null = null;
+    private _menuBuild: ((menu: HTMLElement) => void) | null = null;
+    private _menuCleanup: (() => void) | null = null;
 
     constructor(container: HTMLElement, options: Partial<ToolbarOptions> = {}) {
         this._options = { ...defaultToolbarOptions, ...options };
@@ -367,6 +411,37 @@ export class ToolbarWidget {
         this._element!.appendChild(separator);
     }
 
+    // --- Zaman dilimi: favori dugmeler + dropdown ---
+
+    private _inactiveColor(): string {
+        return this._currentTheme === 'dark' ? '#787b86' : '#5d606b';
+    }
+
+    private _allTimeframes(): string[] {
+        const base = this._options.timeframes ?? [];
+        return [...base, ...this._customTimeframes.filter((tf) => !base.includes(tf))];
+    }
+
+    private _tfShortLabel(tf: string): string {
+        return this._customTimeframes.includes(tf) ? tf : t(tf);
+    }
+
+    /** Menude gosterilen uzun ad: "15 dakika", "1 saat", "1 ay"... */
+    private _tfLongLabel(tf: string): string {
+        const fixed: Record<string, [number, string]> = { D: [1, 'day'], W: [1, 'week'], M: [1, 'month'] };
+        let n: number;
+        let unit: string;
+        if (fixed[tf]) {
+            [n, unit] = fixed[tf];
+        } else {
+            const m = /^(\d+)([mhdw])$/.exec(tf);
+            if (!m) return tf;
+            n = Number(m[1]);
+            unit = { m: 'minute', h: 'hour', d: 'day', w: 'week' }[m[2]]!;
+        }
+        return `${n} ${t(n === 1 ? unit : unit + 's')}`;
+    }
+
     private _createTimeframeButtons(): void {
         const container = document.createElement('div');
         container.className = 'toolbar-timeframes';
@@ -376,19 +451,180 @@ export class ToolbarWidget {
             gap: 2px;
             flex-shrink: 0;
         `;
+        this._tfContainer = container;
+        this._element!.appendChild(container);
+        this._renderTimeframeButtons();
+    }
 
-        this._options.timeframes!.forEach(tf => {
+    private _renderTimeframeButtons(): void {
+        const container = this._tfContainer;
+        if (!container) return;
+        container.replaceChildren();
+        const all = this._allTimeframes();
+        const favorites = this._tfFavorites.filter((tf) => all.includes(tf));
+
+        for (const tf of favorites) {
             const isActive = tf === this._activeTimeframe;
-            const btn = this._createButton(t(tf), isActive);
+            const btn = this._createButton(this._tfShortLabel(tf), isActive);
+            if (!isActive) btn.style.color = this._inactiveColor();
             btn.dataset.timeframe = tf;
             btn.dataset.active = isActive.toString();
-            btn.addEventListener('click', () => {
-                this.setTimeframe(tf);
-            });
+            btn.addEventListener('click', () => this.setTimeframe(tf));
             container.appendChild(btn);
-        });
+        }
 
-        this._element!.appendChild(container);
+        // Aktif zaman dilimi favori degilse dropdown dugmesinde yazili ve vurgulu durur.
+        const activeHidden = !favorites.includes(this._activeTimeframe);
+        const trigger = this._createButton('', activeHidden);
+        trigger.className = 'toolbar-tf-trigger';
+        trigger.title = t('Intervals');
+        trigger.setAttribute('aria-haspopup', 'menu');
+        trigger.dataset.active = activeHidden.toString();
+        trigger.style.display = 'flex';
+        trigger.style.alignItems = 'center';
+        trigger.style.gap = '4px';
+        if (!activeHidden) trigger.style.color = this._inactiveColor();
+        trigger.innerHTML = (activeHidden ? `<span>${this._tfShortLabel(this._activeTimeframe)}</span>` : '') + CHEVRON_ICON;
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._toggleMenu(trigger, (menu) => this._buildTimeframeMenu(menu));
+        });
+        container.appendChild(trigger);
+    }
+
+    private _toggleFavorite(tf: string): void {
+        this._tfFavorites = this._tfFavorites.includes(tf)
+            ? this._tfFavorites.filter((f) => f !== tf)
+            : [...this._tfFavorites, tf];
+        // Favoriler arac cubugunda menudeki sirayla gorunsun.
+        const order = this._allTimeframes();
+        this._tfFavorites.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        writeStoredList(TF_FAVORITES_STORAGE, this._tfFavorites);
+        this._renderTimeframeButtons();
+    }
+
+    private _buildTimeframeMenu(menu: HTMLElement): void {
+        const base = this._options.timeframes ?? [];
+        const grouped = new Set<string>();
+        for (const group of TF_GROUPS) {
+            const items = group.items.filter((tf) => base.includes(tf));
+            if (!items.length) continue;
+            items.forEach((tf) => grouped.add(tf));
+            this._menuHeader(menu, t(group.label));
+            items.forEach((tf) => this._timeframeMenuItem(menu, tf, false));
+        }
+        const others = this._allTimeframes().filter((tf) => !grouped.has(tf));
+        if (others.length) {
+            this._menuHeader(menu, t('Custom'));
+            others.forEach((tf) => this._timeframeMenuItem(menu, tf, this._customTimeframes.includes(tf)));
+        }
+        this._menuSeparator(menu);
+        this._customTimeframeRow(menu);
+    }
+
+    private _timeframeMenuItem(menu: HTMLElement, tf: string, removable: boolean): void {
+        const isFav = this._tfFavorites.includes(tf);
+        const star = document.createElement('span');
+        star.innerHTML = STAR_ICON(isFav);
+        star.title = isFav ? t('Remove from favorites') : t('Add to favorites');
+        star.style.cssText = 'display:flex;padding:2px;border-radius:3px;cursor:pointer;';
+        star.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._toggleFavorite(tf);
+            this._rebuildMenu();
+        });
+        const trailing = [star];
+        if (removable) {
+            const remove = document.createElement('span');
+            remove.textContent = '×';
+            remove.title = t('Remove');
+            remove.style.cssText = 'padding:0 4px;font-size:15px;line-height:1;cursor:pointer;opacity:0.7;';
+            remove.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._customTimeframes = this._customTimeframes.filter((c) => c !== tf);
+                this._tfFavorites = this._tfFavorites.filter((f) => f !== tf);
+                writeStoredList(TF_CUSTOM_STORAGE, this._customTimeframes);
+                writeStoredList(TF_FAVORITES_STORAGE, this._tfFavorites);
+                this._renderTimeframeButtons();
+                this._rebuildMenu();
+            });
+            trailing.unshift(remove);
+        }
+        this._menuItem(menu, {
+            html: `<span>${this._tfLongLabel(tf)}</span>`,
+            active: tf === this._activeTimeframe,
+            onSelect: () => {
+                this._closeMenu();
+                this.setTimeframe(tf);
+            },
+            trailing,
+        });
+    }
+
+    /** "Ozel zaman dilimi ekle": tiklaninca satir yerinde bir giris alanina donusur. */
+    private _customTimeframeRow(menu: HTMLElement): void {
+        const row = this._menuItem(menu, {
+            html: `<span style="font-size:15px;line-height:1;margin-right:6px;">+</span><span>${t('Add custom interval')}</span>`,
+            active: false,
+            onSelect: () => {
+                const dark = this._currentTheme === 'dark';
+                const form = document.createElement('div');
+                form.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:6px 12px;';
+                const line = document.createElement('div');
+                line.style.cssText = 'display:flex;gap:6px;';
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = '10m, 90m, 2h';
+                input.style.cssText = `width:100px;padding:5px 8px;border-radius:4px;font-size:13px;outline:none;background:${dark ? '#131722' : '#fff'};color:inherit;border:1px solid ${dark ? '#363a45' : '#d1d4dc'};`;
+                const add = document.createElement('button');
+                add.type = 'button';
+                add.textContent = t('Add');
+                add.style.cssText = 'padding:5px 10px;border:none;border-radius:4px;background:#2962ff;color:#fff;font-size:12px;cursor:pointer;';
+                const hint = document.createElement('div');
+                hint.textContent = t('Invalid format');
+                hint.style.cssText = 'display:none;color:#f23645;font-size:11px;';
+                const submit = () => {
+                    const value = input.value.trim().toLowerCase();
+                    const known: Record<string, string> = { '1d': 'D', '1w': 'W' };
+                    if (!CUSTOM_TF_RE.test(value)) {
+                        hint.style.display = 'block';
+                        input.style.borderColor = '#f23645';
+                        return;
+                    }
+                    const tf = known[value] ?? value;
+                    if (!this._allTimeframes().includes(tf)) {
+                        this._customTimeframes = [...this._customTimeframes, tf];
+                        writeStoredList(TF_CUSTOM_STORAGE, this._customTimeframes);
+                    }
+                    this._closeMenu();
+                    this.setTimeframe(tf);
+                    this._renderTimeframeButtons();
+                };
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') submit();
+                });
+                input.addEventListener('input', () => {
+                    hint.style.display = 'none';
+                    input.style.borderColor = dark ? '#363a45' : '#d1d4dc';
+                });
+                add.addEventListener('click', submit);
+                line.append(input, add);
+                form.append(line, hint);
+                row.replaceWith(form);
+                input.focus();
+            },
+        });
+    }
+
+    // --- Grafik tipi dropdown ---
+
+    private _chartTypes(): { type: ChartType; icon: string; title: string }[] {
+        return [
+            { type: 'candles', icon: TOOLBAR_ICONS.candles, title: t('Candlestick') },
+            { type: 'line', icon: TOOLBAR_ICONS.line, title: t('Line') },
+            { type: 'area', icon: TOOLBAR_ICONS.area, title: t('Area') },
+            { type: 'heiken-ashi', icon: HEIKEN_ASHI_ICON, title: t('Heiken Ashi') },
+        ];
     }
 
     private _createChartTypeButtons(): void {
@@ -400,30 +636,162 @@ export class ToolbarWidget {
             gap: 2px;
             flex-shrink: 0;
         `;
-
-        const types: { type: ChartType; icon: string; title: string }[] = [
-            { type: 'candles', icon: TOOLBAR_ICONS.candles, title: t('Candlestick') },
-            { type: 'line', icon: TOOLBAR_ICONS.line, title: t('Line') },
-            { type: 'area', icon: TOOLBAR_ICONS.area, title: t('Area') },
-            {
-                type: 'heiken-ashi',
-                icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor"><path d="M9 8v12h3V8H9zm-1-.502C8 7.223 8.215 7 8.498 7h4.004c.275 0 .498.22.498.498v13.004a.493.493 0 0 1-.498.498H8.498A.496.496 0 0 1 8 20.502V7.498z"></path><path d="M10 4h1v3.5h-1z"></path><path d="M17 6v6h3V6h-3zm-1-.5c0-.276.215-.5.498-.5h4.004c.275 0 .498.23.498.5v7c0 .276-.215.5-.498.5h-4.004a.503.503 0 0 1-.498-.5v-7z"></path><path d="M18 2h1v3.5h-1z"></path></svg>`,
-                title: t('Heiken Ashi')
-            },
-        ];
-
-        types.forEach(({ type, icon, title }) => {
-            const isActive = type === this._activeChartType;
-            const btn = this._createIconButton(icon, isActive, title);
-            btn.dataset.chartType = type;
-            btn.dataset.active = isActive.toString();
-            btn.addEventListener('click', () => {
-                this.setChartType(type);
-            });
-            container.appendChild(btn);
+        const trigger = this._createIconButton('', false, t('Chart type'));
+        trigger.className = 'toolbar-chart-type-trigger';
+        trigger.setAttribute('aria-haspopup', 'menu');
+        trigger.style.width = 'auto';
+        trigger.style.padding = '0 6px';
+        trigger.style.gap = '2px';
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._toggleMenu(trigger, (menu) => this._buildChartTypeMenu(menu));
         });
-
+        this._chartTypeTrigger = trigger;
+        this._updateChartTypeButtons();
+        container.appendChild(trigger);
         this._element!.appendChild(container);
+    }
+
+    private _buildChartTypeMenu(menu: HTMLElement): void {
+        for (const { type, icon, title } of this._chartTypes()) {
+            this._menuItem(menu, {
+                html: `<span style="display:flex;margin-right:8px;">${icon}</span><span>${title}</span>`,
+                active: type === this._activeChartType,
+                onSelect: () => {
+                    this._closeMenu();
+                    this.setChartType(type);
+                },
+            });
+        }
+    }
+
+    // --- Ortak acilir menu ---
+    // Menu document.body'ye eklenir: arac cubugu overflow-x:auto oldugu icin
+    // icine konan mutlak konumlu bir menu kirpilirdi.
+
+    private _toggleMenu(anchor: HTMLElement, build: (menu: HTMLElement) => void): void {
+        const sameAnchor = this._menuAnchor === anchor;
+        this._closeMenu();
+        if (sameAnchor) return;
+
+        const dark = this._currentTheme === 'dark';
+        const menu = document.createElement('div');
+        menu.className = 'toolbar-menu';
+        menu.setAttribute('role', 'menu');
+        // text-transform:uppercase dile gore: 'tr' ile "Dakika" -> "DAKİKA" (lang yoksa "DAKIKA").
+        menu.lang = getCurrentLanguage();
+        menu.style.cssText = `
+            position: fixed; z-index: 1000; min-width: 190px; max-height: 70vh; overflow-y: auto;
+            padding: 4px 0; border-radius: 6px; font-size: 13px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+            background: ${dark ? '#1e222d' : '#ffffff'}; color: ${dark ? '#d1d4dc' : '#131722'};
+            border: 1px solid ${dark ? '#2a2e39' : '#e0e3eb'};
+            box-shadow: 0 6px 20px rgba(0,0,0,${dark ? 0.45 : 0.15});
+        `;
+        this._menu = menu;
+        this._menuAnchor = anchor;
+        this._menuBuild = build;
+        build(menu);
+        document.body.appendChild(menu);
+
+        const r = anchor.getBoundingClientRect();
+        menu.style.top = `${r.bottom + 4}px`;
+        menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8))}px`;
+
+        const onDown = (e: MouseEvent) => {
+            const target = e.target as Node;
+            if (!menu.contains(target) && !anchor.contains(target)) this._closeMenu();
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                this._closeMenu();
+                anchor.focus();
+            } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                const items = Array.from(menu.querySelectorAll<HTMLElement>('[data-menu-item]'));
+                if (!items.length) return;
+                const i = items.indexOf(document.activeElement as HTMLElement);
+                const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+                items[next].focus();
+                e.preventDefault();
+            }
+        };
+        const onScroll = (e: Event) => {
+            if (!menu.contains(e.target as Node)) this._closeMenu();
+        };
+        const onResize = () => this._closeMenu();
+        document.addEventListener('mousedown', onDown, true);
+        document.addEventListener('keydown', onKey, true);
+        window.addEventListener('scroll', onScroll, true);
+        window.addEventListener('resize', onResize);
+        this._menuCleanup = () => {
+            document.removeEventListener('mousedown', onDown, true);
+            document.removeEventListener('keydown', onKey, true);
+            window.removeEventListener('scroll', onScroll, true);
+            window.removeEventListener('resize', onResize);
+        };
+    }
+
+    private _rebuildMenu(): void {
+        if (!this._menu || !this._menuBuild) return;
+        const scroll = this._menu.scrollTop;
+        this._menu.replaceChildren();
+        this._menuBuild(this._menu);
+        this._menu.scrollTop = scroll;
+    }
+
+    private _closeMenu(): void {
+        this._menuCleanup?.();
+        this._menuCleanup = null;
+        this._menu?.remove();
+        this._menu = null;
+        this._menuAnchor = null;
+        this._menuBuild = null;
+    }
+
+    private _menuHeader(menu: HTMLElement, text: string): void {
+        const el = document.createElement('div');
+        el.textContent = text;
+        el.style.cssText = `padding:8px 12px 4px;font-size:11px;letter-spacing:0.04em;text-transform:uppercase;color:${this._inactiveColor()};`;
+        menu.appendChild(el);
+    }
+
+    private _menuSeparator(menu: HTMLElement): void {
+        const el = document.createElement('div');
+        el.style.cssText = `height:1px;margin:4px 0;background:${this._currentTheme === 'dark' ? '#2a2e39' : '#e0e3eb'};`;
+        menu.appendChild(el);
+    }
+
+    private _menuItem(
+        menu: HTMLElement,
+        opts: { html: string; active: boolean; onSelect: () => void; trailing?: HTMLElement[] },
+    ): HTMLElement {
+        const dark = this._currentTheme === 'dark';
+        const hover = dark ? '#2a2e39' : '#f0f3fa';
+        const activeBg = dark ? 'rgba(41,98,255,0.18)' : 'rgba(41,98,255,0.10)';
+        const row = document.createElement('div');
+        row.dataset.menuItem = '';
+        row.setAttribute('role', 'menuitem');
+        row.tabIndex = 0;
+        row.style.cssText = `display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;cursor:pointer;outline:none;background:${opts.active ? activeBg : 'transparent'};color:${opts.active ? '#2962ff' : 'inherit'};`;
+        const label = document.createElement('div');
+        label.style.cssText = 'display:flex;align-items:center;flex:1;white-space:nowrap;';
+        label.innerHTML = opts.html;
+        row.appendChild(label);
+        opts.trailing?.forEach((el) => row.appendChild(el));
+        const setBg = (on: boolean) => (row.style.background = on ? hover : opts.active ? activeBg : 'transparent');
+        row.addEventListener('mouseenter', () => setBg(true));
+        row.addEventListener('mouseleave', () => setBg(false));
+        row.addEventListener('focus', () => setBg(true));
+        row.addEventListener('blur', () => setBg(false));
+        row.addEventListener('click', opts.onSelect);
+        row.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                opts.onSelect();
+            }
+        });
+        menu.appendChild(row);
+        return row;
     }
 
     private _createPriceScaleButtons(): void {
@@ -748,8 +1116,8 @@ export class ToolbarWidget {
         btn.addEventListener('mouseenter', () => {
             const isActive = btn.dataset.active === 'true' || btn.style.background === 'rgb(41, 98, 255)';
             if (!isActive) {
-                btn.style.background = '#2a2e39';
-                btn.style.color = '#d1d4dc';
+                btn.style.background = this._currentTheme === 'dark' ? '#2a2e39' : '#e0e3eb';
+                btn.style.color = this._currentTheme === 'dark' ? '#d1d4dc' : '#131722';
             }
         });
 
@@ -757,7 +1125,7 @@ export class ToolbarWidget {
             const isActive = btn.dataset.active === 'true' || btn.style.background === 'rgb(41, 98, 255)';
             if (!isActive) {
                 btn.style.background = 'transparent';
-                btn.style.color = '#787b86';
+                btn.style.color = this._inactiveColor();
             } else {
                 // Ensure active style is maintained
                 btn.style.background = '#2962ff';
@@ -789,8 +1157,8 @@ export class ToolbarWidget {
         btn.addEventListener('mouseenter', () => {
             const isActive = btn.dataset.active === 'true' || btn.style.background === 'rgb(41, 98, 255)';
             if (!isActive) {
-                btn.style.background = '#2a2e39';
-                btn.style.color = '#d1d4dc';
+                btn.style.background = this._currentTheme === 'dark' ? '#2a2e39' : '#e0e3eb';
+                btn.style.color = this._currentTheme === 'dark' ? '#d1d4dc' : '#131722';
             }
         });
 
@@ -798,7 +1166,7 @@ export class ToolbarWidget {
             const isActive = btn.dataset.active === 'true' || btn.style.background === 'rgb(41, 98, 255)';
             if (!isActive) {
                 btn.style.background = 'transparent';
-                btn.style.color = '#787b86';
+                btn.style.color = this._inactiveColor();
             } else {
                 // Ensure active style is maintained
                 btn.style.background = '#2962ff';
@@ -810,26 +1178,15 @@ export class ToolbarWidget {
     }
 
     private _updateTimeframeButtons(): void {
-        const buttons = this._element?.querySelectorAll('.toolbar-timeframes button');
-        buttons?.forEach(btn => {
-            const htmlBtn = btn as HTMLButtonElement;
-            const isActive = htmlBtn.dataset.timeframe === this._activeTimeframe;
-            htmlBtn.dataset.active = isActive.toString();
-            htmlBtn.style.background = isActive ? '#2962ff' : 'transparent';
-            htmlBtn.style.color = isActive ? '#fff' : '#787b86';
-            htmlBtn.style.fontWeight = isActive ? '500' : '400';
-        });
+        this._renderTimeframeButtons();
     }
 
     private _updateChartTypeButtons(): void {
-        const buttons = this._element?.querySelectorAll('.toolbar-chart-types button');
-        buttons?.forEach(btn => {
-            const htmlBtn = btn as HTMLButtonElement;
-            const isActive = htmlBtn.dataset.chartType === this._activeChartType;
-            htmlBtn.dataset.active = isActive.toString();
-            htmlBtn.style.background = isActive ? '#2962ff' : 'transparent';
-            htmlBtn.style.color = isActive ? '#fff' : '#787b86';
-        });
+        const trigger = this._chartTypeTrigger;
+        if (!trigger) return;
+        const current = this._chartTypes().find((c) => c.type === this._activeChartType) ?? this._chartTypes()[0];
+        trigger.innerHTML = `<span style="display:flex">${current.icon}</span>${CHEVRON_ICON}`;
+        trigger.title = `${t('Chart type')}: ${current.title}`;
     }
 
     private _updatePriceScaleButtons(): void {
@@ -862,6 +1219,9 @@ export class ToolbarWidget {
         buttons.forEach(btn => {
             (btn as HTMLElement).style.color = isDark ? '#d1d4dc' : '#131722';
         });
+
+        this._closeMenu();
+        this._renderTimeframeButtons();
 
         // Update symbol section
         const symbolSection = this._element.querySelector('.toolbar-symbol') as HTMLElement;
@@ -909,6 +1269,7 @@ export class ToolbarWidget {
     }
 
     dispose(): void {
+        this._closeMenu();
         this._symbolClicked.destroy();
         this._timeframeChanged.destroy();
         this._chartTypeChanged.destroy();
