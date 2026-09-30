@@ -104,6 +104,33 @@ export class MultiChartLayout {
     private _slots: HTMLElement[] = [];
     private _activeIndex: number = 0;
     private _syncing: boolean = false;
+    private _crosshairSync: boolean = MultiChartLayout.crosshairSyncPreferred();
+
+    private static readonly CROSSHAIR_SYNC_STORAGE = 'chart.multi.crosshairSync';
+
+    /** Kullanici tercihi (varsayilan acik); sadece bu tarayicida saklanir. */
+    static crosshairSyncPreferred(): boolean {
+        try {
+            return localStorage.getItem(MultiChartLayout.CROSSHAIR_SYNC_STORAGE) !== '0';
+        } catch {
+            return true;
+        }
+    }
+
+    get crosshairSync(): boolean {
+        return this._crosshairSync;
+    }
+
+    /** Imleci tum grafiklerde ayni zamana senkronize et (TradingView "crosshair sync"). */
+    setCrosshairSync(enabled: boolean): void {
+        this._crosshairSync = enabled;
+        try {
+            localStorage.setItem(MultiChartLayout.CROSSHAIR_SYNC_STORAGE, enabled ? '1' : '0');
+        } catch {
+            // Tercih kaydedilemese de bu oturumda calisir.
+        }
+        this._charts.forEach((c) => c.setCrosshairSyncEnabled(enabled));
+    }
     private _theme: 'dark' | 'light' = 'dark';
     private _domEnabled: boolean = false;
     private _columnRatios: number[] = [1];
@@ -376,6 +403,13 @@ export class MultiChartLayout {
             chart.setDomEnabled(this._domEnabled);
             chart.symbolChanged.subscribe((payload) => this._handleSymbolChanged(i, payload as any));
             chart.timeframeChanged.subscribe((timeframe) => this._handleTimeframeChanged(i, timeframe));
+            chart.setCrosshairSyncEnabled(this._crosshairSync);
+            chart.crosshairMoved.subscribe((info) => {
+                if (!this._crosshairSync) return;
+                this._charts.forEach((other) => {
+                    if (other !== chart) other.setSyncedCrosshair(info);
+                });
+            });
 
             this._charts.push(chart);
         }

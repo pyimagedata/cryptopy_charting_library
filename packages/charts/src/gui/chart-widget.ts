@@ -79,6 +79,17 @@ export interface ChartWidgetOptions extends Omit<Partial<ChartModelOptions>, 'lo
 /**
  * Chart widget - main UI container
  */
+/** Coklu grafik imlec senkronu: imlecin gosterdigi zaman (+ ana panelde ise fiyat). */
+export interface CrosshairSyncInfo {
+    time: number;
+    price: number | null;
+    symbol: string;
+}
+
+function toMsTime(t: number): number {
+    return t > 1e12 ? t : t * 1000;
+}
+
 export class ChartWidget implements Disposable {
     private readonly _container: HTMLElement;
     private readonly _model: ChartModel;
@@ -125,6 +136,12 @@ export class ChartWidget implements Disposable {
     private _interactionPriceScale: PriceScale | null = null;
 
     private readonly _symbolChanged = new Delegate<string>();
+    private readonly _crosshairMoved = new Delegate<CrosshairSyncInfo | null>();
+    private _crosshairSyncEnabled = false;
+    private _pointerInside = false;
+    private _syncedCrosshair: CrosshairSyncInfo | null = null;
+    private _syncedLocalY: number | null = null;
+    private _lastCrosshairKey = '';
     private readonly _timeframeChanged = new Delegate<string>();
     private readonly _wiredIndicators = new WeakSet<Indicator>();
 
@@ -393,6 +410,100 @@ export class ChartWidget implements Disposable {
 
     get model(): ChartModel {
         return this._model;
+    }
+
+    /** Kullanici bu grafikte imleci hareket ettirince (sadece senkron aciksa) yayinlanir. */
+    get crosshairMoved(): Delegate<CrosshairSyncInfo | null> {
+        return this._crosshairMoved;
+    }
+
+    /** Coklu grafik duzeni acar/kapatir; kapaliyken grafik eskisi gibi davranir. */
+    setCrosshairSyncEnabled(enabled: boolean): void {
+        if (this._crosshairSyncEnabled === enabled) return;
+        if (!enabled) this.setSyncedCrosshair(null);
+        this._crosshairSyncEnabled = enabled;
+    }
+
+    /**
+     * Baska bir grafikteki imleci bu grafikte ayni ZAMANA yansitir (piksele degil):
+     * farkli zaman dilimlerinde o zamani iceren mum secilir; yatay cizgi sadece
+     * ayni sembolde gosterilir. Fare bu grafigin uzerindeyse yok sayilir.
+     */
+    setSyncedCrosshair(info: CrosshairSyncInfo | null): void {
+        if (!this._crosshairSyncEnabled || this._pointerInside) return;
+        this._syncedCrosshair = info;
+        const x = info ? this._xAtTime(info.time) : null;
+        if (info === null || x === null) {
+            this._syncedLocalY = null;
+            this._model.setCrosshairPosition(0, 0, false);
+        } else {
+            this._syncedLocalY = info.price !== null && info.symbol === this._model.symbol
+                ? (this._model.rightPriceScale.priceToCoordinate(info.price) as number)
+                : null;
+            this._model.setCrosshairPosition(x, 0, true);
+        }
+        this._scheduleDraw();
+    }
+
+    private _mainBarTimes(): number[] {
+        const data = this._model.serieses[0]?.data as { time: number }[] | undefined;
+        return data ? data.map((d) => toMsTime(d.time)) : [];
+    }
+
+    private _timeAtX(x: number): number | null {
+        const times = this._mainBarTimes();
+        const n = times.length;
+        if (!n) return null;
+        const idx = this._model.timeScale.coordinateToIndex(x as any) as number;
+        if (idx < 0) return null;
+        if (idx < n) return times[idx];
+        const dur = n > 1 ? times[n - 1] - times[n - 2] : 0;
+        return dur > 0 ? times[n - 1] + (idx - (n - 1)) * dur : null;
+    }
+
+    private _xAtTime(timeMs: number): number | null {
+        const t = toMsTime(timeMs);
+        const times = this._mainBarTimes();
+        const n = times.length;
+        if (!n || t < times[0]) return null;
+        // t'yi iceren mum: acilisi t'den kucuk/esit olan son mum.
+        let lo = 0;
+        let hi = n - 1;
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (times[mid] <= t) lo = mid;
+            else hi = mid - 1;
+        }
+        let idx = lo;
+        if (idx === n - 1 && n > 1) {
+            const dur = times[n - 1] - times[n - 2];
+            if (dur > 0 && t >= times[n - 1] + dur) idx = n - 1 + Math.floor((t - times[n - 1]) / dur);
+        }
+        const x = this._model.timeScale.indexToCoordinate(idx as any) as number;
+        const width = this._model.timeScale.width;
+        return x < 0 || x > width ? null : x;
+    }
+
+    private _emitCrosshair(info: CrosshairSyncInfo | null): void {
+        const key = info ? `${info.time}|${info.price}|${info.symbol}` : 'null';
+        if (key === this._lastCrosshairKey) return;
+        this._lastCrosshairKey = key;
+        this._crosshairMoved.fire(info);
+    }
+
+    private _emitCrosshairFromModel(e: MouseEvent): void {
+        const cross = this._model.crosshairPosition;
+        const time = cross && cross.visible ? this._timeAtX(cross.x) : null;
+        if (time === null) {
+            this._emitCrosshair(null);
+            return;
+        }
+        let price: number | null = null;
+        const rect = this._paneWidget?.element?.getBoundingClientRect();
+        if (rect && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+            price = this._model.rightPriceScale.coordinateToPrice((e.clientY - rect.top) as any) as number;
+        }
+        this._emitCrosshair({ time, price, symbol: this._model.symbol });
     }
 
     get symbolChanged(): Delegate<string> {
@@ -1397,6 +1508,16 @@ export class ChartWidget implements Disposable {
     // --- Private: Event Listeners ---
 
     private _setupEventListeners(): void {
+        // Imlec senkronu icin: fare bu grafigin (herhangi bir parcasinin) uzerinde mi?
+        this._element?.addEventListener('mouseenter', () => {
+            this._pointerInside = true;
+            this._syncedCrosshair = null;
+        });
+        this._element?.addEventListener('mouseleave', () => {
+            this._pointerInside = false;
+            if (this._crosshairSyncEnabled) this._emitCrosshair(null);
+        });
+
         const paneCanvas = this._paneWidget?.canvas;
         if (paneCanvas) {
             paneCanvas.addEventListener('wheel', this._onWheel.bind(this), { passive: false });
@@ -1487,6 +1608,17 @@ export class ChartWidget implements Disposable {
     }
 
     private _onMouseMove(e: MouseEvent): void {
+        // Senkron modunda fare baska bir grafikteyken bu grafigin imleci
+        // setSyncedCrosshair ile yonetilir; document'tan gelen hareket onu ezmesin.
+        if (this._crosshairSyncEnabled && !this._pointerInside && !this._isDragging && !this._isDraggingDrawing
+            && !this._isPriceScaleDragging && this._drawingManager.activeDrawing === null) {
+            return;
+        }
+        this._onMouseMoveInner(e);
+        if (this._crosshairSyncEnabled && this._pointerInside) this._emitCrosshairFromModel(e);
+    }
+
+    private _onMouseMoveInner(e: MouseEvent): void {
         const shouldUseActivePane = this._isDragging || this._isDraggingDrawing || this._drawingManager.activeDrawing !== null;
         const hoverTarget = shouldUseActivePane ? null : document.elementFromPoint(e.clientX, e.clientY);
         const pane = shouldUseActivePane
@@ -2241,13 +2373,22 @@ export class ChartWidget implements Disposable {
             }
         }
 
-        if (crosshair) {
+        if (this._crosshairSyncEnabled && !this._pointerInside) {
+            mainPaneLocalY = crosshair?.visible && this._syncedLocalY !== null
+                && this._syncedLocalY >= 0 && this._syncedLocalY <= this._model.rightPriceScale.height
+                ? this._syncedLocalY
+                : null;
+        }
+
+        // Gizli imlec (visible=false, x=0) eskiden sol kenarda dikey cizgi olarak kaliyordu.
+        if (crosshair && crosshair.visible) {
             this._paneWidget?.setCrosshair(crosshair.x, mainPaneLocalY);
             this._priceAxisWidget?.setCrosshair(mainPaneLocalY ?? 0, mainPaneLocalY !== null);
             this._timeAxisWidget?.setCrosshair(crosshair.x, crosshair.visible);
         } else {
             this._paneWidget?.setCrosshair(null, null);
             this._priceAxisWidget?.setCrosshair(0, false);
+            this._timeAxisWidget?.setCrosshair(0, false);
         }
 
         this._updateLastPriceLabel();
@@ -2653,7 +2794,7 @@ export class ChartWidget implements Disposable {
                 const paneElement = pane.element;
                 let localY: number | null = null;
 
-                if (paneElement && this._lastMouseY !== 0) {
+                if (paneElement && this._lastMouseY !== 0 && !(this._crosshairSyncEnabled && !this._pointerInside)) {
                     const rect = paneElement.getBoundingClientRect();
                     // Check if mouse Y is within this pane (with a small buffer for borders)
                     if (this._lastMouseY >= rect.top && this._lastMouseY <= rect.bottom) {
@@ -2995,6 +3136,7 @@ export class ChartWidget implements Disposable {
         this._resizeObserver = null;
         this._model.destroy();
         this._symbolChanged.destroy();
+        this._crosshairMoved.destroy();
         this._timeframeChanged.destroy();
         this._indicatorManager.destroy();
 
