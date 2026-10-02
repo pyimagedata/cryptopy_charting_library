@@ -46,7 +46,7 @@ function drawFibTrendLine(
 ): void {
     if (!drawing.fib.trendLineVisible || points.length < 2) return;
     ctx.strokeStyle = drawing.style.color;
-    ctx.lineWidth = 1 * dpr;
+    ctx.lineWidth = (drawing.fib.trendLineWidth || 1) * dpr;
     ctx.setLineDash(lineDashFor(drawing.fib.trendLineStyle, dpr));
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);

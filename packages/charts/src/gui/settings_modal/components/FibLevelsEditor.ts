@@ -12,17 +12,17 @@ const styles = {
     container: `
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 8px;
     `,
     toolbar: `
         display: flex;
         justify-content: flex-end;
     `,
     addButton: `
-        height: 32px;
-        padding: 0 11px;
+        height: 26px;
+        padding: 0 10px;
         border: 1px solid var(--border-color);
-        border-radius: 8px;
+        border-radius: 4px;
         background: var(--input-bg);
         color: var(--text-primary);
         font-size: 12px;
@@ -31,21 +31,21 @@ const styles = {
     grid: `
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 8px 14px;
+        gap: 4px 16px;
     `,
     row: `
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         min-width: 0;
     `,
     input: `
         flex: 1 1 0;
-        min-width: 72px;
-        height: 36px;
-        padding: 0 10px;
+        min-width: 56px;
+        height: 28px;
+        padding: 0 8px;
         border: 1px solid var(--border-color);
-        border-radius: 10px;
+        border-radius: 4px;
         background: var(--input-bg);
         color: var(--text-primary);
         font-size: 13px;

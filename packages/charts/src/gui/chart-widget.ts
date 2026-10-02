@@ -338,6 +338,17 @@ export class ChartWidget implements Disposable {
         // Apply initial theme
         if (options.theme) {
             this.setTheme(options.theme as ThemeType);
+        } else {
+            // Tema hic secilmemisse (kayitli tercih yok) grafik varsayilan renkleriyle
+            // cizilir; ayar pencereleri gibi temaya bakan parcalar da ona uysun diye
+            // tema arka plan rengine gore belirlenir (eskiden sabit 'light' kaliyor,
+            // koyu grafikte ayar pencereleri acik renkte aciliyordu).
+            const bg = String(this._model.options.layout.backgroundColor || '');
+            const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(bg);
+            if (m) {
+                const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16) / 255);
+                this._currentTheme = (0.2126 * r + 0.7152 * g + 0.0722 * b) < 0.5 ? 'dark' : 'light';
+            }
         }
     }
 

@@ -75,6 +75,16 @@ export abstract class BaseSettingsModal {
     /** Render content for a specific tab */
     protected abstract renderTabContent(tabId: string, container: HTMLElement): void;
 
+    /** Alt sinif true donerse altta "Iptal" dugmesi cikar ve onCancel() cagrilir. */
+    protected hasCancel(): boolean {
+        return false;
+    }
+
+    /** Iptal: pencere acildigindaki hale dondurme (alt sinif uygular). */
+    protected onCancel(): void {
+        // Override in subclasses if needed
+    }
+
     /** Initialize modal-specific state (optional override) */
     protected initializeForDrawing(_drawing: Drawing): void {
         // Override in subclasses if needed
@@ -325,6 +335,28 @@ export abstract class BaseSettingsModal {
         okBtn.onclick = () => this.hide();
 
         footer.appendChild(templateBtn);
+        if (this.hasCancel()) {
+            templateBtn.style.marginRight = 'auto';
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = t('Cancel');
+            cancelBtn.style.cssText = `
+                padding: 8px 16px;
+                background: transparent;
+                border: 1px solid var(--border-color);
+                border-radius: 4px;
+                color: var(--text-primary);
+                font-size: 13px;
+                cursor: pointer;
+            `;
+            cancelBtn.onmouseenter = () => cancelBtn.style.background = 'var(--hover-bg)';
+            cancelBtn.onmouseleave = () => cancelBtn.style.background = 'transparent';
+            cancelBtn.onclick = () => {
+                this.onCancel();
+                this.notifySettingsChanged();
+                this.hide();
+            };
+            footer.appendChild(cancelBtn);
+        }
         footer.appendChild(okBtn);
         this._element!.appendChild(footer);
     }

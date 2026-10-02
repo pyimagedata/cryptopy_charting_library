@@ -120,12 +120,17 @@ export class FibCommonSettings {
     logScale = false;
     trendLineVisible = true;
     trendLineStyle: FibLineStyle = 'dashed';
+    trendLineWidth = 1;
 
     constructor(private readonly _caps: FibCommonCapabilities = { prices: true, logScale: true }) {}
 
+    get capabilities(): Readonly<FibCommonCapabilities> {
+        return this._caps;
+    }
+
     static readonly KEYS = [
         'extendLeft', 'extendRight', 'showLabels', 'showPrices', 'coeffsAsPercents', 'fillBackground',
-        'labelHAlign', 'labelVAlign', 'labelFontSize', 'logScale', 'trendLineVisible', 'trendLineStyle',
+        'labelHAlign', 'labelVAlign', 'labelFontSize', 'logScale', 'trendLineVisible', 'trendLineStyle', 'trendLineWidth',
     ] as const;
 
     has(key: string): boolean {

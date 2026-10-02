@@ -240,6 +240,12 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'Fibonacci Levels': 'Fibonacci Seviyeleri',
         'Extension Levels': 'Uzatma Seviyeleri',
         'Channel Levels': 'Kanal Seviyeleri',
+        'Trend-Based Fib Extension': 'Trend Bazlı Fib Uzatma',
+        'Use one color': 'Tek renk kullan',
+        'Values': 'Değer',
+        'Percents': 'Yüzde',
+        'Label Position': 'Etiket Konumu',
+        'Prices': 'Fiyatlar',
     }
 };
 
