@@ -24,12 +24,8 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
-    checkboxRow,
-    sliderRow
 } from './drawing-settings-config';
+import { FibCommonSettings, defaultFibLevels, levelsFromJSON, levelsToJSON } from './fib-common';
 
 /** Fibonacci channel level */
 export interface FibChannelLevel {
@@ -40,17 +36,7 @@ export interface FibChannelLevel {
 }
 
 /** Standard Fibonacci channel levels */
-export const FIB_CHANNEL_LEVELS: FibChannelLevel[] = [
-    { level: 0, label: '0', color: '#787b86', enabled: true },
-    { level: 0.236, label: '0.236', color: '#f48fb1', enabled: true },
-    { level: 0.382, label: '0.382', color: '#ce93d8', enabled: true },
-    { level: 0.5, label: '0.5', color: '#b39ddb', enabled: true },
-    { level: 0.618, label: '0.618', color: '#9fa8da', enabled: true },
-    { level: 0.786, label: '0.786', color: '#90caf9', enabled: false },
-    { level: 1, label: '1', color: '#80cbc4', enabled: true },
-    { level: 1.618, label: '1.618', color: '#fff59d', enabled: false },
-    { level: 2.618, label: '2.618', color: '#ffab91', enabled: false },
-];
+export const FIB_CHANNEL_LEVELS: FibChannelLevel[] = defaultFibLevels();
 
 export interface FibChannelOptions {
     color?: string;
@@ -80,11 +66,9 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
     visible: boolean = true;
     locked: boolean = false;
 
-    // Channel specific options
-    showLabels: boolean = true;
-    showPrices: boolean = false;
-    extendLeft: boolean = false;
-    extendRight: boolean = false;
+    // Channel specific options (kanalda seviyeler egik: fiyat etiketi ve log olcek yok)
+    readonly fib = new FibCommonSettings({ prices: false, logScale: false });
+    opacity: number = 1;
     reversed: boolean = false;
     backgroundOpacity: number = 0.05;
     levels: FibChannelLevel[];
@@ -114,10 +98,9 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
             lineWidth: options.lineWidth || 1,
             lineDash: [],
         };
-        this.showLabels = options.showLabels !== false;
-        this.showPrices = options.showPrices || false;
-        this.extendLeft = options.extendLeft || false;
-        this.extendRight = options.extendRight || false;
+        this.fib.showLabels = options.showLabels !== false;
+        this.fib.extendLeft = options.extendLeft || false;
+        this.fib.extendRight = options.extendRight || false;
         this.reversed = options.reversed || false;
         this.backgroundOpacity = options.backgroundOpacity ?? 0.05;
         this.levels = options.levels ? [...options.levels] : FIB_CHANNEL_LEVELS.map(l => ({ ...l }));
@@ -131,30 +114,7 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
         return {
             tabs: [
                 createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Trend Line Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Opacity',
-                        rows: [
-                            sliderRow('backgroundOpacity', 'Background', 0, 50, '%'),
-                        ]
-                    },
-                    {
-                        title: 'Options',
-                        rows: [
-                            checkboxRow('extendLeft', 'Extend Left'),
-                            checkboxRow('extendRight', 'Extend Right'),
-                            checkboxRow('reversed', 'Reverse'),
-                            checkboxRow('showLabels', 'Show Labels'),
-                            checkboxRow('showPrices', 'Show Prices'),
-                        ]
-                    },
+                    ...this.fib.sections(),
                     {
                         title: 'Levels',
                         rows: [
@@ -176,7 +136,9 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     getSettingValue(key: string): any {
+        if (this.fib.has(key)) return this.fib.get(key);
         switch (key) {
+            case 'opacity': return Math.round(this.opacity * 100);
             case 'color': return this.style.color;
             case 'lineWidth': return this.style.lineWidth;
             case 'lineStyle':
@@ -184,11 +146,7 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
                 if (this.style.lineDash[0] === 6) return 'dashed';
                 return 'dotted';
             case 'backgroundOpacity': return Math.round(this.backgroundOpacity * 100);
-            case 'extendLeft': return this.extendLeft;
-            case 'extendRight': return this.extendRight;
             case 'reversed': return this.reversed;
-            case 'showLabels': return this.showLabels;
-            case 'showPrices': return this.showPrices;
             case 'levels': return this.levels;
             case 'visible': return this.visible;
             default: return undefined;
@@ -196,7 +154,11 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     setSettingValue(key: string, value: any): void {
+        if (this.fib.set(key, value)) return;
         switch (key) {
+            case 'opacity':
+                this.opacity = value / 100;
+                break;
             case 'color':
                 this.style.color = value;
                 break;
@@ -211,20 +173,8 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
             case 'backgroundOpacity':
                 this.backgroundOpacity = value / 100;
                 break;
-            case 'extendLeft':
-                this.extendLeft = value;
-                break;
-            case 'extendRight':
-                this.extendRight = value;
-                break;
             case 'reversed':
                 this.reversed = value;
-                break;
-            case 'showLabels':
-                this.showLabels = value;
-                break;
-            case 'showPrices':
-                this.showPrices = value;
                 break;
             case 'levels':
                 this.levels = value;
@@ -319,8 +269,8 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
         let extendRightX = canvasWidth;
 
         // Calculate line start/end based on extend options
-        const lineStartX = this.extendLeft ? extendLeftX : Math.min(pA.x, pB.x);
-        const lineEndX = this.extendRight ? extendRightX : Math.max(pA.x, pB.x);
+        const lineStartX = this.fib.extendLeft ? extendLeftX : Math.min(pA.x, pB.x);
+        const lineEndX = this.fib.extendRight ? extendRightX : Math.max(pA.x, pB.x);
 
         // Calculate Y positions at start and end X for each level
         this._levelLines = enabledLevels.map(({ level, label, color }) => {
@@ -443,41 +393,32 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
             state: this.state === 'selected' ? 'complete' : this.state,
             visible: this.visible,
             locked: this.locked,
-            extendLeft: this.extendLeft,
-            extendRight: this.extendRight,
-            showLabels: this.showLabels,
-            showPrices: this.showPrices,
+            extendLeft: this.fib.extendLeft,
+            extendRight: this.fib.extendRight,
+            showLabels: this.fib.showLabels,
+            opacity: this.opacity,
             backgroundOpacity: this.backgroundOpacity,
-            levels: this.levels.map(l => ({
-                value: l.level,
-                color: l.color,
-                visible: l.enabled
-            })),
+            reversed: this.reversed,
+            levels: levelsToJSON(this.levels),
+            fib: this.fib.toJSON(),
         };
     }
 
     /** Create FibChannelDrawing from serialized data */
     static fromJSON(data: SerializedDrawing): FibChannelDrawing {
-        let levels: FibChannelLevel[] | undefined;
-        if (data.levels) {
-            levels = data.levels.map(l => ({
-                level: l.value,
-                label: String(l.value),
-                color: l.color,
-                enabled: l.visible,
-            }));
-        }
-
         const drawing = new FibChannelDrawing({
             color: data.style.color,
             lineWidth: data.style.lineWidth,
             showLabels: data.showLabels,
-            showPrices: data.showPrices,
             extendLeft: data.extendLeft,
             extendRight: data.extendRight,
             backgroundOpacity: data.backgroundOpacity,
-            levels: levels,
+            reversed: data.reversed,
+            levels: levelsFromJSON(data.levels),
         });
+        drawing.style = { ...drawing.style, ...data.style };
+        if (data.opacity !== undefined) drawing.opacity = data.opacity;
+        drawing.fib.applyJSON(data.fib);
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
 

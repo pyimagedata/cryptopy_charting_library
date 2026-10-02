@@ -1,3 +1,4 @@
+import { PriceScaleMode } from '../model/price-scale';
 import { ChartModel } from '../model/chart-model';
 import { Series, SeriesType } from '../model/series';
 import { CandlestickSeries } from '../model/candlestick-series';
@@ -436,6 +437,8 @@ export class PaneWidget implements Disposable {
         const canvasHeight = this._canvas.height;
 
         ctx.save();
+        // Fib araclarinin "log olcege gore seviyeler" secenegi icin.
+        const isLogScale = this._model.rightPriceScale.mode === PriceScaleMode.Logarithmic;
 
         for (const drawing of drawings) {
             if (!drawing.visible) continue;
@@ -464,7 +467,8 @@ export class PaneWidget implements Disposable {
                     (price: number) => {
                         const y = priceToPixel(price);
                         return y !== null ? y : 0;
-                    }
+                    },
+                    isLogScale
                 );
             } else if (drawing instanceof FibExtensionDrawing) {
                 drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
@@ -477,7 +481,8 @@ export class PaneWidget implements Disposable {
                     (price: number) => {
                         const y = priceToPixel(price);
                         return y !== null ? y : 0;
-                    }
+                    },
+                    isLogScale
                 );
             } else if (drawing instanceof FibChannelDrawing) {
                 drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));

@@ -106,6 +106,8 @@ export interface SerializedDrawing {
     size?: number;
     direction?: 'up' | 'down' | 'left' | 'right';
     levels?: Array<{ value: number; color: string; visible: boolean }>;
+    /** Fibonacci araclarinin ortak ayarlari (bkz. fib-common.ts FibCommonSettings). */
+    fib?: Record<string, any>;
     // Text properties
     text?: string;
     textColor?: string;

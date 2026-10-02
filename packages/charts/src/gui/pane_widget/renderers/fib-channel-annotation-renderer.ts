@@ -14,6 +14,92 @@ import { ArrowMarkerDrawing } from '../../../drawings/arrow-marker-drawing';
 import { ArrowIconDrawing } from '../../../drawings/arrow-icon-drawing';
 import { ArrowDrawing } from '../../../drawings/arrow-drawing';
 import { hexToRgba } from './utils';
+import { FibCommonSettings, lineDashFor } from '../../../drawings/fib-common';
+
+type FibLevelRow = { level: number; color: string; price: number; y: number };
+
+/** Fiyat buyuklugune gore ondalik: forex 5, metal/endeks 2. */
+function formatFibPrice(price: number): string {
+    const abs = Math.abs(price);
+    const digits = abs < 10 ? 5 : abs < 100 ? 3 : 2;
+    return price.toFixed(digits);
+}
+
+function drawControlPoints(ctx: CanvasRenderingContext2D, points: { x: number; y: number }[], color: string, dpr: number): void {
+    for (const p of points) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function drawFibTrendLine(
+    ctx: CanvasRenderingContext2D,
+    drawing: { fib: FibCommonSettings; style: { color: string } },
+    points: { x: number; y: number }[],
+    dpr: number,
+): void {
+    if (!drawing.fib.trendLineVisible || points.length < 2) return;
+    ctx.strokeStyle = drawing.style.color;
+    ctx.lineWidth = 1 * dpr;
+    ctx.setLineDash(lineDashFor(drawing.fib.trendLineStyle, dpr));
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+}
+
+/**
+ * Yatay Fib seviyeleri (duzeltme ve trend bazli uzatma ortak): dolgu, cizgiler,
+ * etiketler. xA/xB seviyelerin yatay araligi (uzatma secenekleriyle genisler).
+ */
+function drawHorizontalFibLevels(
+    ctx: CanvasRenderingContext2D,
+    drawing: { fib: FibCommonSettings; style: { lineWidth: number; lineDash?: number[] }; opacity?: number; backgroundOpacity?: number },
+    levelData: FibLevelRow[],
+    xA: number,
+    xB: number,
+    canvasWidth: number,
+    dpr: number,
+): void {
+    const fib = drawing.fib;
+    const left = fib.extendLeft ? 0 : Math.min(xA, xB);
+    const right = fib.extendRight ? canvasWidth : Math.max(xA, xB);
+    const opacity = drawing.opacity ?? 0.8;
+
+    if (fib.fillBackground) {
+        const bgOpacity = drawing.backgroundOpacity ?? 0.1;
+        for (let i = 0; i < levelData.length - 1; i++) {
+            const y1 = levelData[i].y;
+            const y2 = levelData[i + 1].y;
+            ctx.fillStyle = hexToRgba(levelData[i + 1].color, bgOpacity);
+            ctx.fillRect(left, Math.min(y1, y2), right - left, Math.abs(y2 - y1));
+        }
+    }
+
+    ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+    ctx.lineWidth = drawing.style.lineWidth * dpr;
+    for (const level of levelData) {
+        const color = hexToRgba(level.color, opacity);
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(left, level.y);
+        ctx.lineTo(right, level.y);
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    for (const level of levelData) {
+        const text = fib.labelText(level.level, level.price, formatFibPrice);
+        fib.drawLabel(ctx, text, level.color, left, level.y, right, level.y, dpr);
+    }
+}
 
 /**
  * Draws Fibonacci Retracement levels
@@ -27,93 +113,13 @@ export function drawFibRetracement(
     isSelected: boolean
 ): void {
     if (pixelPoints.length < 2) return;
-
-    const levelData = drawing.getLevelData();
-    const style = drawing.style;
-
-    const minX = Math.min(pixelPoints[0].x, pixelPoints[1].x);
-    const maxX = drawing.extendLines ? canvasWidth : Math.max(pixelPoints[0].x, pixelPoints[1].x);
-
-    const opacity = drawing.opacity ?? 0.8;
-
-    const applyOpacity = (hexColor: string, alpha: number): string => {
-        const hex = hexColor.replace('#', '');
-        const r = parseInt(hex.substring(0, 2), 16);
-        const g = parseInt(hex.substring(2, 4), 16);
-        const b = parseInt(hex.substring(4, 6), 16);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    };
-
-    // Draw semi-transparent fill between levels
-    const bgOpacity = drawing.backgroundOpacity ?? 0.1;
-    for (let i = 0; i < levelData.length - 1; i++) {
-        const y1 = levelData[i].y;
-        const y2 = levelData[i + 1].y;
-        const fillColor = applyOpacity(levelData[i].color, bgOpacity);
-        ctx.fillStyle = fillColor;
-        ctx.fillRect(minX, Math.min(y1, y2), maxX - minX, Math.abs(y2 - y1));
-    }
-
-    // Draw horizontal lines at each level
-    if (style.lineDash && style.lineDash.length > 0) {
-        ctx.setLineDash(style.lineDash.map(d => d * dpr));
-    } else {
-        ctx.setLineDash([]);
-    }
-    ctx.lineWidth = style.lineWidth * dpr;
-
-    for (let i = 0; i < levelData.length; i++) {
-        const level = levelData[i];
-        const color = applyOpacity(level.color, opacity);
-
-        ctx.strokeStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(minX, level.y);
-        ctx.lineTo(maxX, level.y);
-        ctx.stroke();
-
-        if (drawing.showLabels) {
-            const labelText = drawing.showPrices
-                ? `${level.label} (${level.price.toFixed(2)})`
-                : level.label;
-
-            ctx.font = `${11 * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
-            ctx.fillStyle = color;
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(labelText, minX + 4 * dpr, level.y - 2 * dpr);
-        }
-    }
-
-    // Draw vertical connecting line (trend reference)
-    ctx.strokeStyle = style.color;
-    ctx.lineWidth = 1 * dpr;
-    ctx.setLineDash([4 * dpr, 4 * dpr]);
-    ctx.beginPath();
-    ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-    ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Draw control points if selected
-    if (isSelected) {
-        ctx.fillStyle = style.color;
-        for (const point of pixelPoints) {
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = style.color;
-        }
-    }
+    drawHorizontalFibLevels(ctx, drawing, drawing.getLevelData(), pixelPoints[0].x, pixelPoints[1].x, canvasWidth, dpr);
+    drawFibTrendLine(ctx, drawing, [pixelPoints[0], pixelPoints[1]], dpr);
+    if (isSelected) drawControlPoints(ctx, pixelPoints, drawing.style.color, dpr);
 }
 
 /**
- * Draws Fibonacci Extension levels
+ * Draws Fibonacci Extension levels (seviyeler B..C araliginda, C'den A->B kadar)
  */
 export function drawFibExtension(
     ctx: CanvasRenderingContext2D,
@@ -123,74 +129,12 @@ export function drawFibExtension(
     dpr: number,
     isSelected: boolean
 ): void {
-    const style = drawing.style;
-    const levelData = drawing.getLevelData();
-    const pA = pixelPoints[0];
+    if (pixelPoints.length < 2) return;
     const pB = pixelPoints[1];
     const pC = pixelPoints.length > 2 ? pixelPoints[2] : pB;
-
-    const levelMinX = Math.min(pB.x, pC.x);
-    const levelMaxX = Math.max(pB.x, pC.x);
-    const startX = levelMinX;
-    const endX = drawing.extendLines ? canvasWidth : levelMaxX;
-    const bgOpacity = drawing.backgroundOpacity ?? 0.1;
-
-    // Draw fills
-    for (let i = 0; i < levelData.length - 1; i++) {
-        const y1 = levelData[i].y;
-        const y2 = levelData[i + 1].y;
-        ctx.fillStyle = hexToRgba(levelData[i].color, bgOpacity);
-        ctx.fillRect(startX, Math.min(y1, y2), endX - startX, Math.abs(y2 - y1));
-    }
-
-    // Draw levels
-    ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
-    ctx.lineWidth = style.lineWidth * dpr;
-
-    const opacity = drawing.opacity ?? 0.8;
-
-    for (const level of levelData) {
-        ctx.strokeStyle = hexToRgba(level.color, opacity);
-        ctx.beginPath();
-        ctx.moveTo(startX, level.y);
-        ctx.lineTo(endX, level.y);
-        ctx.stroke();
-
-        if (drawing.showLabels) {
-            const label = drawing.showPrices ? `${level.label} (${level.price.toFixed(2)})` : level.label;
-            ctx.font = `${11 * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
-            ctx.fillStyle = level.color;
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(label, startX + 4 * dpr, level.y - 2 * dpr);
-        }
-    }
-
-    // Trendlines (A->B->C) dashed
-    ctx.strokeStyle = style.color;
-    ctx.lineWidth = 1 * dpr;
-    ctx.setLineDash([4 * dpr, 4 * dpr]);
-    ctx.beginPath();
-    ctx.moveTo(pA.x, pA.y);
-    ctx.lineTo(pB.x, pB.y);
-    ctx.lineTo(pC.x, pC.y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Points
-    if (isSelected) {
-        ctx.fillStyle = style.color;
-        for (const p of pixelPoints) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 5 * dpr, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = style.color;
-        }
-    }
+    drawHorizontalFibLevels(ctx, drawing, drawing.getLevelData(), pB.x, pC.x, canvasWidth, dpr);
+    drawFibTrendLine(ctx, drawing, pixelPoints.slice(0, 3), dpr);
+    if (isSelected) drawControlPoints(ctx, pixelPoints, drawing.style.color, dpr);
 }
 
 /**
@@ -206,74 +150,44 @@ export function drawFibChannel(
 ): void {
     if (pixelPoints.length < 2) return;
 
-    const style = drawing.style;
+    const fib = drawing.fib;
     const levelLines = drawing.getLevelLines();
-    const bgOpacity = drawing.backgroundOpacity ?? 0.05;
+    const opacity = drawing.opacity ?? 1;
 
-    // Draw fills between consecutive levels
-    for (let i = 0; i < levelLines.length - 1; i++) {
-        const l1 = levelLines[i];
-        const l2 = levelLines[i + 1];
-
-        ctx.fillStyle = hexToRgba(l1.color, bgOpacity);
-        ctx.beginPath();
-        ctx.moveTo(l1.startX * dpr, l1.startY * dpr);
-        ctx.lineTo(l1.endX * dpr, l1.endY * dpr);
-        ctx.lineTo(l2.endX * dpr, l2.endY * dpr);
-        ctx.lineTo(l2.startX * dpr, l2.startY * dpr);
-        ctx.closePath();
-        ctx.fill();
+    if (fib.fillBackground) {
+        const bgOpacity = drawing.backgroundOpacity ?? 0.05;
+        for (let i = 0; i < levelLines.length - 1; i++) {
+            const l1 = levelLines[i];
+            const l2 = levelLines[i + 1];
+            ctx.fillStyle = hexToRgba(l2.color, bgOpacity);
+            ctx.beginPath();
+            ctx.moveTo(l1.startX * dpr, l1.startY * dpr);
+            ctx.lineTo(l1.endX * dpr, l1.endY * dpr);
+            ctx.lineTo(l2.endX * dpr, l2.endY * dpr);
+            ctx.lineTo(l2.startX * dpr, l2.startY * dpr);
+            ctx.closePath();
+            ctx.fill();
+        }
     }
 
-    // Draw level lines
-    ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
-    ctx.lineWidth = style.lineWidth * dpr;
-
+    ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+    ctx.lineWidth = drawing.style.lineWidth * dpr;
     for (const line of levelLines) {
-        ctx.strokeStyle = line.color;
+        ctx.strokeStyle = hexToRgba(line.color, opacity);
         ctx.beginPath();
         ctx.moveTo(line.startX * dpr, line.startY * dpr);
         ctx.lineTo(line.endX * dpr, line.endY * dpr);
         ctx.stroke();
+    }
+    ctx.setLineDash([]);
 
-        if (drawing.showLabels) {
-            ctx.font = `${11 * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
-            ctx.fillStyle = line.color;
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(line.label, line.startX * dpr + 4 * dpr, line.startY * dpr - 2 * dpr);
-        }
+    for (const line of levelLines) {
+        const text = fib.labelText(line.level, null);
+        fib.drawLabel(ctx, text, line.color, line.startX * dpr, line.startY * dpr, line.endX * dpr, line.endY * dpr, dpr);
     }
 
-    // Draw control points A-B-C trend lines
-    if (pixelPoints.length >= 2) {
-        ctx.strokeStyle = style.color;
-        ctx.lineWidth = 1 * dpr;
-        ctx.setLineDash([4 * dpr, 4 * dpr]);
-        ctx.beginPath();
-        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-        ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
-        if (pixelPoints.length >= 3) {
-            ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
-        }
-        ctx.stroke();
-        ctx.setLineDash([]);
-    }
-
-    // Control points
-    if (isSelected) {
-        ctx.fillStyle = style.color;
-        for (const p of pixelPoints) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 5 * dpr, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 3 * dpr, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = style.color;
-        }
-    }
+    drawFibTrendLine(ctx, drawing, pixelPoints.slice(0, 3), dpr);
+    if (isSelected) drawControlPoints(ctx, pixelPoints, drawing.style.color, dpr);
 }
 
 /**
