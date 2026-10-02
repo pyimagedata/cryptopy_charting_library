@@ -25,22 +25,23 @@ export { createSelect, SelectOption } from '../components/Select';
 
 const styles = {
     section: `
-        margin-bottom: 16px;
+        margin-bottom: 10px;
     `,
     sectionTitle: `
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
         color: var(--text-secondary);
         text-transform: uppercase;
-        margin-bottom: 12px;
+        margin: 4px 0 4px;
         letter-spacing: 0.5px;
     `,
     row: `
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 10px 0;
-        border-bottom: 1px solid var(--border-color);
+        gap: 10px;
+        padding: 4px 0;
+        min-height: 28px;
     `,
     label: `
         font-size: 13px;

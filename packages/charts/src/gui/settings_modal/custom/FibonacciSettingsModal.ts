@@ -14,6 +14,7 @@ import { GenericSettingsModal } from '../generic/GenericSettingsModal';
 import { DrawingSettingsProvider } from '../base/SettingsTypes';
 import { createFibLevelsEditor } from '../components';
 import { createColorSwatch, createCheckbox, createSelect, createSlider } from '../base/SettingsComponents';
+import { createLineButton, closeLineButtonMenu } from '../components/LineButton';
 
 const TITLES: Record<string, string> = {
     fibRetracement: 'Fib Retracement',
@@ -31,21 +32,9 @@ const SNAPSHOT_KEYS = [
 type LineStyle = 'solid' | 'dashed' | 'dotted';
 type Provider = Drawing & DrawingSettingsProvider & { fib?: { capabilities?: { prices: boolean; logScale: boolean } } };
 
-function dashAttr(style: LineStyle): string {
-    if (style === 'dashed') return '5 3';
-    if (style === 'dotted') return '1.5 2';
-    return '';
-}
-
-function linePreviewSvg(width: number, style: LineStyle, length = 28): string {
-    const dash = dashAttr(style);
-    return `<svg width="${length}" height="12" viewBox="0 0 ${length} 12" aria-hidden="true"><line x1="1" y1="6" x2="${length - 1}" y2="6" stroke="currentColor" stroke-width="${width}" ${dash ? `stroke-dasharray="${dash}"` : ''} stroke-linecap="butt"/></svg>`;
-}
-
 export class FibonacciSettingsModal extends GenericSettingsModal {
     private _snapshot: Record<string, any> | null = null;
     private _snapshotPoints: { time: number; price: number }[] = [];
-    private _menu: HTMLElement | null = null;
     private _oneColorSaved: string[] | null = null;
 
     protected getTitle(): string {
@@ -269,73 +258,11 @@ export class FibonacciSettingsModal extends GenericSettingsModal {
         return el;
     }
 
-    /** Cizgi onizlemeli dugme; tiklayinca kalinlik + stil menusu acar. */
     private _lineButton(width: number, style: LineStyle, onWidth: (w: number) => void, onStyle: (s: LineStyle) => void): HTMLElement {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.title = t('Line Style');
-        btn.style.cssText = `display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:1px solid var(--border-color);
-            border-radius:4px;background:var(--input-bg);color:var(--text-primary);cursor:pointer;`;
-        const paint = () => {
-            btn.innerHTML = `${linePreviewSvg(width, style)}<svg width="8" height="8" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`;
-        };
-        paint();
-        btn.onclick = (e) => {
-            e.stopPropagation();
-            if (this._menu && this._menu.dataset.owner === btn.dataset.ownerId) {
-                this._closeMenu();
-                return;
-            }
-            this._closeMenu();
-            btn.dataset.ownerId = String(Math.random());
-            const menu = document.createElement('div');
-            menu.dataset.owner = btn.dataset.ownerId;
-            const r = btn.getBoundingClientRect();
-            menu.style.cssText = `position:fixed;top:${r.bottom + 4}px;left:${r.left}px;z-index:10001;background:var(--modal-bg);
-                border:1px solid var(--border-color);border-radius:6px;box-shadow:var(--shadow);padding:6px;display:flex;flex-direction:column;gap:2px;`;
-            const item = (html: string, active: boolean, onClick: () => void) => {
-                const it = document.createElement('button');
-                it.type = 'button';
-                it.innerHTML = html;
-                it.style.cssText = `display:flex;align-items:center;gap:8px;padding:6px 10px;border:none;border-radius:4px;cursor:pointer;
-                    color:var(--text-primary);font-size:12px;background:${active ? 'rgba(41,98,255,0.18)' : 'transparent'};`;
-                it.onmouseenter = () => { if (!active) it.style.background = 'var(--hover-bg)'; };
-                it.onmouseleave = () => { if (!active) it.style.background = 'transparent'; };
-                it.onclick = (ev) => { ev.stopPropagation(); onClick(); };
-                menu.appendChild(it);
-            };
-            [1, 2, 3, 4].forEach((w) => item(`${linePreviewSvg(w, 'solid', 40)}<span>${w}px</span>`, w === width, () => {
-                width = w; onWidth(w); paint(); this._closeMenu();
-            }));
-            const sep = document.createElement('div');
-            sep.style.cssText = 'height:1px;background:var(--border-color);margin:4px 0;';
-            menu.appendChild(sep);
-            (['solid', 'dashed', 'dotted'] as LineStyle[]).forEach((s) => item(linePreviewSvg(2, s, 40), s === style, () => {
-                style = s; onStyle(s); paint(); this._closeMenu();
-            }));
-            // body'ye eklenir: pencere transform ile ortalandigi icin icindeki
-            // position:fixed eleman yanlis yere kayardi. Tema degiskenleri kopyalanir.
-            if (this._element) {
-                const cs = getComputedStyle(this._element);
-                for (const v of ['--modal-bg', '--text-primary', '--border-color', '--hover-bg', '--shadow', '--input-bg']) {
-                    menu.style.setProperty(v, cs.getPropertyValue(v));
-                }
-            }
-            document.body.appendChild(menu);
-            this._menu = menu;
-            const off = (ev: MouseEvent) => {
-                if (!menu.contains(ev.target as Node) && ev.target !== btn) {
-                    this._closeMenu();
-                    document.removeEventListener('mousedown', off, true);
-                }
-            };
-            document.addEventListener('mousedown', off, true);
-        };
-        return btn;
+        return createLineButton(width, style, onWidth, onStyle, this._element);
     }
 
     private _closeMenu(): void {
-        this._menu?.remove();
-        this._menu = null;
+        closeLineButtonMenu();
     }
 }

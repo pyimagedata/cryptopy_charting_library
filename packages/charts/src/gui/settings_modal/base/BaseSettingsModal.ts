@@ -6,7 +6,7 @@
 
 import { Delegate } from '../../../helpers/delegate';
 import { Drawing } from '../../../drawings';
-import { t } from '../../../helpers/translations';
+import { t, getCurrentLanguage } from '../../../helpers/translations';
 
 /** Tab configuration */
 export interface ModalTab {
@@ -155,6 +155,8 @@ export abstract class BaseSettingsModal {
         `;
 
         this._applyThemeVariables();
+        // Buyuk harfli basliklar dile gore: 'tr' ile "Seviye" -> "SEVİYE".
+        this._element.lang = getCurrentLanguage();
 
         // Prevent closing when clicking inside modal
         this._element.onclick = (e) => e.stopPropagation();
