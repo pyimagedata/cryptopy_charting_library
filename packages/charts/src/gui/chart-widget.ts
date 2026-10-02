@@ -10,6 +10,9 @@ import { BarData, LineData } from '../model/data';
 import { PriceScale, PriceScaleMode } from '../model/price-scale';
 import { PaneWidget } from './pane-widget';
 import { PriceAxisWidget } from './price-axis-widget';
+import { OffsetPriceScale } from '../model/offset-price-scale';
+import { coordinate } from '../model/coordinate';
+import type { PriceAxisOverlay } from '../indicators/spot-compare-indicator';
 import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
@@ -107,6 +110,9 @@ export class ChartWidget implements Disposable {
     private _symbolSearch: SymbolSearch | null = null;
     private _paneWidget: PaneWidget | null = null;
     private _priceAxisWidget: PriceAxisWidget | null = null;
+    /** Ikinci fiyat ekseni (or. GC1'de XAUUSD): bir overlay indikator isteyince olusur. */
+    private _secondaryAxisWidget: PriceAxisWidget | null = null;
+    private _secondaryAxisScale: OffsetPriceScale | null = null;
     private _timeAxisWidget: TimeAxisWidget | null = null;
     private _floatingAttributeBar: FloatingAttributeBar | null = null;
     private _drawingSettingsModal: BaseSettingsModal | null = null;
@@ -819,6 +825,7 @@ export class ChartWidget implements Disposable {
         if (this._priceAxisWidget) {
             this._priceAxisWidget.setTheme(theme);
         }
+        this._secondaryAxisWidget?.setTheme(theme);
 
         // Update main chart pane
         if (this._paneWidget) {
@@ -1268,7 +1275,9 @@ export class ChartWidget implements Disposable {
         const toolbarHeight = this._toolbarWidget?.height ?? 0;
         const timeAxisHeight = this._timeAxisWidget?.height ?? 28;
         this._priceAxisWidget?.updateWidth();
-        const priceAxisWidth = this._priceAxisWidget?.width ?? 52;
+        this._secondaryAxisWidget?.updateWidth();
+        // Alt paneller ve grafik genisligi icin iki eksenin toplami kullanilir.
+        const priceAxisWidth = (this._priceAxisWidget?.width ?? 52) + (this._secondaryAxisWidget?.width ?? 0);
         const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 0;
 
         // Calculate total indicator pane heights
@@ -1280,7 +1289,7 @@ export class ChartWidget implements Disposable {
         // Izleme listesi acikken grafik onun genisligi kadar daralir.
         const watchlistWidth = this._watchlistPanel?.visible ? this._watchlistPanel.width : 0;
         const usableWidth = this._width - watchlistWidth;
-        this._technicalRatingBadge?.setRightOffset(watchlistWidth);
+        this._technicalRatingBadge?.setRightOffset(watchlistWidth + (this._secondaryAxisWidget?.width ?? 0));
         const paneWidth = usableWidth - priceAxisWidth - drawingToolbarWidth;
         const paneHeight = this._height - timeAxisHeight - toolbarHeight - indicatorPanesHeight;
 
@@ -1292,6 +1301,7 @@ export class ChartWidget implements Disposable {
         // Update widgets
         this._paneWidget?.setSize(paneWidth, paneHeight);
         this._priceAxisWidget?.setHeight(paneHeight);
+        this._secondaryAxisWidget?.setHeight(paneHeight);
         this._timeAxisWidget?.setWidth(paneWidth);
 
         // Offset chart row for drawing toolbar (using CSS variable reference)
@@ -2407,7 +2417,9 @@ export class ChartWidget implements Disposable {
         }
 
         this._updateLastPriceLabel();
-        if (this._priceAxisWidget?.updateWidth()) {
+        const secondaryLayoutChanged = this._updateSecondaryAxis(crosshair?.visible ? crosshair.x : null, mainPaneLocalY);
+        const mainWidthChanged = this._priceAxisWidget?.updateWidth() ?? false;
+        if (mainWidthChanged || secondaryLayoutChanged) {
             this._updateLayout();
         }
 
@@ -2431,6 +2443,7 @@ export class ChartWidget implements Disposable {
         );
 
         this._priceAxisWidget?.render();
+        this._secondaryAxisWidget?.render();
         this._timeAxisWidget?.render();
 
         // Render indicator panes (RSI, MACD, etc.)
@@ -2503,6 +2516,62 @@ export class ChartWidget implements Disposable {
         }
 
         return value.toFixed(4);
+    }
+
+    /** Ilk gorunur overlay indikatorun istedigi ikinci eksen (yoksa null). */
+    private _secondaryAxisSource(): PriceAxisOverlay | null {
+        for (const ind of this._indicatorManager.overlayIndicators) {
+            const hook = (ind as unknown as { getPriceAxisOverlay?: () => PriceAxisOverlay | null }).getPriceAxisOverlay;
+            if (typeof hook !== 'function') continue;
+            const overlay = hook.call(ind);
+            if (overlay) return overlay;
+        }
+        return null;
+    }
+
+    /**
+     * Ikinci ekseni olusturur/kaldirir ve son fiyat + imlec etiketini gunceller.
+     * Yerlesimin yeniden hesaplanmasi gerekiyorsa true doner.
+     */
+    private _updateSecondaryAxis(crosshairX: number | null, localY: number | null): boolean {
+        const overlay = this._secondaryAxisSource();
+        if (!overlay || !this._chartRow) {
+            if (!this._secondaryAxisWidget) return false;
+            this._secondaryAxisWidget.dispose();
+            this._secondaryAxisWidget = null;
+            this._secondaryAxisScale = null;
+            return true;
+        }
+
+        let changed = false;
+        if (!this._secondaryAxisWidget || !this._secondaryAxisScale) {
+            this._secondaryAxisScale = new OffsetPriceScale(this._model.rightPriceScale);
+            this._secondaryAxisWidget = new PriceAxisWidget(this._chartRow, this._secondaryAxisScale, this._priceAxisWidget?.colors ?? {
+                backgroundColor: this._model.options.layout.backgroundColor,
+                textColor: this._model.options.layout.textColor,
+            });
+            this._secondaryAxisWidget.setHeight(this._model.rightPriceScale.height);
+            this._secondaryAxisWidget.element?.addEventListener('dblclick', this._onPriceAxisDoubleClick.bind(this));
+            changed = true;
+        }
+
+        const scale = this._secondaryAxisScale;
+        const widget = this._secondaryAxisWidget;
+        scale.offset = overlay.offset;
+        widget.setTitle(overlay.title, overlay.color);
+        widget.setLastValue(overlay.lastPrice, scale.formatPrice(overlay.lastPrice), overlay.color);
+
+        if (localY !== null && crosshairX !== null) {
+            // Imlec etiketi fare altindaki mumun kendi farkiyla: gecmis mumlarda da dogru karsilik.
+            const index = this._model.timeScale.coordinateToIndex(coordinate(crosshairX)) as number;
+            const offset = overlay.offsetAt(index) ?? overlay.offset;
+            const price = this._model.rightPriceScale.coordinateToPrice(coordinate(localY)) - offset;
+            widget.setCrosshair(localY, true, scale.formatPrice(price));
+        } else {
+            widget.setCrosshair(0, false);
+        }
+
+        return widget.updateWidth() || changed;
     }
 
     private _updateLastPriceLabel(): void {
@@ -3173,6 +3242,7 @@ export class ChartWidget implements Disposable {
         this._chartSettingsModal?.dispose();
         this._paneWidget?.dispose();
         this._priceAxisWidget?.dispose();
+        this._secondaryAxisWidget?.dispose();
         this._timeAxisWidget?.dispose();
         this._contextMenu?.dispose();
 

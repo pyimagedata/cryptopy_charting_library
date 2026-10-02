@@ -1,6 +1,17 @@
 import { startDragSession } from '../helpers/drag-session';
-import { PriceScale } from '../model/price-scale';
-import { coordinate } from '../model/coordinate';
+import { PriceMark } from '../model/price-scale';
+import { Coordinate, BarPrice, coordinate } from '../model/coordinate';
+
+/** Eksenin kullandigi olcek yuzeyi: PriceScale ya da OffsetPriceScale. */
+export interface PriceAxisScale {
+    marks(): PriceMark[];
+    priceToCoordinate(price: number): Coordinate;
+    coordinateToPrice(y: Coordinate): BarPrice;
+    formatPrice(price: number): string;
+    startScale(y: number): void;
+    scaleTo(y: number): void;
+    endScale(): void;
+}
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -16,6 +27,10 @@ export interface PriceAxisWidgetOptions {
     textColor: string;
     fontSize: number;
     fontFamily: string;
+    /** Eksenin ustune yazilan kisa ad (ikinci eksende karsi sembol). */
+    title?: string;
+    /** Baslik rengi. */
+    accentColor?: string;
 }
 
 const defaultPriceAxisOptions: PriceAxisWidgetOptions = {
@@ -30,7 +45,7 @@ const defaultPriceAxisOptions: PriceAxisWidgetOptions = {
  * Price axis widget - renders price scale labels
  */
 export class PriceAxisWidget implements Disposable {
-    private readonly _priceScale: PriceScale;
+    private readonly _priceScale: PriceAxisScale;
     private readonly _options: PriceAxisWidgetOptions;
     private _element: HTMLElement | null = null;
     private _canvas: HTMLCanvasElement | null = null;
@@ -40,7 +55,7 @@ export class PriceAxisWidget implements Disposable {
 
     constructor(
         container: HTMLElement,
-        priceScale: PriceScale,
+        priceScale: PriceAxisScale,
         options: Partial<PriceAxisWidgetOptions> = {}
     ) {
         this._priceScale = priceScale;
@@ -55,6 +70,11 @@ export class PriceAxisWidget implements Disposable {
 
     get canvas(): HTMLCanvasElement | null {
         return this._canvas;
+    }
+
+    /** Su anki zemin/yazi renkleri (ikinci eksen ana eksenle ayni gorunsun diye). */
+    get colors(): { backgroundColor: string; textColor: string } {
+        return { backgroundColor: this._options.backgroundColor, textColor: this._options.textColor };
     }
 
     get width(): number {
@@ -129,6 +149,7 @@ export class PriceAxisWidget implements Disposable {
             if (y < 10 || y > height - 10) continue;
 
             this._ctx.fillStyle = this._options.textColor; // Reset fill style
+            if (this._options.title && y < 26) continue;
             this._ctx.fillText(mark.label, width - 8, y);
 
             // Small tick mark
@@ -145,11 +166,26 @@ export class PriceAxisWidget implements Disposable {
         }
 
         if (this._crosshairY !== null) {
-            const price = this._priceScale.coordinateToPrice(coordinate(this._crosshairY));
-            // Use price scale formatter
-            const text = this._priceScale.formatPrice(price);
-            this._drawLabel(this._crosshairY, text, '#2962ff', false);
+            const text = this._crosshairText
+                ?? this._priceScale.formatPrice(this._priceScale.coordinateToPrice(coordinate(this._crosshairY)));
+            this._drawLabel(this._crosshairY, text, this._options.accentColor ?? '#2962ff', false);
         }
+
+        if (this._options.title) {
+            this._drawTitle(this._options.title);
+        }
+    }
+
+    private _drawTitle(title: string): void {
+        if (!this._ctx) return;
+        const ctx = this._ctx;
+        ctx.font = `bold ${this._options.fontSize - 1}px ${this._options.fontFamily}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = this._options.backgroundColor;
+        ctx.fillRect(1, 0, this._width - 1, 18);
+        ctx.fillStyle = this._options.accentColor ?? this._options.textColor;
+        ctx.fillText(title, this._width / 2, 9, this._width - 4);
     }
 
     private _calculateRequiredWidth(): number {
@@ -225,6 +261,7 @@ export class PriceAxisWidget implements Disposable {
 
     private _lastValue: { price: number; text: string; color: string } | null = null;
     private _crosshairY: number | null = null;
+    private _crosshairText: string | null = null;
     private _countdown: string | null = null;
 
     setLastValue(price: number, text: string, color: string): void {
@@ -239,8 +276,15 @@ export class PriceAxisWidget implements Disposable {
         this._countdown = countdown;
     }
 
-    setCrosshair(y: number, visible: boolean): void {
+    /** `text` verilirse imlec etiketinde olcekten hesaplanan fiyat yerine o yazilir. */
+    setCrosshair(y: number, visible: boolean, text: string | null = null): void {
         this._crosshairY = visible ? y : null;
+        this._crosshairText = text;
+    }
+
+    setTitle(title: string, accentColor: string): void {
+        this._options.title = title;
+        this._options.accentColor = accentColor;
     }
 
     /**

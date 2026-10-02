@@ -29,6 +29,18 @@ export type SpotCompareKlinesProvider = (
     limit: number
 ) => Promise<SpotCompareBar[]>;
 
+/** Ikinci fiyat ekseni icin grafik-widget'a verilen bilgi. */
+export interface PriceAxisOverlay {
+    title: string;
+    color: string;
+    /** Eksenin kayma farki: ana sembol - karsi sembol (en son ortak mumda). */
+    offset: number;
+    /** Karsi sembolun son kapanisi. */
+    lastPrice: number;
+    /** O mumdaki fark; veri yoksa null (cagiran `offset`e duser). */
+    offsetAt(barIndex: number): number | null;
+}
+
 export interface SpotCompareIndicatorOptions extends IndicatorOptions {
     /** 'auto' = grafik sembolunden eslestir; aksi halde sabit karsi sembol kodu. */
     pairSymbol: string;
@@ -36,6 +48,8 @@ export interface SpotCompareIndicatorOptions extends IndicatorOptions {
     showDifference: boolean;
     /** Karsi sembolun kapanis cizgisi; varsayilan kapali (sadece legend degerleri). */
     showLine: boolean;
+    /** Fiyat ekseninin yanina karsi sembolun eksenini ekler. */
+    showAxis: boolean;
 }
 
 interface PairInfo {
@@ -62,6 +76,7 @@ const defaultOptions: Partial<SpotCompareIndicatorOptions> = {
     pairExchange: '',
     showDifference: true,
     showLine: false,
+    showAxis: true,
     color: '#f5a623',
     lineWidth: 1,
 };
@@ -220,6 +235,31 @@ export class SpotCompareIndicator extends OverlayIndicator {
             }
         }
         return html;
+    }
+
+    /** Ikinci eksen hook'u: eslesme/veri yoksa ya da ayar kapaliysa null. */
+    getPriceAxisOverlay(): PriceAxisOverlay | null {
+        if (!this._scOptions.showAxis || !this._pair || !this.visible) return null;
+        let last = -1;
+        for (let i = this._aligned.length - 1; i >= 0; i--) {
+            if (this._aligned[i] && this._sourceData[i]) {
+                last = i;
+                break;
+            }
+        }
+        if (last < 0) return null;
+        const offsetAt = (i: number): number | null => {
+            const other = this._aligned[i];
+            const src = this._sourceData[i];
+            return other && src ? src.close - other.close : null;
+        };
+        return {
+            title: displaySymbol(this._pair.symbol),
+            color: this._scOptions.color,
+            offset: offsetAt(last) as number,
+            lastPrice: (this._aligned[last] as SpotCompareBar).close,
+            offsetAt,
+        };
     }
 
     getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
