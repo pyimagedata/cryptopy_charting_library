@@ -7,7 +7,7 @@
     "type": "module",
     "scripts": {
         "build": "tsc",
-        "bundle": "esbuild src/index.ts --bundle --outfile=dist/charts.js --format=iife --global-name=LightweightCharts --minify",
+        "bundle": "esbuild src/index.ts --bundle --outfile=dist/charts.js --format=iife --global-name=LightweightCharts --minify --legal-comments=none",
         "bundle:dev": "esbuild src/index.ts --bundle --outfile=dist/charts.js --format=iife --global-name=LightweightCharts --sourcemap",
         "clean": "rm -rf dist"
     },
