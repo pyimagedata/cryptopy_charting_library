@@ -72,8 +72,8 @@ export class FibExtensionDrawing implements Drawing, DrawingSettingsProvider {
 
     // Extension specific options
     readonly fib = new FibCommonSettings({ prices: true, logScale: true });
-    opacity: number = 0.8;           // 0-1 opacity for lines
-    backgroundOpacity: number = 0.1;  // 0-1 opacity for fill between levels
+    opacity: number = 1;           // 0-1 opacity for lines
+    backgroundOpacity: number = 0.2;  // 0-1 opacity for fill between levels
     reversed: boolean = false;
     levels: FibExtLevel[];
 
@@ -100,7 +100,7 @@ export class FibExtensionDrawing implements Drawing, DrawingSettingsProvider {
         this.fib.showLabels = options.showLabels !== false;
         this.fib.showPrices = options.showPrices !== false;
         this.fib.extendRight = options.extendLines || false;
-        this.backgroundOpacity = options.backgroundOpacity ?? 0.1;
+        this.backgroundOpacity = options.backgroundOpacity ?? 0.2;
         if (options.opacityValue !== undefined) this.opacity = options.opacityValue;
         this.reversed = options.reversed ?? false;
         this.levels = options.levels ? [...options.levels] : FIBONACCI_EXTENSION_LEVELS.map(l => ({ ...l }));

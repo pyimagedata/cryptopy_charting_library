@@ -70,7 +70,7 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
     readonly fib = new FibCommonSettings({ prices: false, logScale: false });
     opacity: number = 1;
     reversed: boolean = false;
-    backgroundOpacity: number = 0.05;
+    backgroundOpacity: number = 0.2;
     levels: FibChannelLevel[];
 
     // Preview point tracking
@@ -102,7 +102,7 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
         this.fib.extendLeft = options.extendLeft || false;
         this.fib.extendRight = options.extendRight || false;
         this.reversed = options.reversed || false;
-        this.backgroundOpacity = options.backgroundOpacity ?? 0.05;
+        this.backgroundOpacity = options.backgroundOpacity ?? 0.2;
         this.levels = options.levels ? [...options.levels] : FIB_CHANNEL_LEVELS.map(l => ({ ...l }));
     }
 

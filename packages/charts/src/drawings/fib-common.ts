@@ -115,8 +115,8 @@ export class FibCommonSettings {
     coeffsAsPercents = false;
     fillBackground = true;
     labelHAlign: FibLabelHAlign = 'left';
-    labelVAlign: FibLabelVAlign = 'top';
-    labelFontSize = 11;
+    labelVAlign: FibLabelVAlign = 'middle';
+    labelFontSize = 12;
     logScale = false;
     trendLineVisible = true;
     trendLineStyle: FibLineStyle = 'dashed';
@@ -239,17 +239,22 @@ export class FibCommonSettings {
         ctx.fillStyle = color;
         let x: number;
         let y: number;
+        // TradingView ile ayni yerlesim: "sol" etiketi cizginin SOL ucunun disina
+        // (metin saga yasli), "sag" etiketi SAG ucunun disina yazar. Cizgi o
+        // yone ekran kenarina kadar uzatilmissa etiket icerde kalir.
         if (this.labelHAlign === 'right') {
-            ctx.textAlign = 'right';
-            x = x2 - pad;
+            const outside = !this.extendRight;
+            ctx.textAlign = outside ? 'left' : 'right';
+            x = outside ? x2 + pad : x2 - pad;
             y = y2;
         } else if (this.labelHAlign === 'center') {
             ctx.textAlign = 'center';
             x = (x1 + x2) / 2;
             y = (y1 + y2) / 2;
         } else {
-            ctx.textAlign = 'left';
-            x = x1 + pad;
+            const outside = !this.extendLeft;
+            ctx.textAlign = outside ? 'right' : 'left';
+            x = outside ? x1 - pad : x1 + pad;
             y = y1;
         }
         if (this.labelVAlign === 'bottom') {
