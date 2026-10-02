@@ -102,7 +102,10 @@ export function handleMouseDown(
     const y = e.clientY - paneRect.top;
     const isOverPane = x >= 0 && x <= paneRect.width && y >= 0 && y <= paneRect.height;
 
-    if (!isOverPane) {
+    // Cizim surerken (ilk nokta konmus) baska bir paneldeki tiklama cizimi bu panelin
+    // olcegiyle tamamlar (onizlemede gorunen nokta); kaydirma baslatmaz.
+    const finishingDrawing = ctx.drawingManager.mode !== 'none' && ctx.drawingManager.activeDrawing !== null;
+    if (!isOverPane && !finishingDrawing) {
         return {
             isDragging: true,
             lastMouseX: e.clientX,

@@ -1607,7 +1607,11 @@ export class ChartWidget implements Disposable {
 
     private _onMouseDown(e: MouseEvent): void {
         this._closeOpenMenus();
-        const pane = this._resolvePaneInteraction(e.currentTarget ?? e.target);
+        // Cizim surerken (ilk nokta konmus) tiklama baska bir panelde olsa da cizimin
+        // basladigi panelin olcegi kullanilir; yoksa nokta ör. RSI degeriyle (0-100) kaydedilirdi.
+        const pane = this._drawingManager.activeDrawing !== null
+            ? this._resolvePaneInteraction(null)
+            : this._resolvePaneInteraction(e.currentTarget ?? e.target);
         this._setInteractionPane(pane.paneId, pane.paneCanvas, pane.priceScale);
         const stateUpdates = handleMouseDownEvent(e, this._getEventContextForPane(pane.paneId, pane.paneCanvas));
         this._applyEventState(stateUpdates);
@@ -2419,7 +2423,10 @@ export class ChartWidget implements Disposable {
         this._paneWidget?.renderDrawings(
             this._drawingManager.getDrawingsForPane(null),
             (time) => this._drawingManager.timeToPixel(time),
-            (price) => this._drawingManager.priceToPixel(price),
+            // Ana paneldeki cizimler her zaman ana fiyat olcegiyle: drawingManager'in
+            // olcegi fare hangi paneldeyse ona gecer (RSI'ye girince 0-100) ve
+            // ana paneldeki Fib/trend cizgileri ekran disina kayip kayboluyordu.
+            (price) => this._model.rightPriceScale.priceToCoordinate(price),
             this._drawingManager.hoveredForAddText
         );
 
