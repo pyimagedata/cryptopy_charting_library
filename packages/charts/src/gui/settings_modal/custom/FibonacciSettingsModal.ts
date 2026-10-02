@@ -53,6 +53,10 @@ export class FibonacciSettingsModal extends GenericSettingsModal {
         return t(TITLES[type] ?? 'Drawing Settings');
     }
 
+    protected getModalWidth(): number {
+        return 460;
+    }
+
     protected hasCancel(): boolean {
         return true;
     }

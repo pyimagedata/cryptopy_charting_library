@@ -75,6 +75,11 @@ export abstract class BaseSettingsModal {
     /** Render content for a specific tab */
     protected abstract renderTabContent(tabId: string, container: HTMLElement): void;
 
+    /** Pencere genisligi (px); genis icerikli pencereler arttirabilir. */
+    protected getModalWidth(): number {
+        return 380;
+    }
+
     /** Alt sinif true donerse altta "Iptal" dugmesi cikar ve onCancel() cagrilir. */
     protected hasCancel(): boolean {
         return false;
@@ -136,7 +141,8 @@ export abstract class BaseSettingsModal {
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 380px;
+            width: ${this.getModalWidth()}px;
+            max-width: calc(100vw - 24px);
             max-height: 80vh;
             background: var(--modal-bg);
             border-radius: 8px;
