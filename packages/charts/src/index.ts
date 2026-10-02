@@ -54,6 +54,7 @@ export {
     SpotCompareIndicatorOptions,
     SpotCompareBar,
     SpotCompareKlinesProvider,
+    SpotCompareRealtimeProvider,
 } from './indicators';
 
 export * from './patterns';

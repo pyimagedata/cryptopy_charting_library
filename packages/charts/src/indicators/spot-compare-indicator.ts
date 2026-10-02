@@ -8,6 +8,8 @@
  *
  * Veri host sayfadan gelir (SpecialForcesIndicator ile ayni desen): host
  * `SpotCompareIndicator.defaultKlinesProvider` degerini bir kez set eder.
+ * Host `defaultRealtimeProvider` da verirse karsi sembol canli (WebSocket)
+ * guncellenir; periyodik poll o zaman sadece kacan mumlari tamamlar.
  */
 
 import { OverlayIndicator, IndicatorOptions, IndicatorRange } from './indicator';
@@ -41,6 +43,14 @@ export interface PriceAxisOverlay {
     offsetAt(barIndex: number): number | null;
 }
 
+/** Canli abonelik: her tikte `onBar` cagrilir; donen fonksiyon aboneligi kapatir. */
+export type SpotCompareRealtimeProvider = (
+    symbol: string,
+    exchange: string,
+    interval: string,
+    onBar: (bar: SpotCompareBar) => void
+) => () => void;
+
 export interface SpotCompareIndicatorOptions extends IndicatorOptions {
     /** 'auto' = grafik sembolunden eslestir; aksi halde sabit karsi sembol kodu. */
     pairSymbol: string;
@@ -67,6 +77,8 @@ const PAIR_MAP: Record<string, PairInfo> = {
 };
 
 const POLL_MS = 10_000;
+/** Son canli tik bu sureden yeniyse poll istegi atlanir (canli akis saglikli). */
+const LIVE_FRESH_MS = 30_000;
 const HISTORY_LIMIT = 10_000;
 const POLL_LIMIT = 5;
 
@@ -92,6 +104,7 @@ function normalizeInterval(tf: string): string {
 
 export class SpotCompareIndicator extends OverlayIndicator {
     static defaultKlinesProvider: SpotCompareKlinesProvider | null = null;
+    static defaultRealtimeProvider: SpotCompareRealtimeProvider | null = null;
 
     private _scOptions: SpotCompareIndicatorOptions;
     private _chartSymbol = '';
@@ -102,6 +115,8 @@ export class SpotCompareIndicator extends OverlayIndicator {
     private _aligned: (SpotCompareBar | null)[] = [];
     private _fetchToken = 0;
     private _pollTimer: ReturnType<typeof setInterval> | null = null;
+    private _unsubscribeLive: (() => void) | null = null;
+    private _lastLiveAt = 0;
     private _loading = false;
 
     constructor(options: Partial<SpotCompareIndicatorOptions> = {}) {
@@ -160,6 +175,7 @@ export class SpotCompareIndicator extends OverlayIndicator {
             this._byTime.clear();
             for (const b of bars) this._byTime.set(toMs(b.time), b);
             this._realign();
+            this._startLive(token);
             this._startPolling();
         } catch (error) {
             if (token === this._fetchToken) console.warn('SpotCompareIndicator: karsi sembol verisi cekilemedi', error);
@@ -176,13 +192,57 @@ export class SpotCompareIndicator extends OverlayIndicator {
         this._pollTimer = setInterval(() => this._poll(), POLL_MS);
     }
 
+    /** Poll'u ve canli aboneligi birlikte durdurur (sembol/tf degisimi, kaldirma). */
     private _stopPolling(): void {
         if (this._pollTimer) clearInterval(this._pollTimer);
         this._pollTimer = null;
+        this._stopLive();
+    }
+
+    private _startLive(token: number): void {
+        const provider = SpotCompareIndicator.defaultRealtimeProvider;
+        if (!provider || !this._pair || this._unsubscribeLive) return;
+        try {
+            this._unsubscribeLive = provider(this._pair.symbol, this._pair.exchange, this._timeframe, (bar) => {
+                if (token !== this._fetchToken) return;
+                this._applyLiveBar(bar);
+            });
+        } catch (error) {
+            // Canli baglanti acilamazsa 10 sn'lik poll devam eder.
+            console.warn('SpotCompareIndicator: canli abonelik acilamadi', error);
+            this._unsubscribeLive = null;
+        }
+    }
+
+    private _stopLive(): void {
+        const unsubscribe = this._unsubscribeLive;
+        this._unsubscribeLive = null;
+        try {
+            unsubscribe?.();
+        } catch {
+            // Kapanmis baglanti: yok sayilir.
+        }
+    }
+
+    /** Canli tik: son mumu yerinde gunceller; yeni bir mumsa tum hizalama yenilenir. */
+    private _applyLiveBar(bar: SpotCompareBar): void {
+        this._lastLiveAt = Date.now();
+        const time = toMs(bar.time);
+        this._byTime.set(time, bar);
+        const last = this._sourceData.length - 1;
+        if (last >= 0 && toMs(this._sourceData[last].time) === time && this._aligned.length === last + 1) {
+            this._aligned[last] = bar;
+            this._data[last] = { time: this._sourceData[last].time, value: this._scOptions.showLine ? bar.close : NaN };
+        } else {
+            this._realign();
+        }
+        this._dataChanged.fire();
     }
 
     private async _poll(): Promise<void> {
         if (typeof document !== 'undefined' && document.hidden) return;
+        // Canli akis calisiyorsa gerek yok; koparsa (tik gelmezse) poll yedek olarak devreye girer.
+        if (this._unsubscribeLive && Date.now() - this._lastLiveAt < LIVE_FRESH_MS) return;
         const token = this._fetchToken;
         try {
             const bars = await this._fetch(POLL_LIMIT);
