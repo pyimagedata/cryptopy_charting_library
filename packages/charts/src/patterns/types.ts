@@ -22,8 +22,6 @@ export interface ABCDPattern {
     abCdRatio: number;
     extensionOne: number;
     extension1272: number;
-    /** Formasyonun ilk tespit edildigi mum (canli akista ilk gorundugu an). */
-    detectedIndex?: number;
 }
 
 export type PatternSourceBar = BarData;

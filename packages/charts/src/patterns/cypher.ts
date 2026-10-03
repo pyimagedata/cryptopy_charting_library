@@ -4,8 +4,6 @@ import { scanHarmonicPivots } from './harmonic-pivots';
 export interface CypherPattern {
     points: [ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint];
     direction: 'bullish' | 'bearish';
-    /** Formasyonun ilk tespit edildigi mum (canli akista ilk gorundugu an). */
-    detectedIndex?: number;
 }
 
 export function detectCypherPatterns(sourceData: PatternSourceBar[], period: number): CypherPattern[] {
@@ -55,7 +53,7 @@ export function detectCypherPatterns(sourceData: PatternSourceBar[], period: num
 
         seen.add(key);
         seenAbcKeys.add(abcKey);
-        patterns.push({ ...candidate, detectedIndex: currentIndex });
+        patterns.push(candidate);
     });
 
     return patterns;

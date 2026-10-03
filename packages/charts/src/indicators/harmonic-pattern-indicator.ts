@@ -10,40 +10,13 @@ import {
     lineWidthRow,
     checkboxRow,
 } from '../gui/indicator_settings';
-import {
-    detectABCDPatterns,
-    detectBatPatterns,
-    detectCypherPatterns,
-    detectFormingHarmonics,
-    detectGartleyPatterns,
-    harmonicPrz,
-    FormingHarmonic,
-    HarmonicKind,
-} from '../patterns';
-
-const KIND_NAMES: Record<HarmonicKind, string> = { abcd: 'ABCD', gartley: 'Gartley', bat: 'Bat', cypher: 'Cypher' };
-
-/** Tahmini D alani: tamamlanmis formasyonda C'den D'ye, olusanda C'den saga uzanir. */
-type PrzBox = {
-    kind: HarmonicKind;
-    direction: 'bullish' | 'bearish';
-    top: number;
-    bottom: number;
-    fromIndex: number;
-    /** null: formasyon hala olusuyor, alan grafigin sagina uzanir. */
-    toIndex: number | null;
-};
-
-/** Olusan formasyonun alani grafigin son mumundan bu kadar mum saga uzanir. */
-const FORMING_ZONE_EXTEND_BARS = 15;
+import { detectABCDPatterns, detectBatPatterns, detectCypherPatterns, detectGartleyPatterns } from '../patterns';
 
 type HarmonicPattern = {
     kind: 'abcd' | 'gartley' | 'bat' | 'cypher';
     direction: 'bullish' | 'bearish';
     points: { index: number; time: number; price: number }[];
     ratios?: { first?: string; second?: string };
-    /** Ilk tespit edildigi mum: kopyalardan en once gorunen kalir. */
-    detectedIndex: number;
 };
 
 export interface HarmonicPatternIndicatorOptions extends IndicatorOptions {
@@ -55,10 +28,6 @@ export interface HarmonicPatternIndicatorOptions extends IndicatorOptions {
     showGartley: boolean;
     showBat: boolean;
     showCypher: boolean;
-    /** D bacagi B'yi kirinca tahmini D alanini (PRZ) gosterir. */
-    showPRZ: boolean;
-    /** Alan, fiyat C'den alana giden yolun bu yuzdesini gecince de cikar (B kirilmasini beklemeden). */
-    przTriggerPercent: number;
 }
 
 const defaults: Partial<HarmonicPatternIndicatorOptions> = {
@@ -74,15 +43,11 @@ const defaults: Partial<HarmonicPatternIndicatorOptions> = {
     showGartley: true,
     showBat: true,
     showCypher: true,
-    showPRZ: true,
-    przTriggerPercent: 50,
 };
 
 export class HarmonicPatternIndicator extends OverlayIndicator {
     private _optionsEx: HarmonicPatternIndicatorOptions;
     private _patterns: HarmonicPattern[] = [];
-    private _forming: FormingHarmonic[] = [];
-    private _przBoxes: PrzBox[] = [];
 
     constructor(options: Partial<HarmonicPatternIndicatorOptions> = {}) {
         const merged = { ...defaults, ...options };
@@ -97,15 +62,12 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
     updateOptions(newOptions: Partial<HarmonicPatternIndicatorOptions>): boolean {
         const normalized = { ...newOptions };
         if (normalized.period !== undefined) normalized.period = Number(normalized.period);
-        if (normalized.przTriggerPercent !== undefined) normalized.przTriggerPercent = Number(normalized.przTriggerPercent);
         const needsRecalc =
             normalized.period !== undefined && normalized.period !== this._optionsEx.period ||
             normalized.showABCD !== undefined ||
             normalized.showGartley !== undefined ||
             normalized.showBat !== undefined ||
-            normalized.showCypher !== undefined ||
-            normalized.showPRZ !== undefined ||
-            normalized.przTriggerPercent !== undefined;
+            normalized.showCypher !== undefined;
         Object.assign(this._optionsEx, normalized);
         Object.assign(this._options, normalized);
         this._dataChanged.fire();
@@ -122,8 +84,6 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                     checkboxRow('showGartley', 'Show Gartley', this._optionsEx.showGartley),
                     checkboxRow('showBat', 'Show Bat', this._optionsEx.showBat),
                     checkboxRow('showCypher', 'Show Cypher', this._optionsEx.showCypher),
-                    checkboxRow('showPRZ', 'Show Projected D Zone', this._optionsEx.showPRZ),
-                    numberRow('przTriggerPercent', 'D Zone Trigger (% of C to zone)', 0, 100, 5),
                 ] }]),
                 createStyleTab([{ rows: [
                     colorRow('bullishColor', 'Bullish Color', this._optionsEx.bullishColor),
@@ -161,7 +121,6 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                     direction: pattern.direction,
                     points: pattern.points,
                     ratios: { first: pattern.bcRatio.toFixed(3), second: pattern.cdRatio.toFixed(3) },
-                    detectedIndex: pattern.detectedIndex ?? pattern.points[pattern.points.length - 1].index,
                 })));
             }
 
@@ -171,7 +130,6 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                     kind: 'gartley',
                     direction: pattern.direction,
                     points: pattern.points,
-                    detectedIndex: pattern.detectedIndex ?? pattern.points[pattern.points.length - 1].index,
                 })));
             }
 
@@ -181,7 +139,6 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                     kind: 'bat',
                     direction: pattern.direction,
                     points: pattern.points,
-                    detectedIndex: pattern.detectedIndex ?? pattern.points[pattern.points.length - 1].index,
                 })));
             }
 
@@ -191,65 +148,14 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                     kind: 'cypher',
                     direction: pattern.direction,
                     points: pattern.points,
-                    detectedIndex: pattern.detectedIndex ?? pattern.points[pattern.points.length - 1].index,
                 })));
             }
         }
 
         this._patterns = this._dedupePatterns(this._patterns);
-        this._computePrz(sourceData, periods);
         this._data = this._patterns.flatMap((pattern) =>
             pattern.points.map((point) => ({ time: point.time, value: point.price }))
         );
-    }
-
-    /** Tamamlanmis formasyonlarin alanlari + grafigin sonunda olusan formasyonlar. */
-    private _computePrz(sourceData: BarData[], periods: number[]): void {
-        this._forming = [];
-        this._przBoxes = [];
-        if (!this._optionsEx.showPRZ) return;
-
-        const abcKey = (kind: HarmonicKind, points: { index: number }[]) =>
-            `${kind}:${points.map((p) => p.index).join('-')}`;
-        const completedKeys = new Set<string>();
-        for (const pattern of this._patterns) {
-            const xabc = pattern.points.slice(0, pattern.points.length - 1);
-            completedKeys.add(abcKey(pattern.kind, xabc));
-            const prz = harmonicPrz(pattern.kind, xabc as any, sourceData);
-            if (!prz) continue;
-            this._przBoxes.push({
-                kind: pattern.kind,
-                direction: prz.direction,
-                top: prz.top,
-                bottom: prz.bottom,
-                fromIndex: xabc[xabc.length - 1].index,
-                toIndex: pattern.points[pattern.points.length - 1].index,
-            });
-        }
-
-        const kinds = (['abcd', 'gartley', 'bat', 'cypher'] as HarmonicKind[]).filter((kind) =>
-            kind === 'abcd' ? this._optionsEx.showABCD
-                : kind === 'gartley' ? this._optionsEx.showGartley
-                    : kind === 'bat' ? this._optionsEx.showBat
-                        : this._optionsEx.showCypher
-        );
-        const seen = new Set<string>();
-        for (const period of periods) {
-            for (const forming of detectFormingHarmonics(sourceData, period, kinds, this._optionsEx.przTriggerPercent)) {
-                const key = abcKey(forming.kind, forming.points);
-                if (seen.has(key) || completedKeys.has(key)) continue;
-                seen.add(key);
-                this._forming.push(forming);
-                this._przBoxes.push({
-                    kind: forming.kind,
-                    direction: forming.direction,
-                    top: forming.prz.top,
-                    bottom: forming.prz.bottom,
-                    fromIndex: forming.points[forming.points.length - 1].index,
-                    toIndex: null,
-                });
-            }
-        }
     }
 
     getRange(): IndicatorRange {
@@ -268,10 +174,8 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
     }
 
     drawOverlay(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {
-        if (this._patterns.length === 0 && this._przBoxes.length === 0) return;
+        if (this._patterns.length === 0) return;
         ctx.save();
-        this._drawPrzBoxes(ctx, timeScale, priceScale, hpr, vpr);
-        this._drawForming(ctx, timeScale, priceScale, hpr, vpr);
         for (const pattern of this._patterns) {
             const color = pattern.direction === 'bullish' ? this._optionsEx.bullishColor : this._optionsEx.bearishColor;
             const points = pattern.points.map((point) => ({
@@ -329,76 +233,6 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
             }
         }
         ctx.restore();
-    }
-
-    private _colorFor(direction: 'bullish' | 'bearish'): string {
-        return direction === 'bullish' ? this._optionsEx.bullishColor : this._optionsEx.bearishColor;
-    }
-
-    private _drawPrzBoxes(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {
-        const lastIndex = this._sourceData.length - 1;
-        const format = (p: number) => (typeof priceScale.formatPrice === 'function' ? priceScale.formatPrice(p) : p.toFixed(2));
-        for (const box of this._przBoxes) {
-            const forming = box.toIndex === null;
-            const x1 = timeScale.indexToCoordinate(box.fromIndex as any) * hpr;
-            const x2 = timeScale.indexToCoordinate((forming ? lastIndex + FORMING_ZONE_EXTEND_BARS : box.toIndex) as any) * hpr;
-            const yTop = priceScale.priceToCoordinate(box.top) * vpr;
-            const yBottom = priceScale.priceToCoordinate(box.bottom) * vpr;
-            const left = Math.min(x1, x2);
-            const width = Math.abs(x2 - x1);
-            const top = Math.min(yTop, yBottom);
-            const height = Math.max(Math.abs(yBottom - yTop), 1);
-            const color = this._colorFor(box.direction);
-
-            ctx.globalAlpha = forming ? 0.18 : 0.1;
-            ctx.fillStyle = color;
-            ctx.fillRect(left, top, width, height);
-            ctx.globalAlpha = forming ? 0.9 : 0.45;
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 1 * hpr;
-            ctx.setLineDash([4 * hpr, 3 * hpr]);
-            ctx.strokeRect(left, top, width, height);
-            ctx.setLineDash([]);
-            ctx.globalAlpha = 1;
-
-            if (forming) {
-                // Olusan formasyonun alani: adi ve fiyat araligi alanin ustunde.
-                const text = `${KIND_NAMES[box.kind]} D ${format(box.bottom)} – ${format(box.top)}`;
-                ctx.font = `${11 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'bottom';
-                ctx.fillStyle = color;
-                ctx.fillText(text, left + 4 * hpr, top - 3 * vpr);
-            }
-        }
-    }
-
-    /** Olusan formasyon: X-A-B-C bacaklari duz, devam eden D bacagi kesikli. */
-    private _drawForming(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {
-        for (const forming of this._forming) {
-            const color = this._colorFor(forming.direction);
-            const toXY = (p: { index: number; price: number }) => ({
-                x: timeScale.indexToCoordinate(p.index as any) * hpr,
-                y: priceScale.priceToCoordinate(p.price) * vpr,
-            });
-            const points = forming.points.map(toXY);
-            const current = toXY(forming.current);
-            ctx.strokeStyle = color;
-            ctx.lineWidth = this._optionsEx.lineWidth * hpr;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-            ctx.stroke();
-            ctx.setLineDash([5 * hpr, 4 * hpr]);
-            ctx.beginPath();
-            ctx.moveTo(points[points.length - 1].x, points[points.length - 1].y);
-            ctx.lineTo(current.x, current.y);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            this._drawLabels(ctx, points, forming.kind === 'abcd' ? ['A', 'B', 'C'] : ['X', 'A', 'B', 'C'], color, forming.direction, hpr, vpr);
-        }
     }
 
     hitTest(x: number, y: number, timeScale: any, priceScale: any): boolean {
@@ -475,25 +309,22 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
         ctx.fillText(text, x, y);
     }
 
-    /**
-     * Ayni formasyonun farkli ZigZag periyotlarinda bulunan kopyalarini birakir.
-     * Kopya = ayni tur + ayni A-B-C (ayni C = ayni D bacagi). Kopyalardan EN ONCE
-     * tespit edilen kalir: boylece sonradan bulunan bir formasyon (or. ayni D
-     * bacaginda baska periyotta bulunan), grafikte zaten cizilmis olani asla
-     * silmez. Eskiden periyot sirasina gore secildigi icin silinebiliyordu;
-     * ayrica turler birbirini (ABCD bir Gartley'i) silebiliyordu.
-     */
     private _dedupePatterns(patterns: HarmonicPattern[]): HarmonicPattern[] {
-        const ordered = patterns
-            .map((pattern, order) => ({ pattern, order }))
-            .sort((a, b) => a.pattern.detectedIndex - b.pattern.detectedIndex || a.order - b.order);
         const seen = new Set<string>();
+        const seenAbcKeys = new Set<string>();
         const deduped: HarmonicPattern[] = [];
-        for (const { pattern } of ordered) {
-            const abc = pattern.kind === 'abcd' ? pattern.points.slice(0, 3) : pattern.points.slice(1, 4);
-            const key = `${pattern.kind}:${abc.map((point) => point.index).join('-')}`;
+        for (const pattern of patterns) {
+            const key = `${pattern.kind}:${pattern.points.map((point) => point.index).join('-')}`;
             if (seen.has(key)) continue;
+            const abcPoints = pattern.kind === 'gartley'
+                ? pattern.points.slice(1, 4)
+                : pattern.points.slice(0, 3);
+            const abcKey = abcPoints.length === 3
+                ? abcPoints.map((point) => point.index).join('-')
+                : undefined;
+            if (abcKey && seenAbcKeys.has(abcKey)) continue;
             seen.add(key);
+            if (abcKey) seenAbcKeys.add(abcKey);
             deduped.push(pattern);
         }
         return deduped;
