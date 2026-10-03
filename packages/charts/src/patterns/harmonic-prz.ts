@@ -189,13 +189,16 @@ function beyond(price: number, level: number, direction: 'bullish' | 'bearish'):
 
 /**
  * Grafigin sonunda olusmakta olan formasyonlar: son ZigZag noktasi devam eden
- * D bacagi. D bacagi B seviyesini kirdiysa ve formasyon bozulmadiysa
- * (X'in / ABCD'de 1,618 uzantisinin otesine gecmediyse) dondurulur.
+ * D bacagi. D bacagi B seviyesini kirdiysa YA DA C'den alana giden yolun
+ * `triggerPercent` kadarini gectiyse (kucuk formasyonlarda B alana cok yakin,
+ * B'yi beklemek gec kaliyor) ve formasyon bozulmadiysa (X'in / ABCD'de 1,618
+ * uzantisinin otesine gecmediyse) dondurulur.
  */
 export function detectFormingHarmonics(
     sourceData: PatternSourceBar[],
     period: number,
-    kinds: HarmonicKind[]
+    kinds: HarmonicKind[],
+    triggerPercent = 50
 ): FormingHarmonic[] {
     const pivots = calculateHarmonicPivots(sourceData, period).slice().reverse();
     const result: FormingHarmonic[] = [];
@@ -209,9 +212,14 @@ export function detectFormingHarmonics(
         const prz = harmonicPrz(kind, points, sourceData);
         if (!prz) continue;
         const b = points[count - 2];
+        const c = points[count - 1];
         const brokeB = beyond(current.price, b.price, prz.direction);
+        const nearEdge = prz.direction === 'bullish' ? prz.top : prz.bottom;
+        const path = Math.abs(c.price - nearEdge);
+        const travelled = (c.price - current.price) * (prz.direction === 'bullish' ? 1 : -1);
+        const reachedTrigger = path > 0 && travelled / path >= Math.max(0, Math.min(100, triggerPercent)) / 100;
         const invalid = beyond(current.price, prz.invalidPrice, prz.direction);
-        if (!brokeB || invalid) continue;
+        if (!(brokeB || reachedTrigger) || invalid) continue;
         result.push({ kind, direction: prz.direction, points, current, prz });
     }
     return result;

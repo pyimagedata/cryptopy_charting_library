@@ -218,6 +218,7 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'Show Levels': 'Seviyeleri Göster',
         'Show Prices': 'Fiyatları Göster',
         'Show Projected D Zone': 'Tahmini D Alanını Göster',
+        'D Zone Trigger (% of C to zone)': 'D Alanı Tetikleme (C→alan yolunun %)',
         'Levels as Percent': 'Seviyeler Yüzde Olarak',
         'Labels Horizontal': 'Etiket (Yatay)',
         'Labels Vertical': 'Etiket (Dikey)',

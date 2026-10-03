@@ -4,6 +4,8 @@ import { scanHarmonicPivots } from './harmonic-pivots';
 export interface BatPattern {
     points: [ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint];
     direction: 'bullish' | 'bearish';
+    /** Formasyonun ilk tespit edildigi mum (canli akista ilk gorundugu an). */
+    detectedIndex?: number;
 }
 
 export function detectBatPatterns(sourceData: PatternSourceBar[], period: number): BatPattern[] {
@@ -45,7 +47,7 @@ export function detectBatPatterns(sourceData: PatternSourceBar[], period: number
 
         seen.add(key);
         seenAbcKeys.add(abcKey);
-        patterns.push(candidate);
+        patterns.push({ ...candidate, detectedIndex: currentIndex });
     });
 
     return patterns;

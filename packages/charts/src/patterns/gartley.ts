@@ -4,6 +4,8 @@ import { scanHarmonicPivots } from './harmonic-pivots';
 export interface GartleyPattern {
     points: [ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint, ZigZagPoint];
     direction: 'bullish' | 'bearish';
+    /** Formasyonun ilk tespit edildigi mum (canli akista ilk gorundugu an). */
+    detectedIndex?: number;
 }
 
 export function detectGartleyPatterns(sourceData: PatternSourceBar[], period: number): GartleyPattern[] {
@@ -11,7 +13,7 @@ export function detectGartleyPatterns(sourceData: PatternSourceBar[], period: nu
     const seen = new Set<string>();
     const seenAbcKeys = new Set<string>();
 
-    scanHarmonicPivots(sourceData, period, (pivotSnapshot) => {
+    scanHarmonicPivots(sourceData, period, (pivotSnapshot, currentIndex) => {
         const pivots = pivotSnapshot.slice().reverse();
         if (pivots.length < 5) {
             return;
@@ -41,7 +43,7 @@ export function detectGartleyPatterns(sourceData: PatternSourceBar[], period: nu
 
         seen.add(key);
         seenAbcKeys.add(abcKey);
-        patterns.push(candidate);
+        patterns.push({ ...candidate, detectedIndex: currentIndex });
     });
 
     return patterns;

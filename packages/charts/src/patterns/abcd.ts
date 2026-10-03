@@ -21,7 +21,7 @@ export function detectABCDPatterns(
     const seen = new Set<string>();
     const seenAbcKeys = new Set<string>();
 
-    scanHarmonicPivots(sourceData, options.period, (pivotSnapshot) => {
+    scanHarmonicPivots(sourceData, options.period, (pivotSnapshot, currentIndex) => {
         const zigZagPoints = pivotSnapshot.slice().reverse();
         if (zigZagPoints.length < 4) {
             return;
@@ -50,7 +50,7 @@ export function detectABCDPatterns(
 
         seen.add(key);
         seenAbcKeys.add(abcKey);
-        patterns.push(candidate);
+        patterns.push({ ...candidate, detectedIndex: currentIndex });
     });
 
     return patterns;
