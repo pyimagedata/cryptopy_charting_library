@@ -217,6 +217,7 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         // Fibonacci araclari
         'Show Levels': 'Seviyeleri Göster',
         'Show Prices': 'Fiyatları Göster',
+        'Show Projected D Zone': 'Tahmini D Alanını Göster',
         'Levels as Percent': 'Seviyeler Yüzde Olarak',
         'Labels Horizontal': 'Etiket (Yatay)',
         'Labels Vertical': 'Etiket (Dikey)',
