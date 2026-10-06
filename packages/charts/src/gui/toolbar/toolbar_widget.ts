@@ -137,7 +137,6 @@ export class ToolbarWidget {
     private readonly _watchlistToggled = new Delegate<boolean>();
     private _spotActive = false;
     private _spotBtn: HTMLButtonElement | null = null;
-    private _spotLabel: HTMLSpanElement | null = null;
     private readonly _spotToggled = new Delegate<boolean>();
     private _currentTheme: 'dark' | 'light' = 'dark';
     private _tfFavorites: string[] = readStoredList(TF_FAVORITES_STORAGE) ?? [...DEFAULT_TF_FAVORITES];
@@ -927,8 +926,7 @@ export class ToolbarWidget {
         const btn = this._spotBtn;
         if (!btn) return;
         btn.style.display = label ? 'flex' : 'none';
-        if (label && this._spotLabel) {
-            this._spotLabel.textContent = label;
+        if (label) {
             btn.title = active
                 ? `Fiyat ekseni ${label} gösteriyor (vadeli fiyata dönmek için tıkla)`
                 : `Fiyat eksenini ${label} karşılığına çevir`;
@@ -947,19 +945,14 @@ export class ToolbarWidget {
     private _createSpotButton(): void {
         const btn = document.createElement('button');
         btn.className = 'toolbar-spot';
+        // Sadece ikon: hangi fiyatin gosterildigi eksenin ustunde yazar, ayrinti tooltip'te.
         btn.style.cssText = `
-            display: none; align-items: center; gap: 6px; padding: 6px 10px;
-            border: none; border-radius: 4px; font-size: 13px; cursor: pointer;
+            display: none; align-items: center; justify-content: center; padding: 6px 8px;
+            border: none; border-radius: 4px; cursor: pointer;
             transition: background 0.15s, color 0.15s; flex-shrink: 0;
         `;
-        const icon = document.createElement('span');
-        icon.style.display = 'flex';
-        icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10h15l-4-4M22 18H7l4 4"/></svg>`;
-        btn.appendChild(icon);
-        const label = document.createElement('span');
-        btn.appendChild(label);
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10h15l-4-4M22 18H7l4 4"/></svg>`;
         this._spotBtn = btn;
-        this._spotLabel = label;
         btn.addEventListener('mouseenter', () => this._styleSpotButton(true));
         btn.addEventListener('mouseleave', () => this._styleSpotButton(false));
         btn.addEventListener('click', () => {
