@@ -11,12 +11,15 @@ import {
     checkboxRow,
 } from '../gui/indicator_settings';
 import { detectABCDPatterns, detectBatPatterns, detectCypherPatterns, detectGartleyPatterns } from '../patterns';
+import { t } from '../helpers/translations';
 
 type HarmonicPattern = {
     kind: 'abcd' | 'gartley' | 'bat' | 'cypher';
     direction: 'bullish' | 'bearish';
     points: { index: number; time: number; price: number }[];
     ratios?: { first?: string; second?: string };
+    /** D'den sonra donus yonunde kapanan ilk mum (giris sinyali); yoksa undefined. */
+    signal?: { index: number };
 };
 
 export interface HarmonicPatternIndicatorOptions extends IndicatorOptions {
@@ -28,7 +31,14 @@ export interface HarmonicPatternIndicatorOptions extends IndicatorOptions {
     showGartley: boolean;
     showBat: boolean;
     showCypher: boolean;
+    /** D'den sonra donus yonundeki ilk mumda AL/SAT isareti. */
+    showSignals: boolean;
+    /** Guclu onay: sinyal mumu onceki mumun en yuksegini (dususte en dusugunu) kapanisla gecmeli. */
+    strongSignal: boolean;
 }
+
+/** Formasyonun D noktasindaki ad etiketi (bkz. _drawLabels). */
+const KIND_LABELS: Record<HarmonicPattern['kind'], string> = { abcd: 'ABCD', gartley: 'Gartley', bat: 'Bat', cypher: 'Cypher' };
 
 const defaults: Partial<HarmonicPatternIndicatorOptions> = {
     name: 'Harmonic Patterns',
@@ -43,6 +53,8 @@ const defaults: Partial<HarmonicPatternIndicatorOptions> = {
     showGartley: true,
     showBat: true,
     showCypher: true,
+    showSignals: true,
+    strongSignal: false,
 };
 
 export class HarmonicPatternIndicator extends OverlayIndicator {
@@ -67,7 +79,9 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
             normalized.showABCD !== undefined ||
             normalized.showGartley !== undefined ||
             normalized.showBat !== undefined ||
-            normalized.showCypher !== undefined;
+            normalized.showCypher !== undefined ||
+            normalized.showSignals !== undefined ||
+            normalized.strongSignal !== undefined;
         Object.assign(this._optionsEx, normalized);
         Object.assign(this._options, normalized);
         this._dataChanged.fire();
@@ -84,6 +98,8 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                     checkboxRow('showGartley', 'Show Gartley', this._optionsEx.showGartley),
                     checkboxRow('showBat', 'Show Bat', this._optionsEx.showBat),
                     checkboxRow('showCypher', 'Show Cypher', this._optionsEx.showCypher),
+                    checkboxRow('showSignals', 'Show Signals', this._optionsEx.showSignals),
+                    checkboxRow('strongSignal', 'Strong Confirmation (close beyond previous bar)', this._optionsEx.strongSignal),
                 ] }]),
                 createStyleTab([{ rows: [
                     colorRow('bullishColor', 'Bullish Color', this._optionsEx.bullishColor),
@@ -153,9 +169,43 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
         }
 
         this._patterns = this._dedupePatterns(this._patterns);
+        if (this._optionsEx.showSignals) {
+            for (const pattern of this._patterns) pattern.signal = this._findSignal(pattern, sourceData);
+        }
         this._data = this._patterns.flatMap((pattern) =>
             pattern.points.map((point) => ({ time: point.time, value: point.price }))
         );
+    }
+
+    /**
+     * Giris sinyali: D'den sonra donus yonunde kapanan ilk mum (yukseliste yesil,
+     * dususte kirmizi; guclu onayda kapanis onceki mumun en yuksegini/en dusugunu
+     * gecmeli). Fiyat once formasyonu bozarsa (X'in, ABCD'de AB'nin 1,618
+     * uzantisinin otesine gecerse) sinyal yok. Sadece D'den sonraki mumlara
+     * bakildigi icin canli akista/replay'de sonradan degismez.
+     */
+    private _findSignal(pattern: HarmonicPattern, data: BarData[]): { index: number } | undefined {
+        const points = pattern.points;
+        const d = points[points.length - 1];
+        const bullish = pattern.direction === 'bullish';
+        let invalid: number;
+        if (pattern.kind === 'abcd') {
+            const [a, b, c] = points;
+            invalid = c.price + (bullish ? -1 : 1) * Math.abs(b.price - a.price) * 1.618;
+        } else {
+            invalid = points[0].price;
+        }
+        const strong = this._optionsEx.strongSignal;
+        for (let i = d.index + 1; i < data.length; i++) {
+            const bar = data[i];
+            if (bullish ? bar.low < invalid : bar.high > invalid) return undefined;
+            const prev = data[i - 1];
+            const confirmed = bullish
+                ? bar.close > bar.open && (!strong || bar.close > prev.high)
+                : bar.close < bar.open && (!strong || bar.close < prev.low);
+            if (confirmed) return { index: i };
+        }
+        return undefined;
     }
 
     getRange(): IndicatorRange {
@@ -227,6 +277,9 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
                 hpr,
                 vpr
             );
+            if (this._optionsEx.showSignals && pattern.signal) {
+                this._drawSignal(ctx, pattern, color, timeScale, priceScale, hpr, vpr);
+            }
             if (this._optionsEx.showRatios && pattern.ratios && points.length >= 4) {
                 this._drawRatioTag(ctx, (points[0].x + points[2].x) / 2, (points[0].y + points[2].y) / 2 - 14 * vpr, pattern.ratios.first || '', color, hpr, vpr);
                 this._drawRatioTag(ctx, (points[1].x + points[3].x) / 2, (points[1].y + points[3].y) / 2 - 14 * vpr, pattern.ratios.second || '', color, hpr, vpr);
@@ -296,6 +349,63 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
             ctx.fillStyle = '#ffffff';
             ctx.fillText(label, point.x, point.y + 0.5 * vpr);
         });
+    }
+
+    /** Sinyal mumunun altinda (AL) ya da ustunde (SAT) ok + etiket. */
+    private _drawSignal(
+        ctx: CanvasRenderingContext2D,
+        pattern: HarmonicPattern,
+        color: string,
+        timeScale: any,
+        priceScale: any,
+        hpr: number,
+        vpr: number
+    ): void {
+        const bar = this._sourceData[pattern.signal!.index];
+        if (!bar) return;
+        const bullish = pattern.direction === 'bullish';
+        const x = timeScale.indexToCoordinate(pattern.signal!.index as any) * hpr;
+        let anchorY = priceScale.priceToCoordinate(bullish ? bar.low : bar.high) * vpr;
+        const dir = bullish ? 1 : -1; // asagi dogru +1 (AL mumun altinda)
+
+        // Sinyal D'ye yakinsa formasyon adi etiketinin (D'nin sag-altinda/ustunde,
+        // bkz. _drawLabels) ustune binmesin: ok etiketin otesine itilir.
+        const d = pattern.points[pattern.points.length - 1];
+        const dx = timeScale.indexToCoordinate(d.index as any) * hpr;
+        const dy = priceScale.priceToCoordinate(d.price) * vpr;
+        ctx.font = `${11 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        const nameWidth = ctx.measureText(KIND_LABELS[pattern.kind]).width + 12 * hpr;
+        const labelLeft = dx;
+        const labelRight = dx + 12 * hpr + nameWidth;
+        if (x >= labelLeft - 8 * hpr && x <= labelRight + 8 * hpr) {
+            const labelEdge = dy + dir * (18 * vpr + 8 * vpr);
+            anchorY = bullish ? Math.max(anchorY, labelEdge) : Math.min(anchorY, labelEdge);
+        }
+        const gap = 6 * vpr;
+        const arrow = 9 * vpr;
+        const half = 6 * hpr;
+        const tipY = anchorY + dir * gap;
+        const baseY = tipY + dir * arrow;
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(x, tipY);
+        ctx.lineTo(x - half, baseY);
+        ctx.lineTo(x + half, baseY);
+        ctx.closePath();
+        ctx.fill();
+
+        const text = t(bullish ? 'Buy' : 'Sell').toUpperCase();
+        ctx.font = `bold ${10 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        const padX = 4 * hpr;
+        const boxH = 15 * vpr;
+        const boxW = ctx.measureText(text).width + padX * 2;
+        const boxTop = bullish ? baseY + 2 * vpr : baseY - 2 * vpr - boxH;
+        ctx.fillRect(x - boxW / 2, boxTop, boxW, boxH);
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, x, boxTop + boxH / 2 + 0.5 * vpr);
     }
 
     private _drawRatioTag(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, color: string, hpr: number, vpr: number): void {
