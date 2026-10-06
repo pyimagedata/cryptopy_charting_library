@@ -306,7 +306,21 @@ export type SpecialForcesKlinesProvider = (
     limit: number
 ) => Promise<SpecialForcesBar[]>;
 
+/**
+ * Host sayfa, S/R seviyelerini backend'den (Candle tablosundan hesaplanmis,
+ * guncel fiyata en yakin secilmis) okumak icin set eder. Seviye yoksa ya da
+ * sembol backend'de bilinmiyorsa null doner: indikator o zaman eski yola
+ * (tarayicida HTF mum cekip hesaplama) duser.
+ */
+export type SpecialForcesLevelsProvider = (
+    symbol: string,
+    exchange: string,
+    timeframe: string
+) => Promise<SRBox[] | null>;
+
 export class SpecialForcesIndicator extends OverlayIndicator {
+    static defaultLevelsProvider: SpecialForcesLevelsProvider | null = null;
+
     /**
      * Set once by the host page (demo-ts.html) so this indicator can fetch
      * higher-timeframe candles through the same multi-exchange data fetcher
@@ -536,6 +550,16 @@ export class SpecialForcesIndicator extends OverlayIndicator {
         const cutoffMs = this._cutoffTime(mainTf);
 
         try {
+            const backendLevels = await this._fetchBackendLevels(mainTf);
+            if (token !== this._fetchToken) return;
+            if (backendLevels !== null) {
+                this._boxes = backendLevels;
+                this._lastDoneKey = key;
+                this._lastDoneAt = Date.now();
+                this._dataChanged.fire();
+                return;
+            }
+
             const boxes1 = await this._computeBoxesForTimeframe(tf1, mult1, cutoffMs);
             if (token !== this._fetchToken) return;
 
@@ -558,6 +582,17 @@ export class SpecialForcesIndicator extends OverlayIndicator {
         } finally {
             // Iptal edilmis (baska baglama ait) bir calisma yenisinin durumunu ezmesin.
             if (token === this._fetchToken) this._inFlightKey = null;
+        }
+    }
+
+    private async _fetchBackendLevels(mainTf: string): Promise<SRBox[] | null> {
+        const provider = SpecialForcesIndicator.defaultLevelsProvider;
+        if (!provider) return null;
+        try {
+            return await provider(this._sfOptions.symbol, this._sfOptions.exchange, mainTf);
+        } catch (error) {
+            console.warn('SpecialForcesIndicator: backend seviyeleri alinamadi, yerel hesaba dusuluyor', error);
+            return null;
         }
     }
 

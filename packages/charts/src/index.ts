@@ -50,6 +50,7 @@ export {
     SpecialForcesIndicator,
     SpecialForcesIndicatorOptions,
     SpecialForcesKlinesProvider,
+    SpecialForcesLevelsProvider,
 } from './indicators';
 
 export * from './patterns';

@@ -52,7 +52,7 @@ export { HarmonicPatternIndicator, HarmonicPatternIndicatorOptions } from './har
 export { ChartPatternsIndicator, ChartPatternsIndicatorOptions } from './chart-patterns-indicator';
 export { TrendlineBreakoutIndicator, TrendlineBreakoutIndicatorOptions } from './trendline-breakout-indicator';
 export { DeMarkPivotIndicator, DeMarkPivotIndicatorOptions } from './demark-pivot-indicator';
-export { SpecialForcesIndicator, SpecialForcesIndicatorOptions, SRBox, SpecialForcesBar, SpecialForcesKlinesProvider } from './special-forces-indicator';
+export { SpecialForcesIndicator, SpecialForcesIndicatorOptions, SRBox, SpecialForcesBar, SpecialForcesKlinesProvider, SpecialForcesLevelsProvider } from './special-forces-indicator';
 export { BobbinIndicator, BobbinIndicatorOptions } from './bobbin-indicator';
 export { FVGIndicator, FVGIndicatorOptions } from './fvg-indicator';
 export { FvgInversionIndicator, FvgInversionIndicatorOptions } from './fvg-inversion-indicator';
