@@ -17,12 +17,6 @@ export function detectCypherPatterns(sourceData: PatternSourceBar[], period: num
             return;
         }
 
-        const currentBar = sourceData[currentIndex];
-        const previousBar = sourceData[Math.max(0, currentIndex - 1)];
-        const haOpen = (previousBar.open + previousBar.close) / 2;
-        const haClose = (haOpen + currentBar.high + currentBar.low + currentBar.close) / 4;
-        const close4 = currentIndex >= 4 ? sourceData[currentIndex - 4].close : currentBar.close;
-
         const start = pivots.length - 5;
         const candidate = buildCypher(
             sourceData,
@@ -31,11 +25,7 @@ export function detectCypherPatterns(sourceData: PatternSourceBar[], period: num
             pivots[start + 2],
             pivots[start + 3],
             pivots[start + 4],
-            direction,
-            haOpen,
-            haClose,
-            close4,
-            currentBar.close
+            direction
         );
         if (!candidate) {
             return;
@@ -66,12 +56,11 @@ function buildCypher(
     b: ZigZagPoint,
     c: ZigZagPoint,
     d: ZigZagPoint,
-    direction: number,
-    haOpen: number,
-    haClose: number,
-    close4: number,
-    currentClose: number
+    direction: number
 ): CypherPattern | null {
+    // D mumunda donus onayi (Heikin Ashi yonu, kapanisin 4 mum oncesini gecmesi)
+    // aranmaz: formasyon diger turler gibi D'ye gelindigi mumda gorunur. Onay
+    // sartlari tespiti 1-2 mum geciktiriyordu.
     const bClose = sourceData[b.index]?.close ?? b.price;
     const cClose = sourceData[c.index]?.close ?? c.price;
 
@@ -83,7 +72,6 @@ function buildCypher(
 
     const bearish =
         direction === 1 &&
-        haClose < haOpen &&
         a.price > c.price &&
         c.price < b.price &&
         b.price < d.price &&
@@ -96,8 +84,6 @@ function buildCypher(
 
     const bullish =
         direction === -1 &&
-        haClose > haOpen &&
-        currentClose > close4 &&
         a.price < c.price &&
         c.price > b.price &&
         b.price > d.price &&
