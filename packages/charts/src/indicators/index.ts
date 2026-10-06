@@ -53,7 +53,6 @@ export { ChartPatternsIndicator, ChartPatternsIndicatorOptions } from './chart-p
 export { TrendlineBreakoutIndicator, TrendlineBreakoutIndicatorOptions } from './trendline-breakout-indicator';
 export { DeMarkPivotIndicator, DeMarkPivotIndicatorOptions } from './demark-pivot-indicator';
 export { SpecialForcesIndicator, SpecialForcesIndicatorOptions, SRBox, SpecialForcesBar, SpecialForcesKlinesProvider } from './special-forces-indicator';
-export { SpotCompareIndicator, SpotCompareIndicatorOptions, SpotCompareBar, SpotCompareKlinesProvider, SpotCompareRealtimeProvider } from './spot-compare-indicator';
 export { BobbinIndicator, BobbinIndicatorOptions } from './bobbin-indicator';
 export { FVGIndicator, FVGIndicatorOptions } from './fvg-indicator';
 export { FvgInversionIndicator, FvgInversionIndicatorOptions } from './fvg-inversion-indicator';

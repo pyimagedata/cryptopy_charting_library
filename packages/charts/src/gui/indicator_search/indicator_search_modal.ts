@@ -239,14 +239,6 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         type: 'overlay'
     },
     {
-        id: 'spot-compare',
-        name: 'Spot Karşılaştırma',
-        shortName: 'Spot',
-        description: 'GC1/SI1 grafiğinde spot karşılığını (XAUUSD/XAGUSD) üst üste çizer; fare ile gezinirken O/H/L/C ve farkı gösterir',
-        category: 'custom',
-        type: 'overlay'
-    },
-    {
         id: 'bobbin',
         name: 'Bobbin',
         shortName: 'Bobbin',

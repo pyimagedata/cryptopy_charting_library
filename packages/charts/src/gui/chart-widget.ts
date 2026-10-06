@@ -12,13 +12,13 @@ import { PaneWidget } from './pane-widget';
 import { PriceAxisWidget } from './price-axis-widget';
 import { OffsetPriceScale } from '../model/offset-price-scale';
 import { coordinate } from '../model/coordinate';
-import type { PriceAxisOverlay } from '../indicators/spot-compare-indicator';
+import { SpotPriceSource } from '../model/spot-price-source';
 import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ICONS } from './context_menu';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, SpotCompareIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -93,6 +93,26 @@ function toMsTime(t: number): number {
     return t > 1e12 ? t : t * 1000;
 }
 
+/** Spot modunda fiyat ekseninin basligi ve son fiyat etiketi rengi. */
+const SPOT_AXIS_COLOR = '#f5a623';
+const SPOT_MODE_KEY = 'chart.axis.spotMode';
+
+function readSpotMode(): boolean {
+    try {
+        return localStorage.getItem(SPOT_MODE_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
+
+function writeSpotMode(enabled: boolean): void {
+    try {
+        localStorage.setItem(SPOT_MODE_KEY, enabled ? '1' : '0');
+    } catch {
+        // Depolama kapali: tercih sadece bu oturumda gecerli.
+    }
+}
+
 export class ChartWidget implements Disposable {
     private readonly _container: HTMLElement;
     private readonly _model: ChartModel;
@@ -110,9 +130,12 @@ export class ChartWidget implements Disposable {
     private _symbolSearch: SymbolSearch | null = null;
     private _paneWidget: PaneWidget | null = null;
     private _priceAxisWidget: PriceAxisWidget | null = null;
-    /** Ikinci fiyat ekseni (or. GC1'de XAUUSD): bir overlay indikator isteyince olusur. */
-    private _secondaryAxisWidget: PriceAxisWidget | null = null;
-    private _secondaryAxisScale: OffsetPriceScale | null = null;
+    /** Fiyat ekseni spot karsiligini (GC1 -> XAUUSD FOREXCOM) gosteriyor mu: toolbar dugmesi. */
+    private _spotMode = readSpotMode();
+    private readonly _spotSource = new SpotPriceSource(() => this._scheduleDraw());
+    /** Spot modunda eksene verilen, fark kadar kaydirilmis olcek. */
+    private _spotScale: OffsetPriceScale | null = null;
+    private _spotButtonState = '';
     private _timeAxisWidget: TimeAxisWidget | null = null;
     private _floatingAttributeBar: FloatingAttributeBar | null = null;
     private _drawingSettingsModal: BaseSettingsModal | null = null;
@@ -659,6 +682,7 @@ export class ChartWidget implements Disposable {
         if (data.length > 0 && 'open' in data[0]) {
             const indicatorData = this._resolveIndicatorSourceData(series, data as BarData[]);
             this._pushIndicatorContext();
+            this._syncSpot(data as BarData[]);
             this._indicatorManager.setData(indicatorData);
         }
     }
@@ -825,7 +849,6 @@ export class ChartWidget implements Disposable {
         if (this._priceAxisWidget) {
             this._priceAxisWidget.setTheme(theme);
         }
-        this._secondaryAxisWidget?.setTheme(theme);
 
         // Update main chart pane
         if (this._paneWidget) {
@@ -1275,9 +1298,7 @@ export class ChartWidget implements Disposable {
         const toolbarHeight = this._toolbarWidget?.height ?? 0;
         const timeAxisHeight = this._timeAxisWidget?.height ?? 28;
         this._priceAxisWidget?.updateWidth();
-        this._secondaryAxisWidget?.updateWidth();
-        // Alt paneller ve grafik genisligi icin iki eksenin toplami kullanilir.
-        const priceAxisWidth = (this._priceAxisWidget?.width ?? 52) + (this._secondaryAxisWidget?.width ?? 0);
+        const priceAxisWidth = this._priceAxisWidget?.width ?? 52;
         const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 0;
 
         // Calculate total indicator pane heights
@@ -1289,7 +1310,7 @@ export class ChartWidget implements Disposable {
         // Izleme listesi acikken grafik onun genisligi kadar daralir.
         const watchlistWidth = this._watchlistPanel?.visible ? this._watchlistPanel.width : 0;
         const usableWidth = this._width - watchlistWidth;
-        this._technicalRatingBadge?.setRightOffset(watchlistWidth + (this._secondaryAxisWidget?.width ?? 0));
+        this._technicalRatingBadge?.setRightOffset(watchlistWidth);
         const paneWidth = usableWidth - priceAxisWidth - drawingToolbarWidth;
         const paneHeight = this._height - timeAxisHeight - toolbarHeight - indicatorPanesHeight;
 
@@ -1301,7 +1322,6 @@ export class ChartWidget implements Disposable {
         // Update widgets
         this._paneWidget?.setSize(paneWidth, paneHeight);
         this._priceAxisWidget?.setHeight(paneHeight);
-        this._secondaryAxisWidget?.setHeight(paneHeight);
         this._timeAxisWidget?.setWidth(paneWidth);
 
         // Offset chart row for drawing toolbar (using CSS variable reference)
@@ -2371,6 +2391,7 @@ export class ChartWidget implements Disposable {
                 if (data.length > 0 && 'open' in (data[0] as any)) {
                     const indicatorData = this._resolveIndicatorSourceData(mainSeries as any, data as BarData[]);
                     this._pushIndicatorContext();
+                    this._syncSpot(data as BarData[]);
                     this._indicatorManager.setData(indicatorData);
                 }
             }
@@ -2417,9 +2438,8 @@ export class ChartWidget implements Disposable {
         }
 
         this._updateLastPriceLabel();
-        const secondaryLayoutChanged = this._updateSecondaryAxis(crosshair?.visible ? crosshair.x : null, mainPaneLocalY);
-        const mainWidthChanged = this._priceAxisWidget?.updateWidth() ?? false;
-        if (mainWidthChanged || secondaryLayoutChanged) {
+        this._applySpotAxis(crosshair?.visible ? crosshair.x : null, mainPaneLocalY);
+        if (this._priceAxisWidget?.updateWidth()) {
             this._updateLayout();
         }
 
@@ -2443,7 +2463,6 @@ export class ChartWidget implements Disposable {
         );
 
         this._priceAxisWidget?.render();
-        this._secondaryAxisWidget?.render();
         this._timeAxisWidget?.render();
 
         // Render indicator panes (RSI, MACD, etc.)
@@ -2518,60 +2537,66 @@ export class ChartWidget implements Disposable {
         return value.toFixed(4);
     }
 
-    /** Ilk gorunur overlay indikatorun istedigi ikinci eksen (yoksa null). */
-    private _secondaryAxisSource(): PriceAxisOverlay | null {
-        for (const ind of this._indicatorManager.overlayIndicators) {
-            const hook = (ind as unknown as { getPriceAxisOverlay?: () => PriceAxisOverlay | null }).getPriceAxisOverlay;
-            if (typeof hook !== 'function') continue;
-            const overlay = hook.call(ind);
-            if (overlay) return overlay;
-        }
-        return null;
-    }
-
     /**
-     * Ikinci ekseni olusturur/kaldirir ve son fiyat + imlec etiketini gunceller.
-     * Yerlesimin yeniden hesaplanmasi gerekiyorsa true doner.
+     * Spot modu: ana fiyat ekseni ayni mumlar uzerinde spot sembolun (GC1 grafiginde
+     * XAUUSD FOREXCOM) karsiligini gosterir. Eksen seviyeleri ve son fiyat en son
+     * ortak mumdaki farkla, imlec etiketi fare altindaki mumun kendi farkiyla
+     * hesaplanir. Mod kapaliysa ya da spot verisi henuz yoksa eksen normaldir.
      */
-    private _updateSecondaryAxis(crosshairX: number | null, localY: number | null): boolean {
-        const overlay = this._secondaryAxisSource();
-        if (!overlay || !this._chartRow) {
-            if (!this._secondaryAxisWidget) return false;
-            this._secondaryAxisWidget.dispose();
-            this._secondaryAxisWidget = null;
-            this._secondaryAxisScale = null;
-            return true;
+    private _applySpotAxis(crosshairX: number | null, localY: number | null): void {
+        const axis = this._priceAxisWidget;
+        if (!axis) return;
+        const info = this._spotMode ? this._spotSource.axisInfo() : null;
+        if (!info) {
+            if (this._spotScale) {
+                axis.setScale(this._model.rightPriceScale);
+                axis.setTitle(null);
+                this._paneWidget?.setPriceMarksSource(null);
+                this._spotScale = null;
+            }
+            return;
         }
-
-        let changed = false;
-        if (!this._secondaryAxisWidget || !this._secondaryAxisScale) {
-            this._secondaryAxisScale = new OffsetPriceScale(this._model.rightPriceScale);
-            this._secondaryAxisWidget = new PriceAxisWidget(this._chartRow, this._secondaryAxisScale, this._priceAxisWidget?.colors ?? {
-                backgroundColor: this._model.options.layout.backgroundColor,
-                textColor: this._model.options.layout.textColor,
-            });
-            this._secondaryAxisWidget.setHeight(this._model.rightPriceScale.height);
-            this._secondaryAxisWidget.element?.addEventListener('dblclick', this._onPriceAxisDoubleClick.bind(this));
-            changed = true;
+        if (!this._spotScale) {
+            this._spotScale = new OffsetPriceScale(this._model.rightPriceScale);
+            axis.setScale(this._spotScale);
+            // Yatay izgara eksenin (kaydirilmis) seviyeleriyle hizali kalsin.
+            this._paneWidget?.setPriceMarksSource(() => axis.marks());
         }
-
-        const scale = this._secondaryAxisScale;
-        const widget = this._secondaryAxisWidget;
-        scale.offset = overlay.offset;
-        widget.setTitle(overlay.title, overlay.color);
-        widget.setLastValue(overlay.lastPrice, scale.formatPrice(overlay.lastPrice), overlay.color);
+        const scale = this._spotScale;
+        scale.offset = info.offset;
+        axis.setTitle(info.title, SPOT_AXIS_COLOR);
+        axis.setLastValue(info.lastPrice, scale.formatPrice(info.lastPrice), SPOT_AXIS_COLOR);
 
         if (localY !== null && crosshairX !== null) {
-            // Imlec etiketi fare altindaki mumun kendi farkiyla: gecmis mumlarda da dogru karsilik.
             const index = this._model.timeScale.coordinateToIndex(coordinate(crosshairX)) as number;
-            const offset = overlay.offsetAt(index) ?? overlay.offset;
+            const offset = info.offsetAt(index) ?? info.offset;
             const price = this._model.rightPriceScale.coordinateToPrice(coordinate(localY)) - offset;
-            widget.setCrosshair(localY, true, scale.formatPrice(price));
-        } else {
-            widget.setCrosshair(0, false);
+            axis.setCrosshair(localY, true, scale.formatPrice(price));
         }
+    }
 
-        return widget.updateWidth() || changed;
+    /** Spot veri kaynagini grafik sembolu/zaman dilimi/verisiyle esitler, toolbar dugmesini gunceller. */
+    private _syncSpot(data?: BarData[]): void {
+        const pair = SpotPriceSource.pairFor(this._model.symbol);
+        this._spotSource.setContext(this._model.symbol, this._model.timeframe, this._spotMode && pair !== null);
+        if (data) this._spotSource.setSourceData(data);
+        const state = `${pair ? pair.exchange : ''}|${this._spotMode}`;
+        if (state !== this._spotButtonState) {
+            this._spotButtonState = state;
+            this._toolbarWidget?.setSpotButton(pair ? pair.exchange : null, this._spotMode);
+        }
+    }
+
+    private _initSpotToggle(): void {
+        if (!this._toolbarWidget) return;
+        this._toolbarWidget.spotToggled.subscribe((enabled) => {
+            this._spotMode = enabled;
+            writeSpotMode(enabled);
+            const data = this._model.serieses[0]?.data as BarData[] | undefined;
+            this._syncSpot(data && data.length > 0 && 'open' in data[0] ? data : undefined);
+            this._scheduleDraw();
+        });
+        this._syncSpot();
     }
 
     private _updateLastPriceLabel(): void {
@@ -3081,10 +3106,6 @@ export class ChartWidget implements Disposable {
                     exchange: this._currentExchange,
                 }));
                 break;
-            case 'spot-compare':
-                this.addOverlayIndicator(new SpotCompareIndicator({}));
-                this._pushIndicatorContext();
-                break;
             case 'bobbin':
                 this.addOverlayIndicator(new BobbinIndicator({}));
                 break;
@@ -3242,7 +3263,7 @@ export class ChartWidget implements Disposable {
         this._chartSettingsModal?.dispose();
         this._paneWidget?.dispose();
         this._priceAxisWidget?.dispose();
-        this._secondaryAxisWidget?.dispose();
+        this._spotSource.destroy();
         this._timeAxisWidget?.dispose();
         this._contextMenu?.dispose();
 
@@ -3354,6 +3375,7 @@ export class ChartWidget implements Disposable {
         });
 
         this._createWatchlist();
+        this._initSpotToggle();
 
         // Listen for language changes
         this._toolbarWidget.languageChanged.subscribe((lang: string) => {

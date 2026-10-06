@@ -135,6 +135,10 @@ export class ToolbarWidget {
     private _watchlistEnabled: boolean = false;
     private _watchlistBtn: HTMLButtonElement | null = null;
     private readonly _watchlistToggled = new Delegate<boolean>();
+    private _spotActive = false;
+    private _spotBtn: HTMLButtonElement | null = null;
+    private _spotLabel: HTMLSpanElement | null = null;
+    private readonly _spotToggled = new Delegate<boolean>();
     private _currentTheme: 'dark' | 'light' = 'dark';
     private _tfFavorites: string[] = readStoredList(TF_FAVORITES_STORAGE) ?? [...DEFAULT_TF_FAVORITES];
     private _customTimeframes: string[] = readStoredList(TF_CUSTOM_STORAGE) ?? [];
@@ -182,6 +186,11 @@ export class ToolbarWidget {
 
     get domToggled(): Delegate<boolean> {
         return this._domToggled;
+    }
+
+    /** Fiyat ekseninin spot karsiligina (or. GC1 -> XAUUSD) cevrilmesi. */
+    get spotToggled(): Delegate<boolean> {
+        return this._spotToggled;
     }
 
     get watchlistToggled(): Delegate<boolean> {
@@ -325,6 +334,9 @@ export class ToolbarWidget {
 
         // Izleme listesi (watch list) toggle button
         this._createWatchlistButton();
+
+        // Fiyat eksenini spot karsiligina ceviren dugme (sadece GC1/SI1'de gorunur)
+        this._createSpotButton();
 
         // Timezone Selector
         this._createTimezoneSelector();
@@ -903,6 +915,57 @@ export class ToolbarWidget {
             this._watchlistEnabled = !this._watchlistEnabled;
             this._styleWatchlistButton(true);
             this._watchlistToggled.fire(this._watchlistEnabled);
+        });
+        this._element!.appendChild(btn);
+    }
+
+    /**
+     * Spot dugmesini gunceller: `label` null ise (sembolun spot karsiligi yok)
+     * dugme gizlenir.
+     */
+    setSpotButton(label: string | null, active: boolean): void {
+        const btn = this._spotBtn;
+        if (!btn) return;
+        btn.style.display = label ? 'flex' : 'none';
+        if (label && this._spotLabel) {
+            this._spotLabel.textContent = label;
+            btn.title = active
+                ? `Fiyat ekseni ${label} gösteriyor (vadeli fiyata dönmek için tıkla)`
+                : `Fiyat eksenini ${label} karşılığına çevir`;
+        }
+        this._spotActive = active;
+        this._styleSpotButton(false);
+    }
+
+    private _styleSpotButton(hover: boolean): void {
+        const btn = this._spotBtn;
+        if (!btn) return;
+        btn.style.background = this._spotActive ? 'rgba(245, 166, 35, 0.16)' : hover ? '#2a2e39' : 'transparent';
+        btn.style.color = this._spotActive ? '#f5a623' : hover ? '#d1d4dc' : '#787b86';
+    }
+
+    private _createSpotButton(): void {
+        const btn = document.createElement('button');
+        btn.className = 'toolbar-spot';
+        btn.style.cssText = `
+            display: none; align-items: center; gap: 6px; padding: 6px 10px;
+            border: none; border-radius: 4px; font-size: 13px; cursor: pointer;
+            transition: background 0.15s, color 0.15s; flex-shrink: 0;
+        `;
+        const icon = document.createElement('span');
+        icon.style.display = 'flex';
+        icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10h15l-4-4M22 18H7l4 4"/></svg>`;
+        btn.appendChild(icon);
+        const label = document.createElement('span');
+        btn.appendChild(label);
+        this._spotBtn = btn;
+        this._spotLabel = label;
+        btn.addEventListener('mouseenter', () => this._styleSpotButton(true));
+        btn.addEventListener('mouseleave', () => this._styleSpotButton(false));
+        btn.addEventListener('click', () => {
+            this._spotActive = !this._spotActive;
+            this._styleSpotButton(true);
+            this._spotToggled.fire(this._spotActive);
         });
         this._element!.appendChild(btn);
     }

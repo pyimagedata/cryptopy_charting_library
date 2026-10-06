@@ -1,3 +1,4 @@
+import type { PriceMark } from '../model/price-scale';
 import { PriceScaleMode } from '../model/price-scale';
 import { ChartModel } from '../model/chart-model';
 import { Series, SeriesType } from '../model/series';
@@ -146,6 +147,7 @@ export class PaneWidget implements Disposable {
     // Sadece kullanici tercihi: localStorage okunamazsa acik baslar.
     private static readonly LEGEND_COLLAPSED_KEY = 'chart.legend.overlaysCollapsed';
     private _legendCollapsed: boolean = PaneWidget._readLegendCollapsed();
+    private _priceMarksSource: (() => PriceMark[]) | null = null;
 
     private static _readLegendCollapsed(): boolean {
         try {
@@ -190,6 +192,11 @@ export class PaneWidget implements Disposable {
     /**
      * Set overlay indicators to render on the main chart
      */
+    /** Yatay izgara cizgilerinin seviyelerini verir (null: ana fiyat olcegi). */
+    setPriceMarksSource(source: (() => PriceMark[]) | null): void {
+        this._priceMarksSource = source;
+    }
+
     setOverlayIndicators(indicators: readonly OverlayIndicator[]): void {
         this._overlayRenderer.setIndicators([...indicators]);
     }
@@ -279,7 +286,8 @@ export class PaneWidget implements Disposable {
         if (!visibleRange) return;
 
         // Draw grid
-        const priceMarks = this._model.rightPriceScale.marks();
+        // Izgara, fiyat ekseninin gosterdigi seviyelerle hizali (spot modunda kaydirilmis olcek).
+        const priceMarks = this._priceMarksSource ? this._priceMarksSource() : this._model.rightPriceScale.marks();
         this._gridRenderer.drawHorizontalLines(scope, priceMarks);
 
         // Calculate vertical grid x positions (every N bars)

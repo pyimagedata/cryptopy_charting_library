@@ -50,11 +50,6 @@ export {
     SpecialForcesIndicator,
     SpecialForcesIndicatorOptions,
     SpecialForcesKlinesProvider,
-    SpotCompareIndicator,
-    SpotCompareIndicatorOptions,
-    SpotCompareBar,
-    SpotCompareKlinesProvider,
-    SpotCompareRealtimeProvider,
 } from './indicators';
 
 export * from './patterns';
@@ -83,3 +78,5 @@ export {
 export * from './data-providers';
 
 export { WatchlistPanel, WatchlistRow, WatchlistProvider } from './gui/watchlist/watchlist_panel';
+
+export { SpotPriceSource, SpotBar, SpotKlinesProvider, SpotRealtimeProvider, SpotPair, SpotAxisInfo } from './model/spot-price-source';

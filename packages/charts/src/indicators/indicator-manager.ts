@@ -39,7 +39,6 @@ import { FVGIndicator } from './fvg-indicator';
 import { FvgInversionIndicator } from './fvg-inversion-indicator';
 import { EqHLIndicatorV2 } from './eqhl-v2-indicator';
 import { JudasSwingIndicator } from './judas-swing-indicator';
-import { SpotCompareIndicator } from './spot-compare-indicator';
 import { SpecialForcesIndicator } from './special-forces-indicator';
 
 
@@ -293,7 +292,6 @@ export class IndicatorManager {
             else if (indicator instanceof FvgInversionIndicator) typeId = 'FvgInversion';
             else if (indicator instanceof EqHLIndicatorV2) typeId = 'EqHLV2';
             else if (indicator instanceof JudasSwingIndicator) typeId = 'JudasSwing';
-            else if (indicator instanceof SpotCompareIndicator) typeId = 'SpotCompare';
             else if (indicator instanceof SpecialForcesIndicator) typeId = 'SpecialForces';
 
 
@@ -433,8 +431,9 @@ export class IndicatorManager {
                 indicator = new JudasSwingIndicator(item.options as any);
                 break;
             case 'SpotCompare':
-                indicator = new SpotCompareIndicator(item.options as any);
-                break;
+                // Eski "Spot Karsilastirma" indikatoru: artik toolbar'daki fiyat ekseni
+                // dugmesi. Kayitli duzenlerde sessizce atlanir.
+                return;
             case 'SpecialForces':
                 indicator = new SpecialForcesIndicator(item.options as any);
                 break;

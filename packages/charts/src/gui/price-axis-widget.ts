@@ -45,7 +45,7 @@ const defaultPriceAxisOptions: PriceAxisWidgetOptions = {
  * Price axis widget - renders price scale labels
  */
 export class PriceAxisWidget implements Disposable {
-    private readonly _priceScale: PriceAxisScale;
+    private _priceScale: PriceAxisScale;
     private readonly _options: PriceAxisWidgetOptions;
     private _element: HTMLElement | null = null;
     private _canvas: HTMLCanvasElement | null = null;
@@ -282,9 +282,20 @@ export class PriceAxisWidget implements Disposable {
         this._crosshairText = text;
     }
 
-    setTitle(title: string, accentColor: string): void {
-        this._options.title = title;
-        this._options.accentColor = accentColor;
+    /** Eksenin ustundeki kisa ad; null verilirse baslik ve vurgu rengi kalkar. */
+    setTitle(title: string | null, accentColor?: string): void {
+        this._options.title = title ?? undefined;
+        this._options.accentColor = title ? accentColor : undefined;
+    }
+
+    /** Eksenin gosterdigi olcek (or. spot modunda fark kadar kaydirilmis olcek). */
+    setScale(scale: PriceAxisScale): void {
+        this._priceScale = scale;
+    }
+
+    /** Eksenin su an gosterdigi seviyeler: izgara cizgileri bunlarla hizalanir. */
+    marks(): PriceMark[] {
+        return this._priceScale.marks();
     }
 
     /**
