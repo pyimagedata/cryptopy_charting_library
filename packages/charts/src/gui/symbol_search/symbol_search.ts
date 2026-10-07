@@ -335,11 +335,12 @@ export class SymbolSearch {
     // "Sembol bulunamadi" ile sessizce basarisiz olmasina yol aciyordu --
     // canli olarak dogrulandi (farkli bir tarayicidan XAU aramasi bos
     // dondu). Artik candle/OHLCV verisinin de tek kaynagi olan AYNI Django
-    // backend'i (window.DJANGO_API_URL, demo-ts.html tarafindan URL query
-    // param'indan set edilir) kullaniliyor.
+    // backend'i kullaniliyor; istek Django'ya degil ayni origin'deki Next
+    // route'una (app/api/market) gider: oturum token'i httpOnly cerezde, JS
+    // okuyamaz, route token'i iletir (bkz. demo-ts.html MARKET_API_URL).
 
-    private static readonly DJANGO_API_URL =
-        (typeof window !== 'undefined' && (window as any).DJANGO_API_URL) || 'http://127.0.0.1:8000';
+    private static readonly MARKET_API_URL =
+        (typeof window !== 'undefined' && (window as any).MARKET_API_URL) || '/api/market';
 
     private static readonly FOREX_DESCRIPTIONS: Record<string, string> = {
         XAUUSD: 'Gold', XAGUSD: 'Silver', XPTUSD: 'Platinum', XPDUSD: 'Palladium',
@@ -348,7 +349,7 @@ export class SymbolSearch {
     };
 
     private async _fetchForexSymbols(): Promise<SymbolInfo[]> {
-        const response = await fetch(`${SymbolSearch.DJANGO_API_URL}/api/symbols/`);
+        const response = await fetch(`${SymbolSearch.MARKET_API_URL}/symbols`);
         if (!response.ok) throw new Error('Symbols API error');
         const data: Array<{ code: string; exchange: string; asset_class: string }> = await response.json();
 
