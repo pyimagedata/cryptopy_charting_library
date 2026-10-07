@@ -1,6 +1,18 @@
 import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
-import { calculateZigZagPoints, ZigZagPoint } from '../patterns';
+import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+
+// Trendline'lar backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
+interface RemoteTrendlines {
+    lines: Array<{
+        kind: 'high' | 'low';
+        historical: boolean;
+        projects: boolean; // güncel muma kadar uzatılır
+        slope: number; // mum başına fiyat değişimi
+        from: { time: number; price: number };
+        to: { time: number; price: number };
+    }>;
+}
 import {
     IndicatorSettingsConfig,
     createInputsTab,
@@ -20,7 +32,6 @@ interface TrendlineProjectionPoint {
 
 interface TrendlineCandidate {
     kind: 'high' | 'low';
-    pivots: ZigZagPoint[];
     from: TrendlineProjectionPoint;
     to: TrendlineProjectionPoint;
     projection: TrendlineProjectionPoint;
@@ -50,7 +61,11 @@ const defaultTrendlineOptions: Partial<ZigZagTrendlineIndicatorOptions> = {
 export class ZigZagTrendlineIndicator extends OverlayIndicator {
     private _trendlineOptions: ZigZagTrendlineIndicatorOptions;
     private _lines: TrendlineCandidate[] = [];
-    private _zigzagPoints: ZigZagPoint[] = [];
+    private _raw: RemoteTrendlines | null = null;
+    private readonly _remote = new RemoteCompute<RemoteTrendlines>('zigzag-trendline', (raw) => {
+        this._raw = raw;
+        this._rebuild();
+    });
 
     constructor(options: Partial<ZigZagTrendlineIndicatorOptions> = {}) {
         const normalizedOptions = _normalizeLegacyTrendlineColors(options);
@@ -61,6 +76,10 @@ export class ZigZagTrendlineIndicator extends OverlayIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._trendlineOptions };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     updateOptions(newOptions: Partial<ZigZagTrendlineIndicatorOptions>): boolean {
@@ -112,27 +131,36 @@ export class ZigZagTrendlineIndicator extends OverlayIndicator {
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
+        const o = this._trendlineOptions;
+        this._remote.request(
+            { period: o.period, pivotCount: o.pivotCount, showHistory: o.showHistory },
+            () => this._dataChanged.fire()
+        );
+        this._rebuild();
+    }
+
+    /** Ham (zaman damgalı) çizgileri mevcut mum dizisinin index'lerine çevirir; projeksiyonu kendi son mumuna uzatır. */
+    private _rebuild(): void {
         this._data = [];
         this._lines = [];
-        this._zigzagPoints = [];
+        const bars = this._sourceData;
+        if (!this._raw || bars.length === 0) return;
 
-        if (sourceData.length === 0) {
-            return;
+        const lastIndex = bars.length - 1;
+        for (const r of this._raw.lines) {
+            const fromIndex = barIndexAtTime(bars, r.from.time);
+            const toIndex = barIndexAtTime(bars, r.to.time);
+            if (fromIndex < 0 || toIndex < 0) continue;
+
+            const from = { index: fromIndex, time: r.from.time, price: r.from.price };
+            const to = { index: toIndex, time: r.to.time, price: r.to.price };
+            // Projeksiyon: çizgi güncel muma kadar uzatılır (fiyat = to + eğim * mum farkı).
+            const projectionIndex = r.projects ? Math.max(lastIndex, toIndex) : toIndex;
+            const projection = projectionIndex > toIndex
+                ? { index: projectionIndex, time: bars[lastIndex].time, price: r.to.price + r.slope * (projectionIndex - toIndex) }
+                : { index: toIndex, time: r.to.time, price: r.to.price };
+            this._lines.push({ kind: r.kind, from, to, projection, historical: r.historical });
         }
-
-        const pivotCount = Math.max(2, Math.floor(this._trendlineOptions.pivotCount));
-        this._zigzagPoints = [...calculateZigZagPoints(sourceData, { period: this._trendlineOptions.period })].reverse();
-        const confirmedPoints = this._zigzagPoints.length > 1
-            ? this._zigzagPoints.slice(0, -1)
-            : [];
-
-        const highs = confirmedPoints.filter((point) => point.kind === 'high');
-        const lows = confirmedPoints.filter((point) => point.kind === 'low');
-        const currentBar = sourceData[sourceData.length - 1];
-        const currentIndex = sourceData.length - 1;
-
-        this._lines.push(...this._buildLinesForKind(highs, 'high', pivotCount, currentIndex, currentBar.time));
-        this._lines.push(...this._buildLinesForKind(lows, 'low', pivotCount, currentIndex, currentBar.time));
 
         this._data = this._lines.flatMap((line) => {
             const values = [
@@ -146,6 +174,11 @@ export class ZigZagTrendlineIndicator extends OverlayIndicator {
 
             return values;
         });
+    }
+
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(): IndicatorRange {
@@ -179,6 +212,10 @@ export class ZigZagTrendlineIndicator extends OverlayIndicator {
         hpr: number,
         vpr: number
     ): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._trendlineOptions.name);
+            return;
+        }
         if (this._lines.length === 0) {
             return;
         }
@@ -244,230 +281,6 @@ export class ZigZagTrendlineIndicator extends OverlayIndicator {
 
         return false;
     }
-
-    private _buildLinesForKind(
-        pivots: ZigZagPoint[],
-        kind: 'high' | 'low',
-        pivotCount: number,
-        currentIndex: number,
-        currentTime: number
-    ): TrendlineCandidate[] {
-        if (pivots.length < pivotCount) {
-            return [];
-        }
-
-        const lines: TrendlineCandidate[] = [];
-
-        if (this._trendlineOptions.showHistory) {
-            const seen = new Set<string>();
-            for (let endIndex = pivotCount - 1; endIndex < pivots.length - 1; endIndex++) {
-                const line = this._createLine(pivots.slice(0, endIndex + 1), kind, pivotCount, false);
-                if (line) {
-                    const key = `${line.kind}:${line.from.index}:${line.to.index}`;
-                    if (!seen.has(key)) {
-                        seen.add(key);
-                        lines.push({ ...line, historical: true });
-                    }
-                }
-            }
-        }
-
-        const latestLine = this._createLine(pivots, kind, pivotCount, true, currentIndex, currentTime);
-        if (latestLine) {
-            lines.push(latestLine);
-        }
-
-        return lines;
-    }
-
-    private _createLine(
-        pivots: ZigZagPoint[],
-        kind: 'high' | 'low',
-        pivotCount: number,
-        extendToCurrent: boolean,
-        currentIndex?: number,
-        currentTime?: number
-    ): TrendlineCandidate | null {
-        if (pivots.length < Math.max(2, pivotCount)) {
-            return null;
-        }
-
-        const latestPivot = pivots[pivots.length - 1];
-        let bestCandidate: { from: ZigZagPoint; to: ZigZagPoint; line: TrendlineModel; touches: number; span: number } | null = null;
-
-        for (let startIndex = 0; startIndex <= pivots.length - 2; startIndex++) {
-            const from = pivots[startIndex];
-            const to = latestPivot;
-            if (from.index === to.index) {
-                continue;
-            }
-
-            const line = _buildTrendlineModel(from, to);
-            if (!line) {
-                continue;
-            }
-
-            if (kind === 'high' && line.slope >= 0) {
-                continue;
-            }
-
-            if (kind === 'low' && line.slope <= 0) {
-                continue;
-            }
-
-            const tolerance = this._calculatePivotTolerance(from.index, to.index);
-            const evaluation = this._evaluateCandidate(pivots.slice(startIndex), kind, line, from.index, to.index, tolerance);
-            if (!evaluation.valid || evaluation.touches < pivotCount) {
-                continue;
-            }
-
-            const span = to.index - from.index;
-            if (
-                !bestCandidate ||
-                evaluation.touches > bestCandidate.touches ||
-                (evaluation.touches === bestCandidate.touches && span > bestCandidate.span)
-            ) {
-                bestCandidate = { from, to, line, touches: evaluation.touches, span };
-            }
-        }
-
-        if (!bestCandidate) {
-            return null;
-        }
-
-        const projectionIndex = extendToCurrent && currentIndex !== undefined
-            ? Math.max(currentIndex, bestCandidate.to.index)
-            : bestCandidate.to.index;
-        const projectionTime = extendToCurrent && currentTime !== undefined && projectionIndex > bestCandidate.to.index
-            ? currentTime
-            : bestCandidate.to.time;
-
-        return {
-            kind,
-            pivots,
-            from: bestCandidate.from,
-            to: bestCandidate.to,
-            projection: {
-                index: projectionIndex,
-                time: projectionTime,
-                price: _lineAtIndex(bestCandidate.line, projectionIndex),
-            },
-            historical: false,
-        };
-    }
-
-    private _calculatePivotTolerance(startIndex: number, endIndex: number): number {
-        if (this._sourceData.length === 0) {
-            return 0;
-        }
-
-        const from = Math.max(0, Math.min(startIndex, endIndex));
-        const to = Math.min(this._sourceData.length - 1, Math.max(startIndex, endIndex));
-        let rangeSum = 0;
-        let count = 0;
-
-        for (let i = from; i <= to; i++) {
-            const bar = this._sourceData[i];
-            const prevClose = i > 0 ? this._sourceData[i - 1].close : bar.close;
-            const trueRange = Math.max(
-                bar.high - bar.low,
-                Math.abs(bar.high - prevClose),
-                Math.abs(bar.low - prevClose)
-            );
-            rangeSum += trueRange;
-            count++;
-        }
-
-        if (count === 0) {
-            return 0;
-        }
-
-        return (rangeSum / count) * 0.45;
-    }
-
-    private _evaluateCandidate(
-        pivots: ZigZagPoint[],
-        kind: 'high' | 'low',
-        line: TrendlineModel,
-        startIndex: number,
-        endIndex: number,
-        tolerance: number
-    ): { valid: boolean; touches: number } {
-        let touches = 0;
-
-        for (const pivot of pivots) {
-            if (pivot.index < startIndex || pivot.index > endIndex) {
-                continue;
-            }
-
-            const expected = _lineAtIndex(line, pivot.index);
-            const distance = kind === 'high'
-                ? expected - pivot.price
-                : pivot.price - expected;
-
-            if (distance < -tolerance) {
-                return { valid: false, touches: 0 };
-            }
-
-            if (Math.abs(distance) <= tolerance) {
-                touches++;
-            }
-        }
-
-        if (this._countBodyIntersections(startIndex, endIndex, line, tolerance) > 1) {
-            return { valid: false, touches: 0 };
-        }
-
-        return { valid: true, touches };
-    }
-
-    private _countBodyIntersections(
-        startIndex: number,
-        endIndex: number,
-        line: TrendlineModel,
-        tolerance: number
-    ): number {
-        let intersections = 0;
-
-        for (let index = startIndex; index <= endIndex; index++) {
-            const bar = this._sourceData[index];
-            if (!bar) {
-                continue;
-            }
-
-            const bodyTop = Math.max(bar.open, bar.close);
-            const bodyBottom = Math.min(bar.open, bar.close);
-            const linePrice = _lineAtIndex(line, index);
-
-            if (bodyBottom < linePrice - tolerance && bodyTop > linePrice + tolerance) {
-                intersections++;
-            }
-        }
-
-        return intersections;
-    }
-}
-
-interface TrendlineModel {
-    slope: number;
-    intercept: number;
-}
-
-function _buildTrendlineModel(
-    from: ZigZagPoint,
-    to: ZigZagPoint
-): TrendlineModel | null {
-    if (from.index === to.index) {
-        return null;
-    }
-
-    const slope = (to.price - from.price) / (to.index - from.index);
-    const intercept = from.price - slope * from.index;
-    return { slope, intercept };
-}
-
-function _lineAtIndex(line: TrendlineModel, targetIndex: number): number {
-    return line.intercept + line.slope * targetIndex;
 }
 
 function _withAlpha(color: string, alpha: number): string {

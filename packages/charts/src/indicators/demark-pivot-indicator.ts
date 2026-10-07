@@ -7,6 +7,29 @@ import {
     createInputsTab,
 } from '../gui/indicator_settings/base/helpers';
 import { IndicatorSettingsConfig } from '../gui/indicator_settings/base/types';
+import { RemoteCompute, RemoteContext, accessNoticeText, drawAccessNotice, timeIndexMap } from './remote-compute';
+
+// Pivot seviyeleri ve OBV backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
+interface PivotLevels {
+    r3: number;
+    r2: number;
+    r1: number;
+    pp: number;
+    s1: number;
+    s2: number;
+    s3: number;
+}
+
+interface RemoteDeMark {
+    periods: Partial<Record<'D' | 'W' | 'M', Record<string, PivotLevels>>>;
+    obv: {
+        times: number[];
+        obv: number[];
+        ro1: Array<number | null>;
+        ro2: Array<number | null>;
+        ro3: Array<number | null>;
+    } | null;
+}
 
 export type PivotTimeframe = 'D' | 'W' | 'M';
 
@@ -22,16 +45,6 @@ export interface DeMarkPivotSummaryRow {
         s2: number;
         s3: number;
     };
-}
-
-interface PeriodBucket {
-    key: string;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    startIndex: number;
-    endIndex: number;
 }
 
 export interface DeMarkPivotIndicatorOptions extends IndicatorOptions {
@@ -102,7 +115,13 @@ const DATA_VALUE_COUNT = 32;
 
 export class DeMarkPivotIndicator extends OverlayIndicator {
     private _pivotOptions: DeMarkPivotIndicatorOptions;
-    private _pivotSourceData: Partial<Record<PivotTimeframe, BarData[]>> = {};
+    private _raw: RemoteDeMark | null = null;
+    private _obvIndex: Map<number, number> = new Map();
+    private readonly _remote = new RemoteCompute<RemoteDeMark>('demark-pivot', (raw) => {
+        this._raw = raw;
+        this._obvIndex = raw?.obv ? timeIndexMap(raw.obv.times) : new Map();
+        this._rebuild();
+    });
 
     constructor(options: Partial<DeMarkPivotIndicatorOptions> = {}) {
         const mergedOptions = { ...defaultOptions, ...options };
@@ -162,17 +181,8 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
         return timeframes;
     }
 
-    setPivotSourceData(timeframe: PivotTimeframe, data: BarData[]): void {
-        this._pivotSourceData[timeframe] = data;
-
-        if (this.pivotTimeframes.includes(timeframe) && this._sourceData.length > 0) {
-            this.calculate(this._sourceData);
-            this._dataChanged.fire();
-        }
-    }
-
-    clearPivotSourceData(): void {
-        this._pivotSourceData = {};
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     setSettingValue(key: string, value: any): boolean {
@@ -208,6 +218,25 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
     }
 
     calculate(sourceData: BarData[]): void {
+        this._sourceData = sourceData;
+        const o = this._pivotOptions;
+        this._remote.request(
+            {
+                showDailyPivots: o.showDailyPivots,
+                showWeeklyPivots: o.showWeeklyPivots,
+                showMonthlyPivots: o.showMonthlyPivots,
+                useClassicPrevOpen: o.useClassicPrevOpen,
+                showObv: o.showObv,
+                obvDivider: o.obvDivider,
+            },
+            () => this._dataChanged.fire()
+        );
+        this._rebuild();
+    }
+
+    /** Sunucudan gelen dönem seviyelerini ve OBV'yi mevcut mum dizisine eşler. */
+    private _rebuild(): void {
+        const sourceData = this._sourceData;
         this._data = sourceData.map((bar) => ({
             time: bar.time,
             value: NaN,
@@ -218,17 +247,26 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
             return;
         }
 
-        for (const timeframe of this.pivotTimeframes) {
-            const pivotSource = this._pivotSourceData[timeframe];
-            if (pivotSource && pivotSource.length > 1) {
-                this._applyPivotLevelsFromSource(sourceData, pivotSource, timeframe);
-            } else {
-                this._applyPivotLevelsFromSourceBuckets(sourceData, timeframe);
+        if (this._raw) {
+            for (const timeframe of this.pivotTimeframes) {
+                const levelsByPeriod = this._raw.periods[timeframe];
+                if (!levelsByPeriod) continue;
+                for (let i = 0; i < sourceData.length; i++) {
+                    const levels = levelsByPeriod[getPeriodKey(sourceData[i].time, timeframe)];
+                    if (levels) {
+                        this._setPivotValues(i, levels, timeframe);
+                    }
+                }
             }
         }
 
         this._applyClose(sourceData);
         this._applyObv(sourceData);
+    }
+
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     drawOverlay(
@@ -239,6 +277,10 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
         vpr: number,
         visibleRange: { from: number; to: number }
     ): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._pivotOptions.name);
+            return;
+        }
         const startIndex = Math.max(0, Math.floor(visibleRange.from));
         const endIndex = Math.min(this._data.length - 1, Math.ceil(visibleRange.to));
 
@@ -286,6 +328,8 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
     }
 
     getDescription(index?: number): string {
+        const denied = accessNoticeText(this._remote, this._pivotOptions.name);
+        if (denied !== null) return denied;
         const dataIndex = index !== undefined && index >= 0 && index < this._data.length
             ? index
             : this._data.length - 1;
@@ -361,84 +405,7 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
         return 0;
     }
 
-    private _buildPeriodBuckets(sourceData: BarData[], timeframe: PivotTimeframe): PeriodBucket[] {
-        const buckets: PeriodBucket[] = [];
-
-        sourceData.forEach((bar, index) => {
-            const key = getPeriodKey(bar.time, timeframe);
-            let bucket = buckets[buckets.length - 1];
-            if (!bucket || bucket.key !== key) {
-                bucket = {
-                    key,
-                    open: bar.open,
-                    high: bar.high,
-                    low: bar.low,
-                    close: bar.close,
-                    startIndex: index,
-                    endIndex: index,
-                };
-                buckets.push(bucket);
-                return;
-            }
-
-            bucket.high = Math.max(bucket.high, bar.high);
-            bucket.low = Math.min(bucket.low, bar.low);
-            bucket.close = bar.close;
-            bucket.endIndex = index;
-        });
-
-        return buckets;
-    }
-
-    private _applyPivotLevelsFromSource(sourceData: BarData[], pivotData: BarData[], timeframe: PivotTimeframe): void {
-        const levelsByPeriod = new Map<string, Record<string, number>>();
-
-        for (let i = 1; i < pivotData.length; i++) {
-            const prev = pivotData[i - 1];
-            const current = pivotData[i];
-            const currentBucket: PeriodBucket = {
-                key: getPeriodKey(current.time, timeframe),
-                open: current.open,
-                high: current.high,
-                low: current.low,
-                close: current.close,
-                startIndex: 0,
-                endIndex: 0,
-            };
-            const prevBucket: PeriodBucket = {
-                key: getPeriodKey(prev.time, timeframe),
-                open: prev.open,
-                high: prev.high,
-                low: prev.low,
-                close: prev.close,
-                startIndex: 0,
-                endIndex: 0,
-            };
-            levelsByPeriod.set(currentBucket.key, this._calculatePivotLevels(prevBucket, currentBucket));
-        }
-
-        for (let i = 0; i < sourceData.length; i++) {
-            const levels = levelsByPeriod.get(getPeriodKey(sourceData[i].time, timeframe));
-            if (levels) {
-                this._setPivotValues(i, levels, timeframe);
-            }
-        }
-    }
-
-    private _applyPivotLevelsFromSourceBuckets(sourceData: BarData[], timeframe: PivotTimeframe): void {
-        const buckets = this._buildPeriodBuckets(sourceData, timeframe);
-        for (let i = 1; i < buckets.length; i++) {
-            const prev = buckets[i - 1];
-            const current = buckets[i];
-            const levels = this._calculatePivotLevels(prev, current);
-
-            for (let index = current.startIndex; index <= current.endIndex; index++) {
-                this._setPivotValues(index, levels, timeframe);
-            }
-        }
-    }
-
-    private _setPivotValues(index: number, levels: Record<string, number>, timeframe: PivotTimeframe): void {
+    private _setPivotValues(index: number, levels: PivotLevels, timeframe: PivotTimeframe): void {
         const values = this._data[index].values!;
         values[this._pivotValueIndex(timeframe, 0)] = levels.r3;
         values[this._pivotValueIndex(timeframe, 1)] = levels.r2;
@@ -450,29 +417,6 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
         this._data[index].value = levels.pp;
     }
 
-    private _calculatePivotLevels(prev: PeriodBucket, current: PeriodBucket): Record<string, number> {
-        const pivotOpen = this._pivotOptions.useClassicPrevOpen ? prev.open : current.open;
-        const x = prev.close < pivotOpen
-            ? prev.low + prev.low + prev.high + prev.close
-            : prev.close > pivotOpen
-                ? prev.high + prev.high + prev.low + prev.close
-                : prev.close + prev.close + prev.high + prev.low;
-        const pp = x / 4;
-        const range = prev.high - prev.low;
-        const r1 = 2 * pp - prev.low;
-        const s1 = 2 * pp - prev.high;
-
-        return {
-            pp,
-            r1,
-            s1,
-            r2: pp + range,
-            s2: pp - range,
-            r3: r1 + range,
-            s3: s1 - range,
-        };
-    }
-
     private _applyClose(sourceData: BarData[]): void {
         for (let i = 0; i < sourceData.length; i++) {
             this._data[i].values![VALUE_INDEX.close] = sourceData[i].close;
@@ -480,25 +424,14 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
     }
 
     private _applyObv(sourceData: BarData[]): void {
-        let obv = 0;
-        const obvValues: number[] = [];
-
+        const obv = this._raw?.obv;
         for (let i = 0; i < sourceData.length; i++) {
-            if (i > 0) {
-                const volume = sourceData[i].volume ?? 0;
-                if (sourceData[i].close > sourceData[i - 1].close) {
-                    obv += volume;
-                } else if (sourceData[i].close < sourceData[i - 1].close) {
-                    obv -= volume;
-                }
-            }
-
-            const scaled = obv / this._pivotOptions.obvDivider;
-            obvValues.push(scaled);
-            this._data[i].values![VALUE_INDEX.obv] = scaled;
-            this._data[i].values![VALUE_INDEX.ro1] = highest(obvValues, i - 1, 50);
-            this._data[i].values![VALUE_INDEX.ro2] = highest(obvValues, i - 1, 25);
-            this._data[i].values![VALUE_INDEX.ro3] = highest(obvValues, i - 1, 10);
+            const j = obv ? this._obvIndex.get(toUnixMilliseconds(sourceData[i].time)) : undefined;
+            const values = this._data[i].values!;
+            values[VALUE_INDEX.obv] = obv && j !== undefined ? obv.obv[j] : NaN;
+            values[VALUE_INDEX.ro1] = obv && j !== undefined ? (obv.ro1[j] ?? NaN) : NaN;
+            values[VALUE_INDEX.ro2] = obv && j !== undefined ? (obv.ro2[j] ?? NaN) : NaN;
+            values[VALUE_INDEX.ro3] = obv && j !== undefined ? (obv.ro3[j] ?? NaN) : NaN;
         }
     }
 
@@ -684,22 +617,6 @@ function getUtcIsoWeek(date: Date): { year: number; week: number } {
     const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
     const week = Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
     return { year: target.getUTCFullYear(), week };
-}
-
-function highest(values: number[], endIndex: number, length: number): number {
-    if (endIndex < 0) {
-        return NaN;
-    }
-
-    let max = -Infinity;
-    const start = Math.max(0, endIndex - length + 1);
-    for (let i = start; i <= endIndex; i++) {
-        if (Number.isFinite(values[i])) {
-            max = Math.max(max, values[i]);
-        }
-    }
-
-    return Number.isFinite(max) ? max : NaN;
 }
 
 function applyAlpha(color: string, alpha: number): string {

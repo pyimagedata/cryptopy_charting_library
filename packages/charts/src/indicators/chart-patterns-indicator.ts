@@ -10,7 +10,53 @@ import {
     lineWidthRow,
     checkboxRow,
 } from '../gui/indicator_settings';
-import { ChartPatternMatch, detectChartPatterns } from '../patterns';
+import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+
+// Formasyon tespiti backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
+interface PatternPoint {
+    index: number;
+    time: number;
+    price: number;
+}
+
+interface ChartPatternMatch {
+    kind: string;
+    direction: 'bullish' | 'bearish';
+    points: PatternPoint[];
+    detectionIndex: number;
+    detectionTime: number;
+    neckline: number;
+    labelText?: string;
+    labelAnchor?: { index: number; price: number };
+    segments?: Array<{ from: { index: number; price: number }; to: { index: number; price: number }; dashed?: boolean }>;
+}
+
+/** Sunucudaki konum: mum zamanı `t` + ileriye kaydırma `d` (gerçek mum için 0). */
+interface RemoteVirtualPoint {
+    t: number;
+    d: number;
+    price: number;
+}
+
+interface RemoteChartPatterns {
+    patterns: Array<{
+        kind: string;
+        direction: 'bullish' | 'bearish';
+        points: Array<{ time: number; price: number }>;
+        detection_time: number;
+        neckline: number;
+        label_text: string;
+        label_anchor: { time: number; price: number };
+        segments: Array<{ from: RemoteVirtualPoint; to: RemoteVirtualPoint; dashed: boolean }> | null;
+    }>;
+}
+
+const ALGO_KEYS = [
+    'period', 'showPrediction', 'showHistory', 'showDoubleTop', 'showDoubleBottom', 'showBullPennant',
+    'showBearPennant', 'showBullFlag', 'showBearFlag', 'showBullWedgeCont', 'showBearWedgeCont',
+    'showBullWedgeRev', 'showBearWedgeRev', 'showHeadAndShoulders', 'showInverseHeadAndShoulders',
+    'showCupAndHandle', 'showAscendingTriangle',
+] as const;
 
 export interface ChartPatternsIndicatorOptions extends IndicatorOptions {
     period: number;
@@ -63,6 +109,11 @@ const defaults: Partial<ChartPatternsIndicatorOptions> = {
 export class ChartPatternsIndicator extends OverlayIndicator {
     private _optionsEx: ChartPatternsIndicatorOptions;
     private _patterns: ChartPatternMatch[] = [];
+    private _raw: RemoteChartPatterns | null = null;
+    private readonly _remote = new RemoteCompute<RemoteChartPatterns>('chart-patterns', (raw) => {
+        this._raw = raw;
+        this._rebuild();
+    });
 
     constructor(options: Partial<ChartPatternsIndicatorOptions> = {}) {
         const merged = { ...defaults, ...options };
@@ -72,6 +123,10 @@ export class ChartPatternsIndicator extends OverlayIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._optionsEx };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     updateOptions(newOptions: Partial<ChartPatternsIndicatorOptions>): boolean {
@@ -144,30 +199,59 @@ export class ChartPatternsIndicator extends OverlayIndicator {
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
-        this._patterns = detectChartPatterns(sourceData, {
-            period: this._optionsEx.period,
-            showPrediction: this._optionsEx.showPrediction,
-            showHistory: this._optionsEx.showHistory,
-            showDoubleTop: this._optionsEx.showDoubleTop,
-            showDoubleBottom: this._optionsEx.showDoubleBottom,
-            showBullPennant: this._optionsEx.showBullPennant,
-            showBearPennant: this._optionsEx.showBearPennant,
-            showBullFlag: this._optionsEx.showBullFlag,
-            showBearFlag: this._optionsEx.showBearFlag,
-            showBullWedgeCont: this._optionsEx.showBullWedgeCont,
-            showBearWedgeCont: this._optionsEx.showBearWedgeCont,
-            showBullWedgeRev: this._optionsEx.showBullWedgeRev,
-            showBearWedgeRev: this._optionsEx.showBearWedgeRev,
-            showHeadAndShoulders: this._optionsEx.showHeadAndShoulders,
-            showInverseHeadAndShoulders: this._optionsEx.showInverseHeadAndShoulders,
-            showCupAndHandle: this._optionsEx.showCupAndHandle,
-            showAscendingTriangle: this._optionsEx.showAscendingTriangle,
-        });
+        const params: Record<string, unknown> = {};
+        for (const key of ALGO_KEYS) params[key] = this._optionsEx[key];
+        this._remote.request(params, () => this._dataChanged.fire());
+        this._rebuild();
+    }
+
+    /** Ham (zaman damgalı) formasyonları mevcut mum dizisinin index'lerine çevirir. */
+    private _rebuild(): void {
+        this._patterns = [];
+        const bars = this._sourceData;
+        if (this._raw && bars.length > 0) {
+            const virtualPoint = (p: RemoteVirtualPoint): { index: number; price: number } | null => {
+                const base = barIndexAtTime(bars, p.t);
+                return base < 0 ? null : { index: base + p.d, price: p.price };
+            };
+            for (const r of this._raw.patterns) {
+                const points = r.points.map((p) => ({ index: barIndexAtTime(bars, p.time), time: p.time, price: p.price }));
+                const detectionIndex = barIndexAtTime(bars, r.detection_time);
+                const anchorIndex = barIndexAtTime(bars, r.label_anchor.time);
+                if (points.some((p) => p.index < 0) || detectionIndex < 0 || anchorIndex < 0) continue;
+
+                let segments: ChartPatternMatch['segments'];
+                if (r.segments) {
+                    segments = [];
+                    for (const s of r.segments) {
+                        const from = virtualPoint(s.from);
+                        const to = virtualPoint(s.to);
+                        if (from && to) segments.push({ from, to, dashed: s.dashed });
+                    }
+                }
+                this._patterns.push({
+                    kind: r.kind,
+                    direction: r.direction,
+                    points,
+                    detectionIndex,
+                    detectionTime: r.detection_time,
+                    neckline: r.neckline,
+                    labelText: r.label_text,
+                    labelAnchor: { index: anchorIndex, price: r.label_anchor.price },
+                    segments,
+                });
+            }
+        }
 
         this._data = this._patterns.flatMap((pattern) => [
             ...pattern.points.map((point) => ({ time: point.time, value: point.price })),
             { time: pattern.detectionTime, value: pattern.neckline },
         ]);
+    }
+
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(): IndicatorRange {
@@ -186,6 +270,10 @@ export class ChartPatternsIndicator extends OverlayIndicator {
     }
 
     drawOverlay(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._optionsEx.name);
+            return;
+        }
         if (this._patterns.length === 0) return;
 
         ctx.save();

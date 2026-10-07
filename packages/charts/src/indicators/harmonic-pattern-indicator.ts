@@ -10,8 +10,21 @@ import {
     lineWidthRow,
     checkboxRow,
 } from '../gui/indicator_settings';
-import { detectABCDPatterns, detectBatPatterns, detectCypherPatterns, detectGartleyPatterns } from '../patterns';
+import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
 import { t } from '../helpers/translations';
+
+// Formasyon tespiti ve sinyal mantığı backend'de çalışır (bkz. remote-compute.ts);
+// burada yalnızca çizilir.
+
+interface RemoteHarmonic {
+    patterns: Array<{
+        kind: 'abcd' | 'gartley' | 'bat' | 'cypher';
+        direction: 'bullish' | 'bearish';
+        points: Array<{ time: number; price: number }>;
+        ratios: { first: string; second: string } | null;
+        signal_time: number | null;
+    }>;
+}
 
 type HarmonicPattern = {
     kind: 'abcd' | 'gartley' | 'bat' | 'cypher';
@@ -60,6 +73,11 @@ const defaults: Partial<HarmonicPatternIndicatorOptions> = {
 export class HarmonicPatternIndicator extends OverlayIndicator {
     private _optionsEx: HarmonicPatternIndicatorOptions;
     private _patterns: HarmonicPattern[] = [];
+    private _raw: RemoteHarmonic | null = null;
+    private readonly _remote = new RemoteCompute<RemoteHarmonic>('harmonic-patterns', (raw) => {
+        this._raw = raw;
+        this._rebuild();
+    });
 
     constructor(options: Partial<HarmonicPatternIndicatorOptions> = {}) {
         const merged = { ...defaults, ...options };
@@ -69,6 +87,10 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._optionsEx };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     updateOptions(newOptions: Partial<HarmonicPatternIndicatorOptions>): boolean {
@@ -122,90 +144,51 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
+        const o = this._optionsEx;
+        this._remote.request(
+            {
+                period: o.period,
+                showABCD: o.showABCD,
+                showGartley: o.showGartley,
+                showBat: o.showBat,
+                showCypher: o.showCypher,
+                showSignals: o.showSignals,
+                strongSignal: o.strongSignal,
+            },
+            () => this._dataChanged.fire()
+        );
+        this._rebuild();
+    }
+
+    /** Ham (zaman damgalı) formasyonları mevcut mum dizisinin index'lerine çevirir. */
+    private _rebuild(): void {
         this._patterns = [];
-        const periods = Array.from(new Set([
-            this._optionsEx.period,
-            Math.min(this._optionsEx.period + 5, 50),
-            Math.min(this._optionsEx.period + 10, 50),
-        ])).sort((a, b) => a - b);
-
-        for (const period of periods) {
-            if (this._optionsEx.showABCD) {
-                const abcd = detectABCDPatterns(sourceData, { period });
-                this._patterns.push(...abcd.map((pattern): HarmonicPattern => ({
-                    kind: 'abcd',
-                    direction: pattern.direction,
-                    points: pattern.points,
-                    ratios: { first: pattern.bcRatio.toFixed(3), second: pattern.cdRatio.toFixed(3) },
-                })));
+        const bars = this._sourceData;
+        if (this._raw && bars.length > 0) {
+            for (const r of this._raw.patterns) {
+                const points = r.points.map((p) => ({ index: barIndexAtTime(bars, p.time), time: p.time, price: p.price }));
+                if (points.some((p) => p.index < 0)) continue;
+                const pattern: HarmonicPattern = {
+                    kind: r.kind,
+                    direction: r.direction,
+                    points,
+                    ratios: r.ratios ?? undefined,
+                };
+                if (r.signal_time !== null) {
+                    const index = barIndexAtTime(bars, r.signal_time);
+                    if (index >= 0) pattern.signal = { index };
+                }
+                this._patterns.push(pattern);
             }
-
-            if (this._optionsEx.showGartley) {
-                const gartleys = detectGartleyPatterns(sourceData, period);
-                this._patterns.push(...gartleys.map((pattern): HarmonicPattern => ({
-                    kind: 'gartley',
-                    direction: pattern.direction,
-                    points: pattern.points,
-                })));
-            }
-
-            if (this._optionsEx.showBat) {
-                const bats = detectBatPatterns(sourceData, period);
-                this._patterns.push(...bats.map((pattern): HarmonicPattern => ({
-                    kind: 'bat',
-                    direction: pattern.direction,
-                    points: pattern.points,
-                })));
-            }
-
-            if (this._optionsEx.showCypher) {
-                const cyphers = detectCypherPatterns(sourceData, period);
-                this._patterns.push(...cyphers.map((pattern): HarmonicPattern => ({
-                    kind: 'cypher',
-                    direction: pattern.direction,
-                    points: pattern.points,
-                })));
-            }
-        }
-
-        this._patterns = this._dedupePatterns(this._patterns);
-        if (this._optionsEx.showSignals) {
-            for (const pattern of this._patterns) pattern.signal = this._findSignal(pattern, sourceData);
         }
         this._data = this._patterns.flatMap((pattern) =>
             pattern.points.map((point) => ({ time: point.time, value: point.price }))
         );
     }
 
-    /**
-     * Giris sinyali: D'den sonra donus yonunde kapanan ilk mum (yukseliste yesil,
-     * dususte kirmizi; guclu onayda kapanis onceki mumun en yuksegini/en dusugunu
-     * gecmeli). Fiyat once formasyonu bozarsa (X'in, ABCD'de AB'nin 1,618
-     * uzantisinin otesine gecerse) sinyal yok. Sadece D'den sonraki mumlara
-     * bakildigi icin canli akista/replay'de sonradan degismez.
-     */
-    private _findSignal(pattern: HarmonicPattern, data: BarData[]): { index: number } | undefined {
-        const points = pattern.points;
-        const d = points[points.length - 1];
-        const bullish = pattern.direction === 'bullish';
-        let invalid: number;
-        if (pattern.kind === 'abcd') {
-            const [a, b, c] = points;
-            invalid = c.price + (bullish ? -1 : 1) * Math.abs(b.price - a.price) * 1.618;
-        } else {
-            invalid = points[0].price;
-        }
-        const strong = this._optionsEx.strongSignal;
-        for (let i = d.index + 1; i < data.length; i++) {
-            const bar = data[i];
-            if (bullish ? bar.low < invalid : bar.high > invalid) return undefined;
-            const prev = data[i - 1];
-            const confirmed = bullish
-                ? bar.close > bar.open && (!strong || bar.close > prev.high)
-                : bar.close < bar.open && (!strong || bar.close < prev.low);
-            if (confirmed) return { index: i };
-        }
-        return undefined;
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(): IndicatorRange {
@@ -224,6 +207,10 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
     }
 
     drawOverlay(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._optionsEx.name);
+            return;
+        }
         if (this._patterns.length === 0) return;
         ctx.save();
         for (const pattern of this._patterns) {
@@ -417,27 +404,6 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
         ctx.fillRect(x - width / 2, y - height / 2, width, height);
         ctx.fillStyle = '#ffffff';
         ctx.fillText(text, x, y);
-    }
-
-    private _dedupePatterns(patterns: HarmonicPattern[]): HarmonicPattern[] {
-        const seen = new Set<string>();
-        const seenAbcKeys = new Set<string>();
-        const deduped: HarmonicPattern[] = [];
-        for (const pattern of patterns) {
-            const key = `${pattern.kind}:${pattern.points.map((point) => point.index).join('-')}`;
-            if (seen.has(key)) continue;
-            const abcPoints = pattern.kind === 'gartley'
-                ? pattern.points.slice(1, 4)
-                : pattern.points.slice(0, 3);
-            const abcKey = abcPoints.length === 3
-                ? abcPoints.map((point) => point.index).join('-')
-                : undefined;
-            if (abcKey && seenAbcKeys.has(abcKey)) continue;
-            seen.add(key);
-            if (abcKey) seenAbcKeys.add(abcKey);
-            deduped.push(pattern);
-        }
-        return deduped;
     }
 }
 

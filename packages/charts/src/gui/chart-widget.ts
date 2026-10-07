@@ -36,7 +36,6 @@ import {
     BybitFuturesProvider,
     OkxSpotProvider,
     OkxFuturesProvider,
-    CandleInterval,
     Orderbook
 } from '../data-providers';
 import { BistDataProvider } from '../data-providers/stocks/bist';
@@ -183,7 +182,6 @@ export class ChartWidget implements Disposable {
     // Indicator system
     private readonly _indicatorManager: IndicatorManager;
     private readonly _indicatorPanes: Map<string, IndicatorPaneWidget> = new Map();
-    private readonly _deMarkPivotFetchKeys: WeakMap<DeMarkPivotIndicator, Set<string>> = new WeakMap();
 
     // Loading overlay
     private _loadingOverlay: HTMLElement | null = null;
@@ -3156,9 +3154,6 @@ export class ChartWidget implements Disposable {
             indicator.calculate([...data]);
         }
 
-        if (indicator instanceof DeMarkPivotIndicator) {
-            void this._refreshDeMarkPivotSource(indicator);
-        }
 
         // Trigger redraw
         this._scheduleDraw();
@@ -3167,9 +3162,6 @@ export class ChartWidget implements Disposable {
     private _wireExistingIndicators(): void {
         for (const indicator of this._indicatorManager.allIndicators) {
             this._wireIndicatorEvents(indicator);
-            if (indicator instanceof DeMarkPivotIndicator) {
-                void this._refreshDeMarkPivotSource(indicator);
-            }
         }
 
         this._updateMainLegend();
@@ -3183,62 +3175,9 @@ export class ChartWidget implements Disposable {
 
         this._wiredIndicators.add(indicator);
         indicator.dataChanged.subscribe(() => {
-            if (indicator instanceof DeMarkPivotIndicator) {
-                void this._refreshDeMarkPivotSource(indicator);
-            }
             this._updateMainLegend();
             this._scheduleDraw();
         });
-    }
-
-    private async _refreshDeMarkPivotSource(indicator: DeMarkPivotIndicator): Promise<void> {
-        if (!this._dataProvider || typeof (this._dataProvider as any).getCandles !== 'function') {
-            return;
-        }
-
-        let fetchedKeys = this._deMarkPivotFetchKeys.get(indicator);
-        if (!fetchedKeys) {
-            fetchedKeys = new Set();
-            this._deMarkPivotFetchKeys.set(indicator, fetchedKeys);
-        }
-
-        for (const pivotTimeframe of indicator.pivotTimeframes) {
-            const interval = this._deMarkPivotInterval(pivotTimeframe);
-            const fetchKey = `${this._currentExchange}:${this._currentSymbol}:${interval}`;
-            if (fetchedKeys.has(fetchKey)) {
-                continue;
-            }
-
-            fetchedKeys.add(fetchKey);
-
-            try {
-                const candles = await (this._dataProvider as any).getCandles(this._currentSymbol, interval, 500);
-                const data = candles.map((candle: any) => ({
-                    time: candle.time,
-                    open: candle.open,
-                    high: candle.high,
-                    low: candle.low,
-                    close: candle.close,
-                    volume: candle.volume,
-                })) as BarData[];
-                indicator.setPivotSourceData(pivotTimeframe, data);
-            } catch (error) {
-                fetchedKeys.delete(fetchKey);
-                console.warn('GainMetrics pivot source could not be loaded; falling back to chart bars.', error);
-            }
-        }
-    }
-
-    private _deMarkPivotInterval(timeframe: 'D' | 'W' | 'M'): CandleInterval {
-        if (timeframe === 'W') {
-            return '1w';
-        }
-
-        if (timeframe === 'M') {
-            return '1M';
-        }
-
-        return '1d';
     }
 
     // --- Cleanup ---

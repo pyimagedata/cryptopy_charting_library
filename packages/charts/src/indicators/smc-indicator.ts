@@ -1,12 +1,27 @@
 import { OverlayIndicator, IndicatorOptions, IndicatorRange } from './indicator';
 import { BarData } from '../model/data';
-import {
-    calculateMinorZigZag,
-    calculateMacroZigZag,
-    detectSMCBreaks,
-    SMCPivot,
-    SMCStructureBreak,
-} from '../patterns/smc';
+import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+
+// ZigZag ve BOS/MSB hesabı backend'de çalışır (bkz. remote-compute.ts); burada yalnızca çizilir.
+interface SMCPivot {
+    price: number;
+    index: number;
+    time: number;
+}
+
+interface SMCStructureBreak {
+    type: 'BOS' | 'MSB';
+    dir: 'Bullish' | 'Bearish';
+    level: number;
+    start_bar: number;
+    end_bar: number;
+}
+
+interface RemoteSMC {
+    minor: Array<{ time: number; price: number }>; // kronolojik
+    macro: Array<{ time: number; price: number }>;
+    breaks: Array<{ type: 'BOS' | 'MSB'; dir: 'Bullish' | 'Bearish'; level: number; start_time: number; end_time: number }>;
+}
 import {
     IndicatorSettingsConfig,
     createInputsTab,
@@ -65,6 +80,11 @@ export class SMCIndicator extends OverlayIndicator {
     private _macroVals: number[] = [];
     private _macroBars: number[] = [];
     private _breaks: SMCStructureBreak[] = [];
+    private _raw: RemoteSMC | null = null;
+    private readonly _remote = new RemoteCompute<RemoteSMC>('smc', (raw) => {
+        this._raw = raw;
+        this._rebuild();
+    });
 
     constructor(options: Partial<SMCIndicatorOptions> = {}) {
         const merged = { ...defaultSMCOptions, ...options };
@@ -74,6 +94,10 @@ export class SMCIndicator extends OverlayIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._smcOptions };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     updateOptions(newOptions: Partial<SMCIndicatorOptions>): boolean {
@@ -152,58 +176,61 @@ export class SMCIndicator extends OverlayIndicator {
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
-        if (sourceData.length < this._smcOptions.period) {
-            this._minorZigzag = [];
-            this._macroVals = [];
-            this._macroBars = [];
-            this._breaks = [];
-            this._data = [];
-            return;
+        const o = this._smcOptions;
+        this._remote.request(
+            {
+                period: o.period,
+                pivotSrc: o.pivotSrc,
+                breakSrc: o.breakSrc,
+                macroSrc: o.macroSrc,
+                useTickFilter: o.useTickFilter,
+                tickMult: o.tickMult,
+                tickSize: o.tickSize,
+                confirmCandles: o.confirmCandles,
+            },
+            () => this._dataChanged.fire()
+        );
+        this._rebuild();
+    }
+
+    /** Ham (zaman damgalı) sonucu mevcut mum dizisinin index'lerine çevirir. */
+    private _rebuild(): void {
+        this._minorZigzag = [];
+        this._macroVals = [];
+        this._macroBars = [];
+        this._breaks = [];
+        this._data = [];
+        const bars = this._sourceData;
+        if (!this._raw || bars.length === 0) return;
+
+        // Minör ZigZag çizimde yeniden eskiye doğru tutulur (en yeni önce).
+        for (const p of this._raw.minor) {
+            const index = barIndexAtTime(bars, p.time);
+            if (index >= 0) this._minorZigzag.unshift({ price: p.price, index, time: p.time });
+        }
+        for (const p of this._raw.macro) {
+            const index = barIndexAtTime(bars, p.time);
+            if (index < 0) continue;
+            this._macroBars.push(index);
+            this._macroVals.push(p.price);
+        }
+        for (const b of this._raw.breaks) {
+            const start = barIndexAtTime(bars, b.start_time);
+            const end = barIndexAtTime(bars, b.end_time);
+            if (start < 0 || end < 0) continue;
+            this._breaks.push({ type: b.type, dir: b.dir, level: b.level, start_bar: start, end_bar: end });
         }
 
-        // 1. Calculate Tick Threshold
-        let tickSize = this._smcOptions.tickSize;
-        if (tickSize <= 0) {
-            tickSize = estimateTickSize(sourceData);
-        }
-        const tickThreshold = this._smcOptions.tickMult * tickSize;
-
-        // 2. Compute Minor ZigZag
-        const { zigzag } = calculateMinorZigZag(sourceData, this._smcOptions.period, this._smcOptions.pivotSrc);
-        this._minorZigzag = zigzag;
-
-        // 3. Compute Macro ZigZag (uses user-configured confirmCandles)
-        const { m_vals, m_bars, m_dirs, m_confirms } = calculateMacroZigZag(
-            sourceData,
-            zigzag,
-            this._smcOptions.macroSrc,
-            this._smcOptions.useTickFilter,
-            tickThreshold,
-            this._smcOptions.confirmCandles
-        );
-        this._macroVals = m_vals;
-        this._macroBars = m_bars;
-
-        // 4. Compute Structure Breaks (BOS / MSB)
-        this._breaks = detectSMCBreaks(
-            sourceData,
-            m_vals,
-            m_bars,
-            m_dirs,
-            m_confirms,
-            this._smcOptions.breakSrc,
-            this._smcOptions.useTickFilter,
-            tickThreshold,
-            this._smcOptions.confirmCandles
-        );
-
-        // Map line points for default series mapping (uses macro zigzag)
-        this._data = m_bars.map((barIdx, i) => ({
-            time: sourceData[barIdx].time,
-            value: m_vals[i],
+        // Varsayılan seri eşlemesi için makro ZigZag noktaları
+        this._data = this._macroBars.map((barIdx, i) => ({
+            time: bars[barIdx].time,
+            value: this._macroVals[i],
         }));
+    }
 
-        console.log(`[SMC] minor pivots: ${this._minorZigzag.length}, macro pivots: ${this._macroVals.length}, breaks: ${this._breaks.length}`);
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(): IndicatorRange {
@@ -231,6 +258,10 @@ export class SMCIndicator extends OverlayIndicator {
         hpr: number,
         vpr: number
     ): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._smcOptions.name);
+            return;
+        }
         if (this._sourceData.length === 0) return;
 
         // 1. Draw Minor ZigZag
@@ -388,18 +419,6 @@ export class SMCIndicator extends OverlayIndicator {
 
         return false;
     }
-}
-
-function estimateTickSize(data: BarData[]): number {
-    let minDiff = Infinity;
-    const len = Math.min(data.length, 100);
-    for (let i = 1; i < len; i++) {
-        const diff = Math.abs(data[i].close - data[i - 1].close);
-        if (diff > 0 && diff < minDiff) {
-            minDiff = diff;
-        }
-    }
-    return minDiff === Infinity ? 0.01 : minDiff;
 }
 
 function drawTriangle(

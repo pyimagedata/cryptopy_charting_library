@@ -10,7 +10,33 @@ import {
     lineWidthRow,
     numberRow,
 } from '../gui/indicator_settings';
-import { TrendlineBreakoutMatch, detectTrendlineBreakouts } from '../patterns';
+import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+
+// Kırılım tespiti backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
+interface BreakoutPoint {
+    index: number;
+    price: number;
+}
+
+interface TrendlineBreakoutMatch {
+    direction: 'bullish' | 'bearish';
+    labelText: string;
+    labelAnchor: BreakoutPoint;
+    segments: Array<{ from: BreakoutPoint; to: BreakoutPoint }>;
+}
+
+interface RemoteBreakouts {
+    matches: Array<{
+        direction: 'bullish' | 'bearish';
+        label_text: string;
+        label_time: number;
+        label_price: number;
+        from_time: number;
+        from_price: number;
+        to_time: number;
+        to_price: number;
+    }>;
+}
 
 export interface TrendlineBreakoutIndicatorOptions extends IndicatorOptions {
     period: number;
@@ -47,6 +73,11 @@ const defaults: Partial<TrendlineBreakoutIndicatorOptions> = {
 export class TrendlineBreakoutIndicator extends OverlayIndicator {
     private _optionsEx: TrendlineBreakoutIndicatorOptions;
     private _matches: TrendlineBreakoutMatch[] = [];
+    private _raw: RemoteBreakouts | null = null;
+    private readonly _remote = new RemoteCompute<RemoteBreakouts>('trendline-breakout', (raw) => {
+        this._raw = raw;
+        this._rebuild();
+    });
 
     constructor(options: Partial<TrendlineBreakoutIndicatorOptions> = {}) {
         const merged = { ...defaults, ...options };
@@ -56,6 +87,10 @@ export class TrendlineBreakoutIndicator extends OverlayIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._optionsEx };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     updateOptions(newOptions: Partial<TrendlineBreakoutIndicatorOptions>): boolean {
@@ -115,25 +150,54 @@ export class TrendlineBreakoutIndicator extends OverlayIndicator {
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
-        this._matches = detectTrendlineBreakouts(sourceData, {
-            period: this._optionsEx.period,
-            useLength8: this._optionsEx.useLength8,
-            useLength10: this._optionsEx.useLength10,
-            useLength15: this._optionsEx.useLength15,
-            useLength30: this._optionsEx.useLength30,
-            volumeSpikeMultiplier: this._optionsEx.volumeSpikeMultiplier,
-            showHistory: this._optionsEx.showHistory,
-            showBullBreakout: this._optionsEx.showBullBreakout,
-            showBearBreakdown: this._optionsEx.showBearBreakdown,
-        });
+        const o = this._optionsEx;
+        this._remote.request(
+            {
+                period: o.period,
+                useLength8: o.useLength8,
+                useLength10: o.useLength10,
+                useLength15: o.useLength15,
+                useLength30: o.useLength30,
+                volumeSpikeMultiplier: o.volumeSpikeMultiplier,
+                showHistory: o.showHistory,
+                showBullBreakout: o.showBullBreakout,
+                showBearBreakdown: o.showBearBreakdown,
+            },
+            () => this._dataChanged.fire()
+        );
+        this._rebuild();
+    }
 
-        this._data = this._matches.flatMap((match) => {
-            const segment = match.segments[0];
-            return [
-                { time: segment.from.time, value: segment.from.price },
-                { time: segment.to.time, value: segment.to.price },
-            ];
-        });
+    /** Ham (zaman damgalı) kırılımları mevcut mum dizisinin index'lerine çevirir. */
+    private _rebuild(): void {
+        this._matches = [];
+        const bars = this._sourceData;
+        if (this._raw && bars.length > 0) {
+            for (const r of this._raw.matches) {
+                const labelIndex = barIndexAtTime(bars, r.label_time);
+                const fromIndex = barIndexAtTime(bars, r.from_time);
+                const toIndex = barIndexAtTime(bars, r.to_time);
+                if (labelIndex < 0 || fromIndex < 0 || toIndex < 0) continue;
+                this._matches.push({
+                    direction: r.direction,
+                    labelText: r.label_text,
+                    labelAnchor: { index: labelIndex, price: r.label_price },
+                    segments: [{ from: { index: fromIndex, price: r.from_price }, to: { index: toIndex, price: r.to_price } }],
+                });
+            }
+        }
+
+        this._data = this._raw
+            ? this._raw.matches.flatMap((match) => [
+                { time: match.from_time, value: match.from_price },
+                { time: match.to_time, value: match.to_price },
+            ])
+            : [];
+    }
+
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(): IndicatorRange {
@@ -156,6 +220,10 @@ export class TrendlineBreakoutIndicator extends OverlayIndicator {
     }
 
     drawOverlay(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._optionsEx.name);
+            return;
+        }
         if (this._matches.length === 0) {
             return;
         }

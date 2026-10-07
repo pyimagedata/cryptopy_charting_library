@@ -10,7 +10,31 @@ import {
     lineWidthRow,
     checkboxRow,
 } from '../gui/indicator_settings';
-import { ABCDPattern, detectABCDPatterns } from '../patterns';
+import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+
+// ABCD formasyonları backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
+interface ABCDPoint {
+    index: number;
+    time: number;
+    price: number;
+    kind: 'high' | 'low';
+}
+
+interface ABCDPattern {
+    points: [ABCDPoint, ABCDPoint, ABCDPoint, ABCDPoint];
+    direction: 'bullish' | 'bearish';
+    bcRatio: number;
+    cdRatio: number;
+}
+
+interface RemoteABCD {
+    patterns: Array<{
+        direction: 'bullish' | 'bearish';
+        points: Array<{ time: number; price: number; kind: 'high' | 'low' }>;
+        bc_ratio: number;
+        cd_ratio: number;
+    }>;
+}
 
 export interface ABCDPatternIndicatorOptions extends IndicatorOptions {
     period: number;
@@ -33,6 +57,11 @@ const defaultABCDPatternIndicatorOptions: Partial<ABCDPatternIndicatorOptions> =
 export class ABCDPatternIndicator extends OverlayIndicator {
     private _abcdOptions: ABCDPatternIndicatorOptions;
     private _patterns: ABCDPattern[] = [];
+    private _raw: RemoteABCD | null = null;
+    private readonly _remote = new RemoteCompute<RemoteABCD>('abcd-pattern', (raw) => {
+        this._raw = raw;
+        this._rebuild();
+    });
 
     constructor(options: Partial<ABCDPatternIndicatorOptions> = {}) {
         const mergedOptions = { ...defaultABCDPatternIndicatorOptions, ...options };
@@ -42,6 +71,10 @@ export class ABCDPatternIndicator extends OverlayIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._abcdOptions };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     updateOptions(newOptions: Partial<ABCDPatternIndicatorOptions>): boolean {
@@ -89,14 +122,31 @@ export class ABCDPatternIndicator extends OverlayIndicator {
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
-        this._patterns = detectABCDPatterns(sourceData, {
-            period: this._abcdOptions.period,
-            _sourceData: sourceData as any,
-        });
+        this._remote.request({ period: this._abcdOptions.period }, () => this._dataChanged.fire());
+        this._rebuild();
+    }
 
+    /** Ham (zaman damgalı) formasyonları mevcut mum dizisinin index'lerine çevirir. */
+    private _rebuild(): void {
+        this._patterns = [];
+        const bars = this._sourceData;
+        if (this._raw && bars.length > 0) {
+            for (const r of this._raw.patterns) {
+                const points = r.points.map((p) => ({ index: barIndexAtTime(bars, p.time), time: p.time, price: p.price, kind: p.kind }));
+                if (points.some((p) => p.index < 0) || points.length !== 4) continue;
+                this._patterns.push({
+                    points: points as ABCDPattern['points'], direction: r.direction, bcRatio: r.bc_ratio, cdRatio: r.cd_ratio,
+                });
+            }
+        }
         this._data = this._patterns.flatMap((pattern) =>
             pattern.points.map((point) => ({ time: point.time, value: point.price }))
         );
+    }
+
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(): IndicatorRange {
@@ -128,6 +178,10 @@ export class ABCDPatternIndicator extends OverlayIndicator {
         hpr: number,
         vpr: number
     ): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._abcdOptions.name);
+            return;
+        }
         if (this._patterns.length === 0) {
             return;
         }

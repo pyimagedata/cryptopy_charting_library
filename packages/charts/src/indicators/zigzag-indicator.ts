@@ -1,6 +1,6 @@
 import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
-import { calculateZigZagPoints, ZigZagPoint } from '../patterns';
+import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
 import {
     IndicatorSettingsConfig,
     createInputsTab,
@@ -10,6 +10,18 @@ import {
     colorRow,
     lineWidthRow,
 } from '../gui/indicator_settings';
+
+// ZigZag noktaları backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
+interface ZigZagPoint {
+    index: number;
+    time: number;
+    price: number;
+    kind: 'high' | 'low';
+}
+
+interface RemoteZigZag {
+    points: Array<{ time: number; price: number; kind: 'high' | 'low' }>;
+}
 
 export interface ZigZagIndicatorOptions extends IndicatorOptions {
     period: number;
@@ -26,6 +38,11 @@ const defaultZigZagIndicatorOptions: Partial<ZigZagIndicatorOptions> = {
 export class ZigZagIndicator extends OverlayIndicator {
     private _zigZagOptions: ZigZagIndicatorOptions;
     private _points: ZigZagPoint[] = [];
+    private _raw: RemoteZigZag | null = null;
+    private readonly _remote = new RemoteCompute<RemoteZigZag>('zigzag', (raw) => {
+        this._raw = raw;
+        this._rebuild();
+    });
 
     constructor(options: Partial<ZigZagIndicatorOptions> = {}) {
         const mergedOptions = { ...defaultZigZagIndicatorOptions, ...options };
@@ -35,6 +52,10 @@ export class ZigZagIndicator extends OverlayIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._zigZagOptions };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     updateOptions(newOptions: Partial<ZigZagIndicatorOptions>): boolean {
@@ -79,16 +100,29 @@ export class ZigZagIndicator extends OverlayIndicator {
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
-        this._points = calculateZigZagPoints(sourceData, {
-            period: this._zigZagOptions.period,
-        });
+        this._remote.request({ period: this._zigZagOptions.period }, () => this._dataChanged.fire());
+        this._rebuild();
+    }
 
-        this._points = [...this._points].reverse();
-
+    /** Ham (zaman damgalı) noktaları mevcut mum dizisinin index'lerine çevirir. */
+    private _rebuild(): void {
+        this._points = [];
+        const bars = this._sourceData;
+        if (this._raw && bars.length > 0) {
+            for (const p of this._raw.points) {
+                const index = barIndexAtTime(bars, p.time);
+                if (index >= 0) this._points.push({ index, time: p.time, price: p.price, kind: p.kind });
+            }
+        }
         this._data = this._points.map((point) => ({
             time: point.time,
             value: point.price,
         }));
+    }
+
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(): IndicatorRange {
@@ -117,6 +151,10 @@ export class ZigZagIndicator extends OverlayIndicator {
         hpr: number,
         vpr: number
     ): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._zigZagOptions.name);
+            return;
+        }
         if (this._points.length < 2) {
             return;
         }

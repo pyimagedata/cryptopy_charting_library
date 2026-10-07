@@ -57,7 +57,6 @@ export {
     SpecialForcesZones,
 } from './indicators';
 
-export * from './patterns';
 
 // Drawings
 export {
