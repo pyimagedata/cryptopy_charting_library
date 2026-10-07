@@ -50,6 +50,8 @@ export {
     SpecialForcesIndicator,
     SpecialForcesIndicatorOptions,
     SpecialForcesLevelsProvider,
+    RemoteIndicators,
+    RemoteIndicatorProvider,
     SpecialForcesZonesProvider,
     SpecialForcesZone,
     SpecialForcesZones,

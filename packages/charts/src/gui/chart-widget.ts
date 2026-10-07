@@ -689,7 +689,7 @@ export class ChartWidget implements Disposable {
 
     /** Sembol/zaman dilimi bilgisine ihtiyac duyan indikatorlere (ör. spot karsilastirma) guncel degeri verir. */
     private _pushIndicatorContext(): void {
-        for (const ind of this._indicatorManager.overlayIndicators) {
+        for (const ind of this._indicatorManager.allIndicators) {
             const withCtx = ind as unknown as { setContext?: (c: { symbol: string; timeframe: string; exchange?: string }) => void };
             withCtx.setContext?.({
                 symbol: this._model.symbol,
@@ -3133,6 +3133,8 @@ export class ChartWidget implements Disposable {
     addIndicator(indicator: PanelIndicator): void {
         this._indicatorManager.addPanelIndicator(indicator);
         this._wireIndicatorEvents(indicator);
+        // Backend'de hesaplanan indikatorler sembol/zaman dilimini ilk hesaptan ONCE bilmeli.
+        this._pushIndicatorContext();
 
         const data = this._indicatorManager.sourceData as BarData[];
         if (data.length > 0 && indicator.data.length === 0) {
@@ -3146,6 +3148,8 @@ export class ChartWidget implements Disposable {
     addOverlayIndicator(indicator: OverlayIndicator): void {
         this._indicatorManager.addOverlayIndicator(indicator);
         this._wireIndicatorEvents(indicator);
+        // Backend'de hesaplanan indikatorler sembol/zaman dilimini ilk hesaptan ONCE bilmeli.
+        this._pushIndicatorContext();
 
         const data = this._indicatorManager.sourceData as BarData[];
         if (data.length > 0 && indicator.data.length === 0) {

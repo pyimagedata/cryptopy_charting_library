@@ -221,6 +221,8 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'Strong Confirmation (close beyond previous bar)': 'Güçlü Onay (önceki mumun ötesinde kapanış)',
         'Special Forces requires a PRO membership': 'Special Forces için PRO üyelik gerekli',
         'Sign in to use Special Forces': 'Special Forces için giriş yapın',
+        'Sign in to use this indicator': 'Bu indikatör için giriş yapın',
+        'This indicator requires a PRO membership': 'Bu indikatör için PRO üyelik gerekli',
         'Levels as Percent': 'Seviyeler Yüzde Olarak',
         'Labels Horizontal': 'Etiket (Yatay)',
         'Labels Vertical': 'Etiket (Dikey)',
