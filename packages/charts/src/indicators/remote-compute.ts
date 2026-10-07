@@ -33,6 +33,13 @@ export interface RemoteContext {
 const REFRESH_MS = 30_000;
 const DEBOUNCE_MS = 500;
 
+/** Sunucudan gelen `times` dizisini (ms) dizindeki yerine eşleyen tablo; panel indikatörleri için. */
+export function timeIndexMap(times: number[]): Map<number, number> {
+    const map = new Map<number, number>();
+    for (let i = 0; i < times.length; i++) map.set(times[i], i);
+    return map;
+}
+
 export class RemoteCompute<T> {
     private static _nextSlot = 0;
     /** Yetki reddi yazısının satırı: birden çok indikatör yazılarını üst üste bindirmesin. */
@@ -122,6 +129,18 @@ export class RemoteCompute<T> {
     }
 }
 
+/**
+ * Panel başlığı için varsayılan değer indeksi: istenen indeks yoksa son GEÇERLİ noktayı verir.
+ * Oluşan (henüz kapanmamış) son mum sunucu verisinde olmadığından en son nokta boştur.
+ */
+export function legendIndex(points: ReadonlyArray<{ value: number }>, index?: number): number {
+    if (index !== undefined && index >= 0 && index < points.length) return index;
+    for (let i = points.length - 1; i >= 0; i--) {
+        if (!Number.isNaN(points[i].value)) return i;
+    }
+    return points.length - 1;
+}
+
 export function barTimeMs(bar: BarData): number {
     return bar.time > 1e12 ? bar.time : bar.time * 1000;
 }
@@ -140,6 +159,16 @@ export function barIndexAtTime(data: BarData[], timeMs: number): number {
         else hi = mid;
     }
     return lo;
+}
+
+/** Panel indikatörleri için: açıklama (legend) satırında gösterilecek yetki reddi metni (yoksa null). */
+export function accessNoticeText(
+    remote: { readonly denied: 401 | 403 | null },
+    indicatorName: string
+): string | null {
+    if (remote.denied === null) return null;
+    const message = remote.denied === 401 ? t('Sign in to use this indicator') : t('This indicator requires a PRO membership');
+    return `${indicatorName}: ${message}`;
 }
 
 /** Yetki reddedilince grafikte nedeni gösteren kısa yazı (indikatör başına ayrı satır). */

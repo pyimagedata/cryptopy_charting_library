@@ -1,5 +1,6 @@
 import { PanelIndicator, IndicatorOptions, IndicatorRange } from './indicator';
 import { BarData } from '../model/data';
+import { RemoteCompute, RemoteContext, accessNoticeText, legendIndex, timeIndexMap } from './remote-compute';
 import {
     IndicatorSettingsConfig,
     createInputsTab,
@@ -9,6 +10,8 @@ import {
     colorRow,
     lineWidthRow,
 } from '../gui/indicator_settings';
+
+// Tdoji Osilatör: değerler backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
 
 export interface TdojiOscillatorOptions extends IndicatorOptions {
     curveLength: number;
@@ -35,15 +38,33 @@ const defaultTdojiOscillatorOptions: Partial<TdojiOscillatorOptions> = {
     zeroLineColor: '#9ca3af',
 };
 
+interface RemoteTdoji {
+    times: number[];
+    slope: Array<number | null>;
+    signal: Array<number | null>;
+    state: number[]; // 1: yukarı ivme, -1: aşağı ivme, 0: nötr
+}
+
 export class TdojiOscillatorIndicator extends PanelIndicator {
     private _tdojiOptions: TdojiOscillatorOptions;
     private _lineColors: string[] = [];
+    private _raw: RemoteTdoji | null = null;
+    private _rawIndex: Map<number, number> = new Map();
+    private readonly _remote = new RemoteCompute<RemoteTdoji>('tdoji', (raw) => {
+        this._raw = raw;
+        this._rawIndex = raw ? timeIndexMap(raw.times) : new Map();
+        this._rebuild();
+    });
 
     constructor(options: Partial<TdojiOscillatorOptions> = {}) {
         const mergedOptions = { ...defaultTdojiOscillatorOptions, ...options };
         super(mergedOptions);
         this._tdojiOptions = { ...defaultTdojiOscillatorOptions, ...this._options } as TdojiOscillatorOptions;
         this._paneHeight = 120;
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     getSettingsConfig(): IndicatorSettingsConfig {
@@ -81,52 +102,53 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
         const needsRecalc = key === 'curveLength' || key === 'slopeLength' || key === 'signalLength';
         Object.assign(this._tdojiOptions, { [key]: value });
         Object.assign(this._options, { [key]: value });
+        // Renk değişince çizgi renkleri yeniden kurulur; hesap ayarı değişince calculate() yeniden istek atar.
+        if (!needsRecalc) this._rebuild();
         this._dataChanged.fire();
         return needsRecalc;
     }
 
     calculate(sourceData: BarData[]): void {
+        this._sourceData = sourceData;
+        this._remote.request(
+            {
+                curveLength: this._tdojiOptions.curveLength,
+                slopeLength: this._tdojiOptions.slopeLength,
+                signalLength: this._tdojiOptions.signalLength,
+            },
+            () => this._dataChanged.fire()
+        );
+        this._rebuild();
+    }
+
+    /** Ham (zaman damgalı) diziyi mevcut mum dizisine eşler; çizgi renklerini yerel renklerle kurar. */
+    private _rebuild(): void {
         this._data = [];
         this._lineColors = [];
+        const bars = this._sourceData;
+        const raw = this._raw;
+        if (!raw || raw.times.length === 0 || bars.length === 0) return;
 
-        const { curveLength, slopeLength, signalLength } = this._tdojiOptions;
-        if (sourceData.length < curveLength + signalLength) {
-            return;
+        for (const bar of bars) {
+            const j = this._rawIndex.get(this._toMs(bar.time));
+            const slope = j === undefined || raw.slope[j] === null ? NaN : (raw.slope[j] as number);
+            const avgSlope = j === undefined || raw.signal[j] === null ? NaN : (raw.signal[j] as number);
+            this._data.push({ time: bar.time, value: slope, values: [slope, avgSlope] });
+
+            const state = j === undefined ? 0 : raw.state[j];
+            this._lineColors.push(
+                state === 1 ? this._tdojiOptions.upColor : state === -1 ? this._tdojiOptions.downColor : this._tdojiOptions.neutralColor
+            );
         }
+    }
 
-        const src = sourceData.map((bar) => bar.close);
-        const lrc = this._linearRegressionSeries(src, curveLength);
-        const lrs = lrc.map((value, index) => index === 0 || isNaN(value) || isNaN(lrc[index - 1]) ? NaN : value - lrc[index - 1]);
-        const slrs = this._emaSeries(lrs, slopeLength);
-        const alrs = this._smaSeries(slrs, signalLength);
+    private _toMs(time: number): number {
+        return time > 1e12 ? time : time * 1000;
+    }
 
-        for (let i = 0; i < sourceData.length; i++) {
-            const slope = slrs[i];
-            const avgSlope = alrs[i];
-            const rawSlope = lrs[i];
-
-            this._data.push({
-                time: sourceData[i].time,
-                value: slope,
-                values: [slope, avgSlope],
-            });
-
-            if (isNaN(rawSlope) || isNaN(avgSlope)) {
-                this._lineColors.push(this._tdojiOptions.neutralColor);
-                continue;
-            }
-
-            const acceleratingUp = rawSlope > avgSlope && rawSlope > 0;
-            const acceleratingDown = rawSlope < avgSlope && rawSlope < 0;
-
-            if (acceleratingUp) {
-                this._lineColors.push(this._tdojiOptions.upColor);
-            } else if (acceleratingDown) {
-                this._lineColors.push(this._tdojiOptions.downColor);
-            } else {
-                this._lineColors.push(this._tdojiOptions.neutralColor);
-            }
-        }
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
@@ -173,8 +195,10 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
     }
 
     getDescription(index?: number): string {
-        const lastIndex = index !== undefined && index >= 0 && index < this._data.length ? index : this._data.length - 1;
-        const point = this._data[lastIndex];
+        const denied = accessNoticeText(this._remote, 'Tdoji Oscilator');
+        if (denied !== null) return denied;
+
+        const point = this._data[legendIndex(this._data, index)];
         const slope = point?.values?.[0];
         const signal = point?.values?.[1];
 
@@ -198,82 +222,5 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
         }
 
         return this._tdojiOptions.signalColor;
-    }
-
-    private _linearRegressionSeries(values: number[], length: number): number[] {
-        const result = new Array<number>(values.length).fill(NaN);
-        const xMean = (length - 1) / 2;
-        let denominator = 0;
-
-        for (let i = 0; i < length; i++) {
-            const dx = i - xMean;
-            denominator += dx * dx;
-        }
-
-        for (let end = length - 1; end < values.length; end++) {
-            let yMean = 0;
-            for (let offset = 0; offset < length; offset++) {
-                yMean += values[end - length + 1 + offset];
-            }
-            yMean /= length;
-
-            let numerator = 0;
-            for (let offset = 0; offset < length; offset++) {
-                numerator += (offset - xMean) * (values[end - length + 1 + offset] - yMean);
-            }
-
-            const slope = denominator === 0 ? 0 : numerator / denominator;
-            const intercept = yMean - slope * xMean;
-            result[end] = intercept + slope * (length - 1);
-        }
-
-        return result;
-    }
-
-    private _emaSeries(values: number[], length: number): number[] {
-        const result = new Array<number>(values.length).fill(NaN);
-        const multiplier = 2 / (length + 1);
-        let ema = NaN;
-
-        for (let i = 0; i < values.length; i++) {
-            const value = values[i];
-            if (isNaN(value)) {
-                continue;
-            }
-
-            if (isNaN(ema)) {
-                ema = value;
-            } else {
-                ema = value * multiplier + ema * (1 - multiplier);
-            }
-
-            result[i] = ema;
-        }
-
-        return result;
-    }
-
-    private _smaSeries(values: number[], length: number): number[] {
-        const result = new Array<number>(values.length).fill(NaN);
-        let sum = 0;
-        let validCount = 0;
-
-        for (let i = 0; i < values.length; i++) {
-            if (!isNaN(values[i])) {
-                sum += values[i];
-                validCount++;
-            }
-
-            if (i >= length && !isNaN(values[i - length])) {
-                sum -= values[i - length];
-                validCount--;
-            }
-
-            if (i >= length - 1 && validCount === length) {
-                result[i] = sum / length;
-            }
-        }
-
-        return result;
     }
 }

@@ -1,5 +1,6 @@
 import { PanelIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
+import { RemoteCompute, RemoteContext, accessNoticeText, legendIndex, timeIndexMap } from './remote-compute';
 import {
     IndicatorSettingsConfig,
     createInputsTab,
@@ -9,6 +10,8 @@ import {
     colorRow,
     lineWidthRow,
 } from '../gui/indicator_settings';
+
+// Thunderbirdx: değerler backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
 
 type SmoothingStyle = 'EMA' | 'DEMA' | 'TEMA' | 'WMA' | 'SMA';
 
@@ -54,18 +57,38 @@ const defaultThunderbirdxOptions: Partial<ThunderbirdxIndicatorOptions> = {
     histDownWeak: '#ffc8cb',
 };
 
+interface RemoteThunderbirdx {
+    times: number[];
+    hist: Array<number | null>;
+    delta: Array<number | null>;
+    ma: Array<number | null>;
+    hist_class: number[]; // 1 yukarı güçlü, 2 yukarı zayıf, 3 aşağı güçlü, 4 aşağı zayıf
+    fill_class: number[]; // 0 nötr, 1 boğa, 2 ayı
+}
+
 export class ThunderbirdxIndicator extends PanelIndicator {
     private _tbxOptions: ThunderbirdxIndicatorOptions;
     private _histogram: number[] = [];
     private _histogramColors: string[] = [];
     private _fillColors: string[] = [];
     public readonly isHistogram = true;
+    private _raw: RemoteThunderbirdx | null = null;
+    private _rawIndex: Map<number, number> = new Map();
+    private readonly _remote = new RemoteCompute<RemoteThunderbirdx>('thunderbirdx', (raw) => {
+        this._raw = raw;
+        this._rawIndex = raw ? timeIndexMap(raw.times) : new Map();
+        this._rebuild();
+    });
 
     constructor(options: Partial<ThunderbirdxIndicatorOptions> = {}) {
         const mergedOptions = { ...defaultThunderbirdxOptions, ...options };
         super(mergedOptions);
         this._tbxOptions = { ...defaultThunderbirdxOptions, ...this._options } as ThunderbirdxIndicatorOptions;
         this._paneHeight = 140;
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     getSettingsConfig(): IndicatorSettingsConfig {
@@ -111,61 +134,60 @@ export class ThunderbirdxIndicator extends PanelIndicator {
         const needsRecalc = numericKeys.has(key);
         Object.assign(this._tbxOptions, { [key]: normalizedValue });
         Object.assign(this._options, { [key]: normalizedValue });
+        // Renk ayarları yerelde yeniden uygulanır; hesap ayarı değişince calculate() yeniden istek atar.
+        if (!needsRecalc) this._rebuild();
         this._dataChanged.fire();
         return needsRecalc;
     }
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
+        const o = this._tbxOptions;
+        this._remote.request(
+            {
+                postSmoothingStyle: o.postSmoothingStyle,
+                maStyle: o.maStyle,
+                momentumLength: o.momentumLength,
+                momentumSmoothing: o.momentumSmoothing,
+                postSmoothing: o.postSmoothing,
+                maLength: o.maLength,
+            },
+            () => this._dataChanged.fire()
+        );
+        this._rebuild();
+    }
+
+    /** Ham (zaman damgalı) diziyi mevcut mum dizisine eşler; renkleri yerel ayarlarla kurar. */
+    private _rebuild(): void {
         this._data = [];
         this._histogram = [];
         this._histogramColors = [];
         this._fillColors = [];
+        const bars = this._sourceData;
+        const raw = this._raw;
+        if (!raw || raw.times.length === 0 || bars.length === 0) return;
 
-        const {
-            momentumLength,
-            momentumSmoothing,
-            postSmoothing,
-            maLength,
-            postSmoothingStyle,
-            maStyle,
-        } = this._tbxOptions;
+        const o = this._tbxOptions;
+        const histColors = [o.histUpStrong, o.histUpStrong, o.histUpWeak, o.histDownStrong, o.histDownWeak];
+        const neutral = withAlpha(o.neutralFillColor, o.fillOpacity);
+        const fills = [neutral, withAlpha(o.positiveFillColor, o.fillOpacity), withAlpha(o.negativeFillColor, o.fillOpacity)];
 
-        if (sourceData.length < momentumLength * 2) {
-            return;
+        for (const bar of bars) {
+            const j = this._rawIndex.get(bar.time > 1e12 ? bar.time : bar.time * 1000);
+            const hist = j === undefined || raw.hist[j] === null ? NaN : (raw.hist[j] as number);
+            const delta = j === undefined || raw.delta[j] === null ? NaN : (raw.delta[j] as number);
+            const ma = j === undefined || raw.ma[j] === null ? NaN : (raw.ma[j] as number);
+
+            this._histogram.push(hist);
+            this._histogramColors.push(j === undefined ? o.histUpStrong : (histColors[raw.hist_class[j]] ?? o.histUpStrong));
+            this._fillColors.push(j === undefined ? neutral : (fills[raw.fill_class[j]] ?? neutral));
+            this._data.push({ time: bar.time, value: hist, values: [delta, ma] });
         }
+    }
 
-        const source = sourceData.map((bar) => bar.close);
-        const lengthCorrection = momentumLength * 2;
-        const offset = (lengthCorrection - 1) / 2;
-        const sincSeries = ltiSincSeries(source, lengthCorrection, momentumSmoothing);
-        const rawDelta = source.map((price, index) => {
-            const sincValue = sincSeries[index];
-            return isNaN(sincValue) ? NaN : (price - sincValue) / offset;
-        });
-        const delta = filterSeries(rawDelta, postSmoothing, postSmoothingStyle);
-        const maSeed = filterSeries(delta, 2, maStyle);
-        const ma = filterSeries(maSeed, maLength, maStyle);
-        const momo = delta.map((value, index) => (isNaN(value) || isNaN(ma[index]) ? NaN : value - ma[index]));
-        const obv = computeObv(sourceData);
-        const obvm = emaSeries(obv, 7);
-        const obvSignal = emaSeries(obvm, 10);
-
-        for (let i = 0; i < sourceData.length; i++) {
-            const deltaValue = delta[i];
-            const maValue = ma[i];
-            const momoValue = momo[i];
-
-            this._histogram.push(momoValue);
-            this._histogramColors.push(resolveHistogramColor(momo, i, this._tbxOptions));
-            this._fillColors.push(resolveFillColor(deltaValue, maValue, obvm[i], obvSignal[i], this._tbxOptions));
-
-            this._data.push({
-                time: sourceData[i].time,
-                value: momoValue,
-                values: [deltaValue, maValue],
-            });
-        }
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
@@ -202,9 +224,10 @@ export class ThunderbirdxIndicator extends PanelIndicator {
     }
 
     getDescription(index?: number): string {
-        const dataIndex = index !== undefined && index >= 0 && index < this._data.length
-            ? index
-            : this._data.length - 1;
+        const denied = accessNoticeText(this._remote, 'Thunderbirdx');
+        if (denied !== null) return denied;
+
+        const dataIndex = legendIndex(this._data, index);
         const point = this._data[dataIndex];
         const delta = point?.values?.[0];
         const ma = point?.values?.[1];
@@ -242,47 +265,6 @@ export class ThunderbirdxIndicator extends PanelIndicator {
     }
 }
 
-function resolveHistogramColor(
-    momo: number[],
-    index: number,
-    options: ThunderbirdxIndicatorOptions
-): string {
-    const current = momo[index];
-    const previous = index > 0 ? momo[index - 1] : NaN;
-
-    if (isNaN(current)) {
-        return options.histUpStrong;
-    }
-
-    if (current > 0) {
-        return current > previous ? options.histUpStrong : options.histUpWeak;
-    }
-
-    return current < previous ? options.histDownStrong : options.histDownWeak;
-}
-
-function resolveFillColor(
-    delta: number,
-    ma: number,
-    obvm: number,
-    signal: number,
-    options: ThunderbirdxIndicatorOptions
-): string {
-    if ([delta, ma, obvm, signal].some((value) => isNaN(value))) {
-        return withAlpha(options.neutralFillColor, options.fillOpacity);
-    }
-
-    if (delta > ma && obvm > signal) {
-        return withAlpha(options.positiveFillColor, options.fillOpacity);
-    }
-
-    if (delta < ma && obvm < signal) {
-        return withAlpha(options.negativeFillColor, options.fillOpacity);
-    }
-
-    return withAlpha(options.neutralFillColor, options.fillOpacity);
-}
-
 function withAlpha(color: string, opacity: number): string {
     const normalizedOpacity = Math.max(0, Math.min(100, opacity)) / 100;
 
@@ -312,169 +294,4 @@ function withAlpha(color: string, opacity: number): string {
     }
 
     return color;
-}
-
-function ltiSincSeries(source: number[], length: number, fc: number): number[] {
-    const result = new Array<number>(source.length).fill(NaN);
-    const coefficients = sincCoefficients(length, fc);
-    const normalize = coefficients.reduce((sum, value) => sum + value, 0);
-
-    for (let i = length; i < source.length; i++) {
-        let sum = 0;
-        for (let j = 0; j < length; j++) {
-            sum += source[i - j] * coefficients[j];
-        }
-        result[i] = normalize === 0 ? NaN : sum / normalize;
-    }
-
-    return result;
-}
-
-function sincCoefficients(length: number, fc: number): number[] {
-    const coefficients: number[] = [];
-    const mid = (length - 1) / 2;
-    const cutoff = 1 / fc;
-
-    for (let i = 0; i < length; i++) {
-        const n = i - mid;
-        if (length % 2 === 0) {
-            coefficients.push(sinc(2 * cutoff * n) * blackman(i + 0.5, length));
-        } else {
-            coefficients.push(sinc(2 * cutoff * n) * blackman(i, length));
-        }
-    }
-
-    return coefficients;
-}
-
-function sinc(x: number): number {
-    return x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
-}
-
-function blackman(n: number, length: number): number {
-    return 0.42
-        - 0.5 * Math.cos((2 * Math.PI * n) / (length - 1))
-        + 0.08 * Math.cos((4 * Math.PI * n) / (length - 1));
-}
-
-function computeObv(sourceData: BarData[]): number[] {
-    const result = new Array<number>(sourceData.length).fill(0);
-    let obv = 0;
-
-    for (let i = 1; i < sourceData.length; i++) {
-        const volume = sourceData[i].volume ?? 0;
-        if (sourceData[i].close > sourceData[i - 1].close) {
-            obv += volume;
-        } else if (sourceData[i].close < sourceData[i - 1].close) {
-            obv -= volume;
-        }
-        result[i] = obv;
-    }
-
-    return result;
-}
-
-function filterSeries(values: number[], length: number, style: SmoothingStyle): number[] {
-    if (length <= 1) {
-        return values.slice();
-    }
-
-    switch (style) {
-        case 'EMA':
-            return emaSeries(values, length);
-        case 'DEMA':
-            return demaSeries(values, length);
-        case 'TEMA':
-            return temaSeries(values, length);
-        case 'WMA':
-            return wmaSeries(values, length);
-        default:
-            return smaSeries(values, length);
-    }
-}
-
-function emaSeries(values: number[], length: number): number[] {
-    const result = new Array<number>(values.length).fill(NaN);
-    const alpha = 2 / (length + 1);
-    let smoothed = NaN;
-
-    for (let i = 0; i < values.length; i++) {
-        const value = values[i];
-        if (isNaN(value)) {
-            continue;
-        }
-
-        smoothed = isNaN(smoothed) ? value : alpha * value + (1 - alpha) * smoothed;
-        result[i] = smoothed;
-    }
-
-    return result;
-}
-
-function demaSeries(values: number[], length: number): number[] {
-    const ema1 = emaSeries(values, length);
-    const ema2 = emaSeries(ema1, length);
-    return ema1.map((value, index) => isNaN(value) || isNaN(ema2[index]) ? NaN : 2 * value - ema2[index]);
-}
-
-function temaSeries(values: number[], length: number): number[] {
-    const ema1 = emaSeries(values, length);
-    const ema2 = emaSeries(ema1, length);
-    const ema3 = emaSeries(ema2, length);
-    return ema1.map((value, index) => (
-        isNaN(value) || isNaN(ema2[index]) || isNaN(ema3[index])
-            ? NaN
-            : (value - ema2[index]) * 3 + ema3[index]
-    ));
-}
-
-function wmaSeries(values: number[], length: number): number[] {
-    const result = new Array<number>(values.length).fill(NaN);
-    const weightSum = length * 0.5 * (length + 1);
-
-    for (let i = length - 1; i < values.length; i++) {
-        let sum = 0;
-        let valid = true;
-        for (let j = 0; j < length; j++) {
-            const value = values[i - j];
-            if (isNaN(value)) {
-                valid = false;
-                break;
-            }
-            sum += value * (length - j);
-        }
-        if (valid) {
-            result[i] = sum / weightSum;
-        }
-    }
-
-    return result;
-}
-
-function smaSeries(values: number[], length: number): number[] {
-    const result = new Array<number>(values.length).fill(NaN);
-    let sum = 0;
-    let validCount = 0;
-
-    for (let i = 0; i < values.length; i++) {
-        const value = values[i];
-        if (!isNaN(value)) {
-            sum += value;
-            validCount++;
-        }
-
-        if (i >= length) {
-            const prev = values[i - length];
-            if (!isNaN(prev)) {
-                sum -= prev;
-                validCount--;
-            }
-        }
-
-        if (validCount === length) {
-            result[i] = sum / length;
-        }
-    }
-
-    return result;
 }

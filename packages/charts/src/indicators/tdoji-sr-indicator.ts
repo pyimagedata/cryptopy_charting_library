@@ -1,5 +1,9 @@
 import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
+import { RemoteCompute, RemoteContext, accessNoticeText, drawAccessNotice } from './remote-compute';
+
+// TDOJI-SR: seviyeler (önceki haftalık kapanışa göre) backend'de hesaplanır (bkz.
+// remote-compute.ts). Burada yalnızca çizilir; etiket metni ve fiyat biçimlendirme yereldir.
 
 export interface TdojiSRIndicatorOptions extends IndicatorOptions {
     levelsCount: number;
@@ -25,6 +29,12 @@ interface SRLevel {
     text: string;
 }
 
+interface RemoteTdojiSR {
+    reference: number | null;
+    resistances: number[];
+    supports: number[];
+}
+
 const defaultTdojiSROptions: Partial<TdojiSRIndicatorOptions> = {
     name: 'TDOJI-SR',
     style: IndicatorStyle.Line,
@@ -44,27 +54,16 @@ const defaultTdojiSROptions: Partial<TdojiSRIndicatorOptions> = {
     referenceColor: 'rgba(156, 163, 175, 0.8)',
 };
 
-const STEP_BANDS: number[][] = [
-    [1, 2, 3, 4, 5, 6, 7, 8, 11, 13],
-    [1, 2, 3, 4, 5, 6, 7, 10, 12, 18],
-    [1, 2, 3, 4, 5, 6, 7, 10, 19, 25],
-    [4, 6, 9, 13, 15, 17, 23, 32, 39, 52],
-    [4, 6, 8, 18, 22, 25, 36, 48, 63, 80],
-    [6, 8, 10, 18, 21, 31, 45, 56, 76, 98],
-    [16, 23, 30, 35, 41, 47, 60, 70, 80, 100],
-    [25, 40, 50, 60, 75, 90, 105, 125, 165, 235],
-    [35, 50, 70, 95, 120, 175, 210, 255, 330, 450],
-    [35, 45, 85, 115, 135, 215, 315, 420, 500, 655],
-    [60, 95, 150, 250, 300, 400, 500, 700, 850, 1000],
-    [60, 80, 190, 310, 525, 600, 700, 800, 1450, 1900],
-    [50, 100, 200, 450, 700, 900, 1250, 1700, 2500, 4500],
-];
-
 export class TdojiSRIndicator extends OverlayIndicator {
     private _srOptions: TdojiSRIndicatorOptions;
     private _levels: SRLevel[] = [];
     private _referencePrice: number | null = null;
     private _lastBarIndex = 0;
+    private _raw: RemoteTdojiSR | null = null;
+    private readonly _remote = new RemoteCompute<RemoteTdojiSR>('tdoji-sr', (raw) => {
+        this._raw = raw;
+        this._rebuild();
+    });
 
     constructor(options: Partial<TdojiSRIndicatorOptions> = {}) {
         const mergedOptions = { ...defaultTdojiSROptions, ...options };
@@ -76,6 +75,10 @@ export class TdojiSRIndicator extends OverlayIndicator {
         return {
             ...this._srOptions,
         };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     setSettingValue(key: string, value: any): boolean {
@@ -105,28 +108,26 @@ export class TdojiSRIndicator extends OverlayIndicator {
 
     calculate(sourceData: BarData[]): void {
         this._sourceData = sourceData;
+        this._remote.request({ levelsCount: this._srOptions.levelsCount }, () => this._dataChanged.fire());
+        this._rebuild();
+    }
+
+    /** Sunucudan gelen seviyelerden yerel etiketli çizim listesini kurar. */
+    private _rebuild(): void {
+        const sourceData = this._sourceData;
         this._data = [];
         this._levels = [];
         this._referencePrice = null;
-
-        if (sourceData.length === 0) {
-            return;
-        }
+        if (sourceData.length === 0 || !this._raw) return;
 
         this._lastBarIndex = sourceData.length - 1;
-        this._referencePrice = this._findPreviousTimeframeClose(sourceData, 'W');
-
+        this._referencePrice = this._raw.reference;
         if (this._referencePrice === null || !isFinite(this._referencePrice)) {
+            this._referencePrice = null;
             return;
         }
 
-        this._data.push({
-            time: sourceData[this._lastBarIndex].time,
-            value: this._referencePrice,
-        });
-
-        const [srcInt, mult] = this._toScaledInt(this._referencePrice);
-        const bandIndex = this._getBandIndex(srcInt);
+        this._data.push({ time: sourceData[this._lastBarIndex].time, value: this._referencePrice });
 
         if (this._srOptions.showReferenceLine) {
             this._levels.push({
@@ -137,12 +138,10 @@ export class TdojiSRIndicator extends OverlayIndicator {
             });
         }
 
-        const count = Math.min(this._srOptions.levelsCount, 10);
+        const count = Math.min(this._srOptions.levelsCount, 10, this._raw.resistances.length, this._raw.supports.length);
         for (let i = 0; i < count; i++) {
-            const step = srcInt >= 55000 ? i + 1 : STEP_BANDS[bandIndex][i];
-
-            const resistance = (srcInt + step) / mult;
-            const support = (srcInt - step) / mult;
+            const resistance = this._raw.resistances[i];
+            const support = this._raw.supports[i];
 
             if (this._srOptions.showResistances) {
                 this._levels.push({
@@ -164,6 +163,11 @@ export class TdojiSRIndicator extends OverlayIndicator {
         }
     }
 
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
+    }
+
     getRange(): IndicatorRange {
         if (this._sourceData.length === 0) {
             return { min: 0, max: 100 };
@@ -179,6 +183,8 @@ export class TdojiSRIndicator extends OverlayIndicator {
     }
 
     getDescription(): string {
+        const denied = accessNoticeText(this._remote, 'TDOJI-SR');
+        if (denied !== null) return denied;
         return this._referencePrice === null ? 'TDOJI-SR' : `TDOJI-SR PrevClose: ${this._formatPrice(this._referencePrice)}`;
     }
 
@@ -189,6 +195,10 @@ export class TdojiSRIndicator extends OverlayIndicator {
         hpr: number,
         vpr: number
     ): void {
+        if (this._remote.denied !== null) {
+            drawAccessNotice(ctx, hpr, vpr, this._remote, this._srOptions.name);
+            return;
+        }
         if (this._levels.length === 0 || this._sourceData.length === 0) {
             return;
         }
@@ -327,170 +337,6 @@ export class TdojiSRIndicator extends OverlayIndicator {
         }
 
         return placements;
-    }
-
-    private _findPreviousTimeframeClose(sourceData: BarData[], timeframe: string): number | null {
-        const targetBucket = this._targetCompletedBucketStart(timeframe);
-
-        if (targetBucket === null) {
-            return null;
-        }
-
-        let previousClose: number | null = null;
-        for (let i = 0; i < sourceData.length; i++) {
-            const bar = sourceData[i];
-            if (this._bucketStart(bar.time, timeframe) === targetBucket) {
-                previousClose = bar.close;
-            }
-        }
-
-        return previousClose;
-    }
-
-    private _targetCompletedBucketStart(timeframe: string): number | null {
-        const tf = timeframe.toUpperCase();
-        const now = Date.now();
-        const date = new Date(now);
-
-        if (tf === 'W') {
-            const currentWeekStart = this._weekStartUtc(now);
-            const day = date.getUTCDay();
-
-            // Weekend: use the week that just closed.
-            if (day === 6 || day === 0) {
-                return currentWeekStart;
-            }
-
-            // Weekday: use the previous completed weekly candle.
-            return currentWeekStart - 7 * 24 * 60 * 60 * 1000;
-        }
-
-        if (tf === 'D') {
-            return this._dayStartUtc(now) - 24 * 60 * 60 * 1000;
-        }
-
-        if (tf === 'M') {
-            return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1);
-        }
-
-        const currentBucket = this._bucketStart(now, timeframe);
-        const previousBucket = this._previousBucketStart(currentBucket, timeframe);
-        return previousBucket;
-    }
-
-    private _previousBucketStart(bucketStart: number, timeframe: string): number | null {
-        const tf = timeframe.toUpperCase();
-        const match = tf.match(/^(\d+)([MHDW])$/);
-        if (!match) {
-            return null;
-        }
-
-        const value = parseInt(match[1], 10);
-        const unit = match[2];
-
-        if (unit === 'M') {
-            return bucketStart - value * 60 * 1000;
-        }
-
-        if (unit === 'H') {
-            return bucketStart - value * 60 * 60 * 1000;
-        }
-
-        if (unit === 'D') {
-            return bucketStart - value * 24 * 60 * 60 * 1000;
-        }
-
-        if (unit === 'W') {
-            return bucketStart - value * 7 * 24 * 60 * 60 * 1000;
-        }
-
-        return null;
-    }
-
-    private _dayStartUtc(time: number): number {
-        const date = new Date(time);
-        return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-    }
-
-    private _weekStartUtc(time: number): number {
-        const date = new Date(time);
-        const day = date.getUTCDay();
-        const diff = day === 0 ? -6 : 1 - day;
-        return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + diff);
-    }
-
-    private _bucketStart(time: number, timeframe: string): number {
-        const date = new Date(time);
-        const tf = timeframe.toUpperCase();
-
-        if (tf === 'D') {
-            return this._dayStartUtc(time);
-        }
-
-        if (tf === 'W') {
-            return this._weekStartUtc(time);
-        }
-
-        if (tf === 'M') {
-            return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
-        }
-
-        const match = tf.match(/^(\d+)([MHDW])$/);
-        if (!match) {
-            return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-        }
-
-        const value = parseInt(match[1], 10);
-        const unit = match[2];
-
-        if (unit === 'M') {
-            const ms = value * 60 * 1000;
-            return Math.floor(time / ms) * ms;
-        }
-
-        if (unit === 'H') {
-            const ms = value * 60 * 60 * 1000;
-            return Math.floor(time / ms) * ms;
-        }
-
-        if (unit === 'D') {
-            const ms = value * 24 * 60 * 60 * 1000;
-            return Math.floor(time / ms) * ms;
-        }
-
-        if (unit === 'W') {
-            const ms = value * 7 * 24 * 60 * 60 * 1000;
-            return Math.floor(time / ms) * ms;
-        }
-
-        return time;
-    }
-
-    private _toScaledInt(price: number): [number, number] {
-        let multiplier = 1;
-        if (price > 0) {
-            while (Math.round(price * multiplier) < 1000) {
-                multiplier *= 10;
-            }
-        }
-        return [Math.round(price * multiplier), multiplier];
-    }
-
-    private _getBandIndex(price: number): number {
-        if (price < 75) return 0;
-        if (price < 150) return 1;
-        if (price < 250) return 2;
-        if (price < 450) return 3;
-        if (price < 750) return 4;
-        if (price < 1250) return 5;
-        if (price < 2100) return 6;
-        if (price < 3500) return 7;
-        if (price < 6100) return 8;
-        if (price < 10500) return 9;
-        if (price < 18000) return 10;
-        if (price < 31500) return 11;
-        if (price < 55000) return 12;
-        return 12;
     }
 
     private _buildLabelText(prefix: string, index: number, price: number, isResistance: boolean): string {

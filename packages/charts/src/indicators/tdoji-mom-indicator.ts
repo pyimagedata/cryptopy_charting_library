@@ -1,5 +1,8 @@
 import { PanelIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
+import { RemoteCompute, RemoteContext, accessNoticeText, legendIndex, timeIndexMap } from './remote-compute';
+
+// TDOJI MOM: değerler backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
 
 export interface TdojiMomIndicatorOptions extends IndicatorOptions {
     period: number;
@@ -19,9 +22,21 @@ const defaultTdojiMomOptions: Partial<TdojiMomIndicatorOptions> = {
     zeroLineColor: 'rgba(148, 163, 184, 0.8)',
 };
 
+interface RemoteMom {
+    times: number[];
+    value: number[];
+}
+
 export class TdojiMomIndicator extends PanelIndicator {
     private _momOptions: TdojiMomIndicatorOptions;
     public readonly isHistogram = true;
+    private _raw: RemoteMom | null = null;
+    private _rawIndex: Map<number, number> = new Map();
+    private readonly _remote = new RemoteCompute<RemoteMom>('tdoji-mom', (raw) => {
+        this._raw = raw;
+        this._rawIndex = raw ? timeIndexMap(raw.times) : new Map();
+        this._rebuild();
+    });
 
     constructor(options: Partial<TdojiMomIndicatorOptions> = {}) {
         const mergedOptions = { ...defaultTdojiMomOptions, ...options };
@@ -32,6 +47,10 @@ export class TdojiMomIndicator extends PanelIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._momOptions };
+    }
+
+    setContext(ctx: RemoteContext): void {
+        this._remote.setContext(ctx);
     }
 
     updateOptions(newOptions: Partial<TdojiMomIndicatorOptions>): boolean {
@@ -47,28 +66,27 @@ export class TdojiMomIndicator extends PanelIndicator {
     }
 
     calculate(sourceData: BarData[]): void {
+        this._sourceData = sourceData;
+        this._remote.request({ period: this._momOptions.period }, () => this._dataChanged.fire());
+        this._rebuild();
+    }
+
+    /** Ham (zaman damgalı) diziyi mevcut mum dizisine eşler. */
+    private _rebuild(): void {
         this._data = [];
-        if (sourceData.length === 0) {
-            return;
+        const bars = this._sourceData;
+        const raw = this._raw;
+        if (!raw || raw.times.length === 0 || bars.length === 0) return;
+
+        for (const bar of bars) {
+            const j = this._rawIndex.get(bar.time > 1e12 ? bar.time : bar.time * 1000);
+            this._data.push({ time: bar.time, value: j === undefined ? NaN : raw.value[j] });
         }
+    }
 
-        const period = this._momOptions.period;
-        const multiplier = 2 / (period + 1);
-        let ema = sourceData[0].close;
-
-        for (let i = 0; i < sourceData.length; i++) {
-            const close = sourceData[i].close;
-            if (i === 0) {
-                ema = close;
-            } else {
-                ema = close * multiplier + ema * (1 - multiplier);
-            }
-
-            this._data.push({
-                time: sourceData[i].time,
-                value: close - ema,
-            });
-        }
+    destroy(): void {
+        this._remote.destroy();
+        super.destroy();
     }
 
     getRange(visibleRange?: { from: number; to: number } | null): IndicatorRange {
@@ -117,12 +135,10 @@ export class TdojiMomIndicator extends PanelIndicator {
     }
 
     getDescription(index?: number): string {
-        let value = NaN;
-        if (index !== undefined && index >= 0 && index < this._data.length) {
-            value = this._data[index].value;
-        } else if (this._data.length > 0) {
-            value = this._data[this._data.length - 1].value;
-        }
+        const denied = accessNoticeText(this._remote, 'TDOJI MOM');
+        if (denied !== null) return denied;
+
+        const value = this._data.length > 0 ? this._data[legendIndex(this._data, index)].value : NaN;
 
         const valueStr = isNaN(value) ? '-' : value.toFixed(4);
         return `TDOJI MOM: ${valueStr}`;
