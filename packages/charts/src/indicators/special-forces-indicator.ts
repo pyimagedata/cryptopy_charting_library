@@ -1,5 +1,6 @@
 import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
+import { t } from '../helpers/translations';
 
 /**
  * Special Forces: destek/direnç çizgileri + Bobbin/Engulf kutuları.
@@ -8,7 +9,8 @@ import { BarData } from '../model/data';
  * sayfa `defaultLevelsProvider` / `defaultZonesProvider` ile getirir, burada
  * sadece çizilir. Algoritma bilerek tarayıcı paketinde yoktur. Provider
  * set edilmemişse ya da backend veri döndürmezse (sembol/timeframe bilinmiyor)
- * hiçbir şey çizilmez.
+ * hiçbir şey çizilmez. Backend giriş + PRO üyelik ister: provider 401/403 için
+ * `status` alanlı bir Error fırlatırsa grafikte nedeni gösteren kısa bir yazı çıkar.
  */
 
 export interface SpecialForcesIndicatorOptions extends IndicatorOptions {
@@ -98,6 +100,9 @@ export class SpecialForcesIndicator extends OverlayIndicator {
     private _inFlightKey: string | null = null;
     private _lastDoneKey = '';
     private _lastDoneAt = 0;
+    // Backend giriş (401) ya da PRO üyelik (403) istedi: boş grafik yerine neden gösterilir.
+    private _denied: 401 | 403 | null = null;
+    private _deniedStatus: 401 | 403 | null = null;
     private _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(options: Partial<SpecialForcesIndicatorOptions> = {}) {
@@ -130,6 +135,7 @@ export class SpecialForcesIndicator extends OverlayIndicator {
         this._boxes = [];
         this._bobbinZones = [];
         this._engulfZones = [];
+        this._denied = null;
         this._lastDoneKey = '';
     }
 
@@ -184,6 +190,10 @@ export class SpecialForcesIndicator extends OverlayIndicator {
         if (this._sourceData.length === 0) {
             return;
         }
+        if (this._denied !== null) {
+            this._drawNotice(ctx, hpr, vpr, t(this._denied === 401 ? 'Sign in to use Special Forces' : 'Special Forces requires a PRO membership'));
+            return;
+        }
         const hasAnything = this._boxes.length > 0 || this._bobbinZones.length > 0 || this._engulfZones.length > 0;
         if (!hasAnything) {
             return;
@@ -227,6 +237,15 @@ export class SpecialForcesIndicator extends OverlayIndicator {
             }
         }
 
+        ctx.restore();
+    }
+
+    private _drawNotice(ctx: CanvasRenderingContext2D, hpr: number, vpr: number, text: string): void {
+        ctx.save();
+        ctx.font = `${12 * vpr}px sans-serif`;
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = withAlpha(this._sfOptions.resistanceColor, 0.95);
+        ctx.fillText(text, 70 * hpr, 120 * vpr);
         ctx.restore();
     }
 
@@ -293,6 +312,7 @@ export class SpecialForcesIndicator extends OverlayIndicator {
     private async _refresh(key: string): Promise<void> {
         const token = ++this._fetchToken;
         this._inFlightKey = key;
+        this._deniedStatus = null;
         const { symbol, exchange } = this._sfOptions;
         const timeframe = this._currentTimeframeGuess(this._sourceData);
 
@@ -304,6 +324,7 @@ export class SpecialForcesIndicator extends OverlayIndicator {
             // Başka bir bağlama (sembol/timeframe) ait iptal edilmiş istek yenisini ezmesin.
             if (token !== this._fetchToken) return;
 
+            this._denied = this._deniedStatus;
             this._boxes = levels ?? [];
             this._bobbinZones = zones?.bobbin ?? [];
             this._engulfZones = zones?.engulf ?? [];
@@ -325,7 +346,12 @@ export class SpecialForcesIndicator extends OverlayIndicator {
         try {
             return await provider(symbol, exchange, timeframe);
         } catch (error) {
-            console.warn('SpecialForcesIndicator: backend verisi alınamadı', error);
+            const status = (error as { status?: number } | null)?.status;
+            if (status === 401 || status === 403) {
+                this._deniedStatus = status;
+            } else {
+                console.warn('SpecialForcesIndicator: backend verisi alınamadı', error);
+            }
             return null;
         }
     }

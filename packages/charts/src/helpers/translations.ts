@@ -219,6 +219,8 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'Show Prices': 'Fiyatları Göster',
         'Show Signals': 'Sinyalleri Göster',
         'Strong Confirmation (close beyond previous bar)': 'Güçlü Onay (önceki mumun ötesinde kapanış)',
+        'Special Forces requires a PRO membership': 'Special Forces için PRO üyelik gerekli',
+        'Sign in to use Special Forces': 'Special Forces için giriş yapın',
         'Levels as Percent': 'Seviyeler Yüzde Olarak',
         'Labels Horizontal': 'Etiket (Yatay)',
         'Labels Vertical': 'Etiket (Dikey)',
