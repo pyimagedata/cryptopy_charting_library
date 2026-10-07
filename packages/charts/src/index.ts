@@ -49,8 +49,10 @@ export {
     ZigZagIndicatorOptions,
     SpecialForcesIndicator,
     SpecialForcesIndicatorOptions,
-    SpecialForcesKlinesProvider,
     SpecialForcesLevelsProvider,
+    SpecialForcesZonesProvider,
+    SpecialForcesZone,
+    SpecialForcesZones,
 } from './indicators';
 
 export * from './patterns';
