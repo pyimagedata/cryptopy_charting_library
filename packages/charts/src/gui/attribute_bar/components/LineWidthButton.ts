@@ -1,16 +1,15 @@
 /**
  * Line Width Button Component
- * Dropdown popup with visual line width options
+ * Dropdown popup with visual line width options (TradingView style: line preview + "Npx")
  */
 
 import { Drawing } from '../../../drawings';
+import { t } from '../../../helpers/translations';
 import { ICONS } from './Icons';
+import { ATTR_BAR_STYLE, barColors, buttonCss, bindButtonStates, refreshButtonState, popupCss, popupRowCss, bindRowHover } from './style';
 
-const LINE_WIDTHS = [1, 2, 3, 4, 5];
+const LINE_WIDTHS = [1, 2, 3, 4];
 
-/**
- * Creates a line width button with dropdown popup
- */
 /**
  * Creates a line width button with dropdown popup
  */
@@ -19,56 +18,43 @@ export function createLineWidthButton(
     onChange: (width: number) => void,
     theme: 'dark' | 'light' = 'dark'
 ): HTMLElement {
-    const isDark = theme === 'dark';
+    const c = barColors(theme);
+    const m = ATTR_BAR_STYLE.metrics;
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'position: relative;';
+    wrapper.style.cssText = 'position: relative; flex: none;';
 
-    // Main button
+    let currentWidth = drawing.style.lineWidth || 2;
+
+    // Main button: thickness preview + "Npx"
     const btn = document.createElement('button');
-    btn.innerHTML = ICONS.lineStyle;
-    btn.title = 'Line width';
-    btn.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        background: transparent;
-        border: none;
-        color: ${isDark ? '#787b86' : '#131722'};
-        cursor: pointer;
-        border-radius: 4px;
-        transition: all 0.1s ease;
-    `;
-
-    btn.addEventListener('mouseenter', () => {
-        btn.style.background = isDark ? '#2a2e39' : '#e0e3eb';
-        btn.style.color = isDark ? '#d1d4dc' : '#2962ff';
-    });
-
-    btn.addEventListener('mouseleave', () => {
-        if (!popup) {
-            btn.style.background = 'transparent';
-            btn.style.color = isDark ? '#787b86' : '#131722';
-        }
-    });
+    btn.title = t('Line width');
+    btn.dataset.role = 'line-width';
+    btn.style.cssText = buttonCss(theme) + `width: auto; min-width: ${m.buttonSize}px; padding: 0 8px; gap: 6px; font-family: ${m.fontFamily}; font-size: 12px;`;
+    const preview = document.createElement('span');
+    const label = document.createElement('span');
+    const renderButton = () => {
+        preview.style.cssText = `display: block; width: ${m.widthPreviewLength}px; height: ${Math.max(1, Math.min(currentWidth, 8))}px; background: currentColor; border-radius: 1px; flex: none;`;
+        label.textContent = `${currentWidth}px`;
+    };
+    renderButton();
+    btn.appendChild(preview);
+    btn.appendChild(label);
 
     let popup: HTMLElement | null = null;
-    let currentWidth = drawing.style.lineWidth || 2;
+    bindButtonStates(btn, theme, { isOpen: () => !!popup });
 
     const closePopup = () => {
         if (popup) {
             popup.remove();
             popup = null;
-            btn.style.background = 'transparent';
-            btn.style.color = isDark ? '#787b86' : '#131722';
         }
+        document.removeEventListener('click', handleClickOutside);
+        refreshButtonState(btn);
     };
 
     const handleClickOutside = (e: MouseEvent) => {
         if (!wrapper.contains(e.target as Node)) {
             closePopup();
-            document.removeEventListener('click', handleClickOutside);
         }
     };
 
@@ -81,73 +67,45 @@ export function createLineWidthButton(
         }
 
         popup = document.createElement('div');
-        popup.style.cssText = `
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            margin-top: 8px;
-            background: ${isDark ? '#1e222d' : '#ffffff'};
-            border-radius: 8px;
-            padding: 8px;
-            box-shadow: 0 8px 32px rgba(0,0,0,${isDark ? '0.4' : '0.15'});
-            border: ${isDark ? 'none' : '1px solid #e0e3eb'};
-            z-index: 10000;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        `;
+        popup.dataset.role = 'line-width-list';
+        popup.style.cssText = popupCss(theme) + 'min-width: 120px;';
 
-        LINE_WIDTHS.forEach(width => {
+        const base: number[] = (drawing as any).lineWidthOptions || LINE_WIDTHS;
+        const widths = base.includes(currentWidth) ? base : [...base, currentWidth].sort((a, b) => a - b);
+        widths.forEach(width => {
+            const selected = width === currentWidth;
             const option = document.createElement('div');
-            option.style.cssText = `
-                display: flex;
-                align-items: center;
-                padding: 8px 12px;
-                cursor: pointer;
-                border-radius: 4px;
-                transition: background 0.1s;
-                gap: 12px;
-            `;
+            option.dataset.width = String(width);
+            option.style.cssText = popupRowCss(theme, false);
 
             // Line preview
             const linePreview = document.createElement('div');
             linePreview.style.cssText = `
-                width: 40px;
-                height: ${width}px;
-                background: ${isDark ? '#d1d4dc' : '#787b86'};
+                width: 32px;
+                height: ${Math.max(1, Math.min(width, 14))}px;
+                background: ${c.popupText};
                 border-radius: 1px;
+                flex: none;
             `;
 
-            // Width label
-            const label = document.createElement('span');
-            label.textContent = `${width}px`;
-            label.style.cssText = `
-                font-size: 12px;
-                color: ${isDark ? '#787b86' : '#131722'};
-            `;
+            const text = document.createElement('span');
+            text.textContent = `${width}px`;
+            text.style.cssText = 'flex: 1;';
 
             // Check icon for selected
             const check = document.createElement('span');
-            check.innerHTML = width === currentWidth
-                ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2962ff" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>`
-                : '';
-            check.style.cssText = 'margin-left: auto;';
+            check.innerHTML = selected ? ICONS.check : '';
+            check.style.cssText = `display: flex; width: 14px; color: ${c.accent};`;
 
             option.appendChild(linePreview);
-            option.appendChild(label);
+            option.appendChild(text);
             option.appendChild(check);
-
-            option.addEventListener('mouseenter', () => {
-                option.style.background = isDark ? '#2a2e39' : '#f0f3fa';
-            });
-            option.addEventListener('mouseleave', () => {
-                option.style.background = 'transparent';
-            });
+            bindRowHover(option, theme);
 
             option.addEventListener('click', () => {
                 currentWidth = width;
                 drawing.style.lineWidth = width;
+                renderButton();
                 onChange(width);
                 closePopup();
             });
@@ -156,7 +114,8 @@ export function createLineWidthButton(
         });
 
         wrapper.appendChild(popup);
-        setTimeout(() => document.addEventListener('click', handleClickOutside), 10);
+        refreshButtonState(btn);
+        setTimeout(() => { if (popup) document.addEventListener('click', handleClickOutside); }, 10);
     });
 
     wrapper.appendChild(btn);

@@ -26,11 +26,17 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
-    sliderRow,
 } from './drawing-settings-config';
+
+import {
+    createPatternStyle,
+    applySerializedPattern,
+    getPatternSetting,
+    setPatternSetting,
+    patternStyleSections,
+    patternAttributeBarItems,
+} from './pattern-common';
+
 
 export interface TrianglePatternOptions {
     color?: string;
@@ -64,14 +70,7 @@ export class TrianglePatternDrawing implements Drawing, DrawingSettingsProvider 
 
     constructor(options: TrianglePatternOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#5b5fc7', // Blue-purple like TradingView
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-            fillColor: options.fillColor || '#5b5fc7',
-            fillOpacity: options.fillOpacity ?? 0.5,
-        };
+        this.style = createPatternStyle('triangle', DEFAULT_DRAWING_STYLE, options);
     }
 
     // =========================================================================
@@ -81,75 +80,24 @@ export class TrianglePatternDrawing implements Drawing, DrawingSettingsProvider 
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Background',
-                        rows: [
-                            colorRow('fillColor', 'Fill Color'),
-                            sliderRow('fillOpacity', 'Opacity', 0, 100, '%'),
-                        ]
-                    }
-                ]),
+                createStyleTab(patternStyleSections(true)),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'color', key: 'fillColor', tooltip: 'Fill Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return patternAttributeBarItems(true);
     }
 
     getSettingValue(key: string): any {
-        switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'fillColor': return this.style.fillColor;
-            case 'fillOpacity': return Math.round((this.style.fillOpacity ?? 0.3) * 100);
-            case 'visible': return this.visible;
-            default: return undefined;
-        }
+        if (key === 'visible') return this.visible;
+        return getPatternSetting(this.style, key);
     }
 
     setSettingValue(key: string, value: any): void {
-        switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'fillColor':
-                this.style.fillColor = value;
-                break;
-            case 'fillOpacity':
-                this.style.fillOpacity = value / 100;
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
-        }
+        if (key === 'visible') this.visible = value;
+        else setPatternSetting(this.style, key, value);
     }
 
     // =========================================================================
@@ -328,20 +276,8 @@ export class TrianglePatternDrawing implements Drawing, DrawingSettingsProvider 
     }
 
     static fromJSON(data: SerializedDrawing): TrianglePatternDrawing {
-        const drawing = new TrianglePatternDrawing({
-            color: data.style.color,
-            lineWidth: data.style.lineWidth,
-            lineDash: data.style.lineDash,
-            fillColor: data.style.fillColor,
-            fillOpacity: data.style.fillOpacity
-        });
-
-        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
-        drawing.points = [...data.points];
-        drawing.state = data.state as DrawingState;
-        drawing.visible = data.visible;
-        drawing.locked = data.locked;
-
+        const drawing = new TrianglePatternDrawing();
+        applySerializedPattern(drawing, data);
         return drawing;
     }
 }

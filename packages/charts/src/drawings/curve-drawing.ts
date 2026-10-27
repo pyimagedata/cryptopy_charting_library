@@ -24,15 +24,27 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
+    checkboxRow,
 } from './drawing-settings-config';
+
+import { LineToolProps, createLineProps, serializeLineProps, deserializeLineProps } from './line-tool-common';
+import { restoreShapeStyle } from './shape-common';
+import {
+    TV_BLUE,
+    createOpenStyle,
+    openLineSection,
+    backgroundSection,
+    openAttributeBarItems,
+    getOpenSetting,
+    setOpenSetting,
+} from './open-shape-common';
 
 export interface CurveOptions {
     color?: string;
     lineWidth?: number;
     lineDash?: number[];
+    fillColor?: string;
+    fillOpacity?: number;
 }
 
 /**
@@ -48,17 +60,23 @@ export class CurveDrawing implements Drawing, DrawingSettingsProvider {
     visible: boolean = true;
     locked: boolean = false;
 
+    /** Egrinin uc teget dogrultusunda grafik kenarina uzatma */
+    extendLeft: boolean = false;
+    extendRight: boolean = false;
+
+    /** Sol/sag uc sekli */
+    lineProps: LineToolProps = createLineProps();
+
     // Cached pixel coordinates
     private _pixelPoints: { x: number; y: number }[] = [];
 
     constructor(options: CurveOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2962ff',
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-        };
+        this.style = createOpenStyle(DEFAULT_DRAWING_STYLE, {
+            color: TV_BLUE,
+            lineWidth: 2,
+            fill: { color: TV_BLUE, opacity: 0.2, enabled: false },
+        }, options);
     }
 
     // =========================================================================
@@ -69,14 +87,15 @@ export class CurveDrawing implements Drawing, DrawingSettingsProvider {
         return {
             tabs: [
                 createStyleTab([
+                    openLineSection({ ends: true }),
+                    backgroundSection(),
                     {
-                        title: 'Line',
+                        title: 'Extend',
                         rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
+                            checkboxRow('extendLeft', 'Extend Left'),
+                            checkboxRow('extendRight', 'Extend Right'),
                         ]
-                    }
+                    },
                 ]),
                 createVisibilityTab()
             ]
@@ -84,43 +103,25 @@ export class CurveDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return openAttributeBarItems({ fill: true, style: true });
     }
 
     getSettingValue(key: string): any {
         switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
             case 'visible': return this.visible;
-            default: return undefined;
+            case 'extendLeft': return this.extendLeft;
+            case 'extendRight': return this.extendRight;
         }
+        return getOpenSetting(this.style, this.lineProps, key);
     }
 
     setSettingValue(key: string, value: any): void {
         switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
+            case 'visible': this.visible = value; return;
+            case 'extendLeft': this.extendLeft = !!value; return;
+            case 'extendRight': this.extendRight = !!value; return;
         }
+        setOpenSetting(this.style, this.lineProps, key, value);
     }
 
     // =========================================================================
@@ -226,7 +227,28 @@ export class CurveDrawing implements Drawing, DrawingSettingsProvider {
             if (dist <= threshold) return true;
         }
 
+        // Uzatilan teget isinlari (baslangicta P0-C, bitiste P2-C yonunde)
+        const far = 10000;
+        const rays: [{ x: number; y: number }, number, number][] = [];
+        if (this.extendLeft) rays.push([p0, p0.x - controlX, p0.y - controlY]);
+        if (this.extendRight) rays.push([p2, p2.x - controlX, p2.y - controlY]);
+        for (const [o, dx, dy] of rays) {
+            const len = Math.hypot(dx, dy);
+            if (len === 0) continue;
+            const ex = o.x + (dx / len) * far;
+            const ey = o.y + (dy / len) * far;
+            if (this._distToSegment(x, y, o.x, o.y, ex, ey) <= threshold) return true;
+        }
+
         return false;
+    }
+
+    private _distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const lenSq = dx * dx + dy * dy;
+        const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+        return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
     }
 
     getBounds(): { x: number; y: number; width: number; height: number } | null {
@@ -261,6 +283,9 @@ export class CurveDrawing implements Drawing, DrawingSettingsProvider {
             state: this.state === 'selected' ? 'complete' : this.state,
             visible: this.visible,
             locked: this.locked,
+            extendLeft: this.extendLeft,
+            extendRight: this.extendRight,
+            lineProps: serializeLineProps(this.lineProps),
         };
     }
 
@@ -271,6 +296,10 @@ export class CurveDrawing implements Drawing, DrawingSettingsProvider {
             lineDash: data.style.lineDash
         });
 
+        restoreShapeStyle(drawing.style, data.style);
+        drawing.extendLeft = data.extendLeft === true;
+        drawing.extendRight = data.extendRight === true;
+        drawing.lineProps = deserializeLineProps(data.lineProps);
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
         drawing.points = [...data.points];
         drawing.state = data.state as DrawingState;

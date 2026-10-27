@@ -10,14 +10,22 @@ import {
 } from './drawing';
 import {
     DrawingSettingsConfig,
+    AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
     colorRow,
     lineWidthRow,
-    lineStyleRow
+    lineStyleRow,
+    checkboxRow
 } from './drawing-settings-config';
+import {
+    AxisLabelProvider,
+    DrawingAxisLabels,
+    lineStyleFromDash,
+    dashFromLineStyle
+} from './line-tool-common';
 
-export class CrossLineDrawing implements Drawing {
+export class CrossLineDrawing implements Drawing, AxisLabelProvider {
     readonly id: string;
     readonly type: DrawingType = 'crossLine';
 
@@ -26,6 +34,10 @@ export class CrossLineDrawing implements Drawing {
     state: DrawingState = 'creating';
     visible: boolean = true;
     locked: boolean = false;
+
+    /** Eksen etiketleri: fiyat ekseninde yatay cizginin, zaman ekseninde dikey cizginin etiketi */
+    showPrice: boolean = true;
+    showTime: boolean = true;
 
     // Cached pixel coordinates (updated by renderer)
     private _pixelPoints: { x: number; y: number }[] = [];
@@ -78,28 +90,41 @@ export class CrossLineDrawing implements Drawing {
         return null;
     }
 
+    /** Fiyat ekseninde ve zaman ekseninde cizgi renginde etiketler */
+    getAxisLabels(): DrawingAxisLabels {
+        const p = this.points[0];
+        if (!p) return { prices: [], times: [] };
+        return {
+            prices: this.showPrice ? [{ price: p.price, color: this.style.color }] : [],
+            times: this.showTime ? [{ time: p.time, color: this.style.color }] : [],
+        };
+    }
+
     toJSON(): SerializedDrawing {
         return {
             id: this.id,
             type: this.type,
-            points: this.points,
-            style: this.style,
+            points: this.points.map(pt => ({ ...pt })),
+            style: { ...this.style, lineDash: this.style.lineDash ? [...this.style.lineDash] : this.style.lineDash },
             state: this.state,
             visible: this.visible,
-            locked: this.locked
+            locked: this.locked,
+            showPrices: this.showPrice,
+            showLabels: this.showTime,
         };
     }
 
     static fromJSON(data: SerializedDrawing): CrossLineDrawing {
         const drawing = new CrossLineDrawing();
-        // But usually we assign to (drawing as any).id or similar if it's readonly.
-        // Let's check how other drawings do it. Usually constructor takes ID or we just force it.
         (drawing as any).id = data.id;
-        drawing.points = data.points;
-        drawing.style = data.style;
+        drawing.points = data.points.map(pt => ({ ...pt }));
+        drawing.style = { ...data.style, lineDash: data.style.lineDash ? [...data.style.lineDash] : data.style.lineDash };
         drawing.state = data.state;
         drawing.visible = data.visible ?? true;
         drawing.locked = data.locked ?? false;
+        // Eski kayitlarda alan yok: TradingView varsayilani (ikisi de acik)
+        drawing.showPrice = data.showPrices !== false;
+        drawing.showTime = data.showLabels !== false;
         return drawing;
     }
 
@@ -109,10 +134,18 @@ export class CrossLineDrawing implements Drawing {
             tabs: [
                 createStyleTab([
                     {
+                        title: 'Cross Line',
                         rows: [
-                            colorRow('style.color', 'Color'),
-                            lineWidthRow('style.lineWidth', 'Width'),
-                            lineStyleRow('style.lineDash', 'Style')
+                            colorRow('color', 'Line Color'),
+                            lineWidthRow('lineWidth'),
+                            lineStyleRow('lineStyle'),
+                        ]
+                    },
+                    {
+                        title: 'Labels',
+                        rows: [
+                            checkboxRow('showPrice', 'Price label'),
+                            checkboxRow('showTime', 'Time label'),
                         ]
                     }
                 ]),
@@ -121,20 +154,48 @@ export class CrossLineDrawing implements Drawing {
         };
     }
 
-    getSettingValue(path: string): any {
-        if (path.startsWith('style.')) {
-            const key = path.split('.')[1] as keyof DrawingStyle;
-            return this.style[key];
-        }
-        return (this as any)[path];
+    getAttributeBarItems(): AttributeBarItem[] {
+        return [
+            { type: 'color', key: 'color', tooltip: 'Line Color' },
+            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
+            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
+        ];
     }
 
-    setSettingValue(path: string, value: any): void {
-        if (path.startsWith('style.')) {
-            const key = path.split('.')[1] as keyof DrawingStyle;
-            (this.style as any)[key] = value;
-        } else {
-            (this as any)[path] = value;
+    getSettingValue(key: string): any {
+        switch (key) {
+            case 'color': return this.style.color;
+            case 'lineWidth': return this.style.lineWidth;
+            case 'lineStyle': return lineStyleFromDash(this.style.lineDash);
+            case 'showPrice': return this.showPrice;
+            case 'showTime': return this.showTime;
+            case 'visible': return this.visible;
+            default: return undefined;
+        }
+    }
+
+    setSettingValue(key: string, value: any): void {
+        switch (key) {
+            case 'color':
+                this.style.color = value;
+                break;
+            case 'lineWidth':
+                this.style.lineWidth = value;
+                break;
+            case 'lineStyle': {
+                const dash = dashFromLineStyle(value);
+                if (dash) this.style.lineDash = dash;
+                break;
+            }
+            case 'showPrice':
+                this.showPrice = !!value;
+                break;
+            case 'showTime':
+                this.showTime = !!value;
+                break;
+            case 'visible':
+                this.visible = !!value;
+                break;
         }
     }
 }

@@ -23,8 +23,9 @@ import {
     isToggleColorRow,
     isGroupRow,
     isLevelsGridRow,
+    isPitchLevelsRow,
 } from '../base/SettingsTypes';
-import { createFibLevelsEditor } from '../components';
+import { createFibLevelsEditor, createPitchLevelsEditor } from '../components';
 import {
     createColorSwatch,
     createNumberInput,
@@ -38,6 +39,7 @@ import {
     LineStyleValue,
 } from '../base/SettingsComponents';
 import { createTextArea } from '../components/TextArea';
+import { createTextInput } from '../components/TextInput';
 import { createLineButton, closeLineButtonMenu, LineButtonStyle } from '../components/LineButton';
 import { TOOL_GROUPS } from '../../drawing_toolbar/groups/tool_groups';
 
@@ -64,12 +66,53 @@ const DRAWING_TITLES: Record<string, string> = {
     parallelChannel: 'Parallel Channel',
     rectangle: 'Rectangle',
     ellipse: 'Ellipse',
+    rotatedRectangle: 'Rotated Rectangle',
+    circle: 'Circle',
+    triangle: 'Triangle',
+    arc: 'Arc',
     brush: 'Brush',
     highlighter: 'Highlighter',
     arrow: 'Arrow',
     arrowMarker: 'Arrow Marker',
     arrowMarkedUp: 'Arrow Marked Up',
     arrowMarkedDown: 'Arrow Marked Down',
+    arrowMarkedLeft: 'Arrow Marked Left',
+    anchoredVwap: 'Anchored VWAP',
+    fixedRangeVolumeProfile: 'Fixed Range Volume Profile',
+    anchoredVolumeProfile: 'Anchored Volume Profile',
+    pitchfork: 'Pitchfork',
+    schiffPitchfork: 'Schiff Pitchfork',
+    modifiedSchiffPitchfork: 'Modified Schiff Pitchfork',
+    insidePitchfork: 'Inside Pitchfork',
+    pitchfan: 'Pitchfan',
+    fibTimeZone: 'Fib Time Zone',
+    trendBasedFibTime: 'Trend-Based Fib Time',
+    fibSpeedResistanceFan: 'Fib Speed Resistance Fan',
+    fibSpeedResistanceArcs: 'Fib Speed Resistance Arcs',
+    fibCircles: 'Fib Circles',
+    fibSpiral: 'Fib Spiral',
+    fibWedge: 'Fib Wedge',
+    gannBox: 'Gann Box',
+    gannSquareFixed: 'Gann Square Fixed',
+    gannSquare: 'Gann Square',
+    gannFan: 'Gann Fan',
+    disjointChannel: 'Disjoint Channel',
+    flatTopBottom: 'Flat Top/Bottom',
+    projection: 'Projection',
+    positionForecast: 'Position Forecast',
+    barsPattern: 'Bars Pattern',
+    ghostFeed: 'Ghost Feed',
+    doubleCurve: 'Double Curve',
+    cyclicLines: 'Cyclic Lines',
+    timeCycles: 'Time Cycles',
+    sineLine: 'Sine Line',
+    note: 'Note',
+    priceNote: 'Price Note',
+    pin: 'Pin',
+    signpost: 'Signpost',
+    comment: 'Comment',
+    table: 'Table',
+    arrowMarkedRight: 'Arrow Marked Right',
     headShoulders: 'Head & Shoulders',
     xabcd: 'XABCD Pattern',
     xabcdPattern: 'XABCD Pattern',
@@ -77,11 +120,25 @@ const DRAWING_TITLES: Record<string, string> = {
     trianglePattern: 'Triangle Pattern',
     threeDrives: 'Three Drives Pattern',
     cypher: 'Cypher Pattern',
+    cypherPattern: 'Cypher Pattern',
     elliotImpulse: 'Elliott Impulse Wave (12345)',
     elliotCorrection: 'Elliot Correction Wave (ABC)',
+    elliotTriangle: 'Elliott Triangle Wave (ABCDE)',
+    elliotDoubleCombo: 'Elliott Double Combo Wave (WXY)',
+    elliotTripleCombo: 'Elliott Triple Combo Wave (WXYXZ)',
 };
 
+/** Style/Text/Coordinates/Visibility sekmeli kapali sekiller (metin icerir). */
+const TEXT_SHAPE_TYPES = ['rectangle', 'ellipse', 'circle'];
+
+/** Sekmeleri (Text / Style / ...) dogrudan arac config'inden gelen metin / isaret araclari. */
+const CONFIG_TAB_TYPES = ['text', 'callout', 'note', 'priceNote', 'pin', 'signpost', 'comment', 'table', 'arrowMarkedUp', 'arrowMarkedDown', 'arrowMarkedLeft', 'arrowMarkedRight', 'arrowMarker', 'anchoredVwap', 'fixedRangeVolumeProfile', 'anchoredVolumeProfile', 'positionForecast', 'barsPattern', 'ghostFeed'];
+
 /** Arac cubugundaki ad (TOOL_GROUPS), yoksa tipten okunur ad ("longPosition" -> "Long Position"). */
+function lineBasedAlign(type: string): boolean {
+    return !TEXT_SHAPE_TYPES.includes(type);
+}
+
 function toolTitle(type: string): string {
     for (const group of TOOL_GROUPS as any[]) {
         for (const tool of group.tools ?? []) {
@@ -98,7 +155,7 @@ function toolTitle(type: string): string {
  */
 export class GenericSettingsModal extends BaseSettingsModal {
     private _settingsConfig: SettingsConfig | null = null;
-    private _genericSnapshot: { style: any; points: any[]; visible: boolean; values: Record<string, any> } | null = null;
+    private _genericSnapshot: { style: any; points: any[]; visible: boolean; values: Record<string, any>; intervalsVisibilities: any } | null = null;
 
     protected getModalWidth(): number {
         return 460;
@@ -141,6 +198,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
             points: clone(drawing.points),
             visible: drawing.visible,
             values,
+            intervalsVisibilities: clone(drawing.intervalsVisibilities),
         };
     }
 
@@ -151,9 +209,14 @@ export class GenericSettingsModal extends BaseSettingsModal {
         drawing.style = JSON.parse(JSON.stringify(snap.style));
         drawing.points = JSON.parse(JSON.stringify(snap.points));
         drawing.visible = snap.visible;
+        drawing.intervalsVisibilities = snap.intervalsVisibilities === undefined ? undefined : JSON.parse(JSON.stringify(snap.intervalsVisibilities));
         if (this._isSettingsProvider(drawing)) {
+            // Style is already restored verbatim; replay only non-style values (extend, middle line...)
+            // that still differ. Replaying style-backed keys (fillColor/fillTransparency) would perturb it.
             for (const [key, value] of Object.entries(snap.values)) {
-                if (value !== undefined) drawing.setSettingValue(key, JSON.parse(JSON.stringify(value)));
+                if (value === undefined) continue;
+                if (JSON.stringify(drawing.getSettingValue(key)) === JSON.stringify(value)) continue;
+                drawing.setSettingValue(key, JSON.parse(JSON.stringify(value)));
             }
         }
     }
@@ -177,10 +240,10 @@ export class GenericSettingsModal extends BaseSettingsModal {
         // Set tabs based on drawing type
         const lineBasedTypes = [
             'trendLine', 'ray', 'extendedLine', 'horizontalLine', 'verticalLine',
-            'parallelChannel', 'trendAngle', 'horizontalRay', 'infoLine'
+            'parallelChannel', 'trendAngle', 'horizontalRay', 'infoLine', 'arrow', 'disjointChannel', 'flatTopBottom'
         ];
 
-        if (lineBasedTypes.includes(drawing.type)) {
+        if (lineBasedTypes.includes(drawing.type) || TEXT_SHAPE_TYPES.includes(drawing.type)) {
             // Override getTabs for line-based drawings
             this.getTabs = () => [
                 { id: 'style', label: t('Style') },
@@ -188,10 +251,19 @@ export class GenericSettingsModal extends BaseSettingsModal {
                 { id: 'coordinates', label: t('Coordinates') },
                 { id: 'visibility', label: t('Visibility') },
             ];
+        } else if (this._settingsConfig && (drawing.type === 'longPosition' || drawing.type === 'shortPosition' || CONFIG_TAB_TYPES.includes(drawing.type))) {
+            // Pozisyon araclari: Inputs / Style / Info blocks / Coordinates / Visibility (sekmeler config'ten)
+            const tabs = this._settingsConfig?.tabs ?? [];
+            this.getTabs = () => tabs.map(tab => ({ id: tab.id, label: t(tab.label) }));
         } else {
             // Use default tabs from base class
             delete (this as any).getTabs;
         }
+    }
+
+    protected getInitialTabId(): string {
+        const id = this._settingsConfig?.initialTab;
+        return id && this._settingsConfig?.tabs.some(tb => tb.id === id) ? id : 'style';
     }
 
     /** Check if drawing implements DrawingSettingsProvider */
@@ -216,6 +288,13 @@ export class GenericSettingsModal extends BaseSettingsModal {
             case 'visibility':
                 this._renderVisibilityTab(container);
                 break;
+            default: {
+                // Config'te tanimli ozel sekmeler (ornegin pozisyon: inputs / infoBlocks)
+                const tab = this._settingsConfig?.tabs.find(tb => tb.id === tabId);
+                if (tab && this._currentDrawing && this._isSettingsProvider(this._currentDrawing)) {
+                    this._renderSectionsFromConfig(container, tab.sections, this._currentDrawing);
+                }
+            }
         }
     }
 
@@ -349,6 +428,18 @@ export class GenericSettingsModal extends BaseSettingsModal {
                         return;
                     }
 
+                    if (isPitchLevelsRow(row)) {
+                        const editor = createPitchLevelsEditor(provider.getSettingValue(row.key) || [], (updated) => {
+                            provider.setSettingValue(row.key, updated);
+                            this.notifySettingsChanged();
+                        }, this._element, { allowZero: row.allowZero, max: row.max, lines: row.lines });
+                        const rowEl = document.createElement('div');
+                        rowEl.style.cssText = 'padding: 4px 0; min-height: 28px;';
+                        rowEl.appendChild(editor);
+                        content.appendChild(rowEl);
+                        return;
+                    }
+
                     if (isLevelsGridRow(row)) {
                         const currentLevels = provider.getSettingValue(row.key) || [];
                         const normalizedLevels = currentLevels.map((level: any) => ({
@@ -356,6 +447,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
                             label: level.label,
                             color: level.color,
                             visible: level.visible ?? level.enabled ?? true,
+                            text: level.text,
                         }));
 
                         const editor = createFibLevelsEditor(normalizedLevels, (updatedLevels) => {
@@ -364,6 +456,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
                                 label: level.label,
                                 color: level.color,
                                 enabled: level.visible,
+                                text: level.text,
                             }));
 
                             provider.setSettingValue(row.key, mappedLevels);
@@ -389,9 +482,16 @@ export class GenericSettingsModal extends BaseSettingsModal {
     }
 
     private _createControlForRow(row: SettingsRow, provider: Drawing & DrawingSettingsProvider): HTMLElement | null {
-        if (isGroupRow(row) || isToggleColorRow(row) || isTextareaRow(row) || isLevelsGridRow(row)) return null;
+        if (isGroupRow(row) || isToggleColorRow(row) || isTextareaRow(row) || isLevelsGridRow(row) || isPitchLevelsRow(row)) return null;
 
         const currentValue = provider.getSettingValue(row.key);
+
+        if ((row as any).type === 'text') {
+            return createTextInput(String(currentValue ?? ''), { placeholder: (row as any).placeholder, width: '120px' }, (value) => {
+                provider.setSettingValue(row.key, value);
+                this.notifySettingsChanged();
+            });
+        }
 
         if (isColorRow(row)) {
             return createColorSwatch(currentValue || '#2962ff', (color) => {
@@ -401,7 +501,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
         }
 
         if (isNumberRow(row)) {
-            return createNumberInput(
+            const input = createNumberInput(
                 currentValue ?? row.min ?? 1,
                 row.min ?? 0,
                 row.max ?? 100,
@@ -411,6 +511,9 @@ export class GenericSettingsModal extends BaseSettingsModal {
                     this.notifySettingsChanged();
                 }
             );
+            // Genis alanlar (hesap buyuklugu, kaldirac) 5+ basamak gostersin (row.wide ile opt-in)
+            if (row.wide) input.style.width = '110px';
+            return input;
         }
 
         if (isSliderRow(row)) {
@@ -489,7 +592,7 @@ export class GenericSettingsModal extends BaseSettingsModal {
         const drawing = this._currentDrawing;
         if (!drawing) return;
 
-        const visibilitySection = createVisibilitySection(drawing, () => this.notifySettingsChanged());
+        const visibilitySection = createVisibilitySection(drawing, () => this.notifySettingsChanged(), () => this._timeframe);
         container.appendChild(visibilitySection);
     }
 
@@ -498,7 +601,13 @@ export class GenericSettingsModal extends BaseSettingsModal {
         const drawing = this._currentDrawing;
         if (!drawing) return;
 
-        const textSection = createTextSection(drawing, () => this.notifySettingsChanged());
+        const textSection = createTextSection(drawing, () => this.notifySettingsChanged(), drawing.type === 'rectangle' || lineBasedAlign(drawing.type));
         container.appendChild(textSection);
+
+        // Araca ozgu ek metin ayarlari (ornegin dikey cizgide metin yonu): config'teki 'text' sekmesi
+        const extra = this._settingsConfig?.tabs.find(tab => tab.id === 'text');
+        if (extra && this._isSettingsProvider(drawing)) {
+            this._renderSectionsFromConfig(container, extra.sections, drawing);
+        }
     }
 }

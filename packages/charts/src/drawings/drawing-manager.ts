@@ -2,7 +2,12 @@
  * Drawing Manager - Manages all drawings on the chart
  */
 
-import { Drawing, DrawingType, SerializedDrawing } from './drawing';
+import { Drawing, DrawingType, SerializedDrawing, generateDrawingId } from './drawing';
+import {
+    IntervalsPreset, IntervalsVisibilities, ParsedTimeframe, buildIntervalsPreset,
+    ensureIntervalsVisibilities, isDefaultIntervalsVisibilities, isVisibleOnTimeframe,
+    normalizeIntervalsVisibilities, parseTimeframe,
+} from './intervals-visibility';
 import { TrendLineDrawing } from './trend-line-drawing';
 import { HorizontalLineDrawing } from './horizontal-line-drawing';
 import { VerticalLineDrawing } from './vertical-line-drawing';
@@ -33,27 +38,63 @@ import { CircleDrawing } from './circle-drawing';
 import { PolylineDrawing } from './polyline-drawing';
 import { CurveDrawing } from './curve-drawing';
 import { XABCDPatternDrawing } from './xabcd-pattern-drawing';
+import { CypherPatternDrawing } from './cypher-pattern-drawing';
 import { ElliottImpulseDrawing } from './elliott-impulse-drawing';
 import { ElliottCorrectionDrawing } from './elliott-correction-drawing';
+import { ElliottTriangleDrawing } from './elliott-triangle-drawing';
+import { ElliottDoubleComboDrawing } from './elliott-double-combo-drawing';
+import { ElliottTripleComboDrawing } from './elliott-triple-combo-drawing';
+import { ElliottWaveDrawing } from './elliott-common';
 import { ThreeDrivesDrawing } from './three-drives-drawing';
 import { HeadShouldersDrawing } from './head-shoulders-drawing';
 import { ABCDPatternDrawing } from './abcd-pattern-drawing';
 import { TrianglePatternDrawing } from './triangle-pattern-drawing';
 import { LongPositionDrawing } from './long-position-drawing';
+import { PositionDrawingBase } from './position-common';
 import { ShortPositionDrawing } from './short-position-drawing';
 import { PriceRangeDrawing } from './price-range-drawing';
 import { DateRangeDrawing } from './date-range-drawing';
 import { DatePriceRangeDrawing } from './date-price-range-drawing';
 import { TextDrawing } from './text-drawing';
-import { CalloutDrawing } from './callout-drawing';
+import { CalloutDrawing, calloutWrapWidthFromHandle } from './callout-drawing';
+import { createNoteTool, NoteToolBase, NoteToolType } from './note-drawings';
+import { INLINE_TEXT_TYPES, SINGLE_CLICK_TEXT_TYPES, TWO_CLICK_TEXT_TYPES } from './text-common';
 import { PriceLabelDrawing } from './price-label-drawing';
+import { AnchoredVwapDrawing, VolumeProfileDrawing, VolumeToolBase } from './volume-drawings';
+import { snapTimeToBars } from './volume-tools-common';
+import { PitchToolBase, PitchToolType, PITCH_TOOL_TYPES } from './pitchfork-drawing';
+import { FibTimeToolBase, FibTimeToolType } from './fib-time-drawing';
+import { FibCircleToolBase, FibCircleToolType } from './fib-circle-drawing';
+import { GannToolBase, GannToolType } from './gann-drawing';
+import { ChannelLinesTool, ChannelLinesType } from './channel-lines-drawing';
+import { ProjectionDrawing } from './projection-drawing';
+import { PositionForecastDrawing } from './position-forecast-drawing';
+import { CycleToolBase, CycleToolType } from './cycle-drawing';
+import { DoubleCurveDrawing } from './double-curve-drawing';
+import { BarsPatternDrawing } from './bars-pattern-drawing';
+import { GhostFeedDrawing } from './ghost-feed-drawing';
 import { FlagMarkedDrawing } from './flag-marked-drawing';
 import { Delegate } from '../helpers/delegate';
 import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
 import { coordinate, timePointIndex } from '../model/coordinate';
+import { snapToAngleStep, supportsShiftConstraint, hasAnyStats } from './line-tool-common';
 
 export type DrawingMode = 'none' | DrawingType;
+
+/** Gecmis (undo/redo) azami kayit sayisi */
+const MAX_HISTORY = 100;
+
+/** Tek tikla tamamlanan cizim turleri (isComplete() tanimlamayanlar dahil) */
+const SINGLE_POINT_TYPES: ReadonlySet<string> = new Set([
+    'horizontalLine', 'horizontalRay', 'verticalLine', 'crossLine',
+    'priceLabel', 'flagMarked', 'text', 'sticker', 'arrowMarkedUp', 'arrowMarkedDown', 'arrowMarkedLeft', 'arrowMarkedRight',
+    'anchoredVwap', 'anchoredVolumeProfile',
+    'note', 'pin', 'signpost', 'table',
+]);
+
+/** Kopyala/yapistir panosu - sayfadaki tum grafikler arasinda paylasilir */
+let _drawingClipboard: SerializedDrawing | null = null;
 
 /**
  * Manages drawing creation, storage, and interaction
@@ -63,6 +104,8 @@ export class DrawingManager {
     private _activeDrawing: Drawing | null = null;
     private _selectedDrawing: Drawing | null = null;
     private _mode: DrawingMode = 'none';
+    private _snapToIndicators: boolean = false;
+    private _indicatorPriceProvider: ((time: number) => number[]) | null = null;
     private _stickerContent: string = '😀';
 
     // References to scales for coordinate conversion
@@ -77,13 +120,35 @@ export class DrawingManager {
 
     // Hovered drawing for "Add Text" tooltip
     private _hoveredForAddText: string | null = null;
+    /** Imlecin uzerinde durdugu cizim (istatistik kutusu hover'da gorunsun diye) */
+    private _hoveredDrawingId: string | null = null;
 
     // Magnet mode: 'none' | 'weak' | 'strong'
     private _magnetMode: 'none' | 'weak' | 'strong' = 'none';
     private _magnetThreshold: number = 30; // pixel distance for weak magnet
     private _isLocked: boolean = false;
+    private _keepDrawing: boolean = false;
+    // Toolbar "Hide Drawings": gorunum durumu (cizimlerin kendi visible bayragina dokunmaz, gecmise girmez)
+    private _drawingsHidden: boolean = false;
+    private _paneExists: ((paneId: string) => boolean) | null = null;
+    // Grafigin mevcut zaman dilimi ("zaman dilimlerinde gorunurluk" filtresi icin); gecmise girmez
+    private _timeframe: string = '';
+    private _parsedTimeframe: ParsedTimeframe | null = null;
+    private readonly _historyRestored = new Delegate<void>();
+    private readonly _textEditRequested = new Delegate<{ drawing: Drawing; isNew: boolean }>();
+    /** Satir ici metin editoru acik olan yeni cizim (gecmise henuz yazilmadi) */
+    private _pendingTextId: string | null = null;
+    private _stalePendingId: string | null = null;
 
-    constructor() { }
+    // Undo/redo gecmisi: serialize() anlik goruntuleri (secim durumu normalize edilir)
+    private _history: string[] = [];
+    private _historyIndex: number = -1;
+    private _lastCoalesceKey: string | null = null;
+    private _lastCommitTime: number = 0;
+
+    constructor() {
+        this.resetHistory();
+    }
 
     // --- Getters ---
 
@@ -123,6 +188,46 @@ export class DrawingManager {
         return this._selectionChanged;
     }
 
+    get hoveredDrawingId(): string | null {
+        return this._hoveredDrawingId;
+    }
+
+    /**
+     * Hover'a bagli istatistik kutusu olan cizim mi (Trend Line ailesi, en az bir istatistik acik,
+     * "always show" kapali)? Hover tespiti yalnizca bu cizimler icin yapilir.
+     */
+    private static _isHoverStatsDrawing(d: Drawing): boolean {
+        if (d instanceof PositionDrawingBase) return !d.props.alwaysShowStats;
+        if (!(d instanceof TrendLineDrawing)) return false;
+        return hasAnyStats(d.lineProps) && !d.lineProps.alwaysShowStats;
+    }
+
+    /**
+     * Ana paneldeki cizimler uzerinde hover tespiti; yalnizca hover'a bagli cizimleri dikkate alir
+     * ve hover id'si degisip bu cizimlerden biri etkilendiyse (yeniden cizim gerekir) true doner.
+     */
+    updateHoveredDrawing(x: number, y: number, paneId: string | null = null): boolean {
+        const prevId = this._hoveredDrawingId;
+        let id: string | null = null;
+        if (!this._drawingsHidden && this._mode === 'none') {
+            // Sondan basa: ustteki cizim once; liste kopyalanmaz
+            let found: Drawing | null = null;
+            for (const d of this._drawings.values()) {
+                if (!d.visible || (d.paneId ?? null) !== paneId || !this.isVisibleOnCurrentTimeframe(d)) continue;
+                if (!DrawingManager._isHoverStatsDrawing(d)) continue;
+                // En son eklenen (en ustteki) eslesme kazanir
+                if (d.hitTest(x, y, 6)) found = d;
+            }
+            if (found) id = found.id;
+        }
+        if (id === prevId) return false;
+        this._hoveredDrawingId = id;
+        const prev = prevId !== null ? this._drawings.get(prevId) : undefined;
+        const next = id !== null ? this._drawings.get(id) : undefined;
+        return (!!prev && DrawingManager._isHoverStatsDrawing(prev)) ||
+            (!!next && DrawingManager._isHoverStatsDrawing(next));
+    }
+
     get hoveredForAddText(): string | null {
         return this._hoveredForAddText;
     }
@@ -143,6 +248,20 @@ export class DrawingManager {
         return this._magnetThreshold;
     }
 
+    /** "Snap to indicators": magnet candidates also include overlay indicator values at the bar */
+    get snapToIndicators(): boolean {
+        return this._snapToIndicators;
+    }
+
+    set snapToIndicators(value: boolean) {
+        this._snapToIndicators = value;
+    }
+
+    /** Supplies the overlay indicator price values (finite numbers) at the given bar time */
+    setIndicatorPriceProvider(fn: ((time: number) => number[]) | null): void {
+        this._indicatorPriceProvider = fn;
+    }
+
     get isLocked(): boolean {
         return this._isLocked;
     }
@@ -155,6 +274,42 @@ export class DrawingManager {
             this._selectedDrawing = null;
             this._selectionChanged.fire(null);
         }
+    }
+
+    /** Tum cizimler gizli mi (grafik duzeyinde gorunum bayragi; cizim/hit-test atlanir) */
+    get drawingsHidden(): boolean {
+        return this._drawingsHidden;
+    }
+
+    set drawingsHidden(value: boolean) {
+        if (this._drawingsHidden === value) return;
+        this._drawingsHidden = value;
+        // Gizliyken secili cizim kalmasin
+        if (value && this._selectedDrawing) {
+            this._selectedDrawing.state = 'complete';
+            this._selectedDrawing = null;
+            this._selectionChanged.fire(null);
+        }
+        this._drawingsChanged.fire();
+    }
+
+    /** Gecmis (undo/redo) uygulandiktan sonra tetiklenir (acik modal/attribute bar kapatilir) */
+    get historyRestored(): Delegate<void> {
+        return this._historyRestored;
+    }
+
+    /** Panonun kaynak paneli bu grafikte var mi? (yoksa yapistirma yapilmaz) */
+    setPaneExistsResolver(fn: ((paneId: string) => boolean) | null): void {
+        this._paneExists = fn;
+    }
+
+    /** Cizim bitince ayni arac aktif kalir (Keep Drawing Mode) */
+    get keepDrawing(): boolean {
+        return this._keepDrawing;
+    }
+
+    set keepDrawing(value: boolean) {
+        this._keepDrawing = value;
     }
 
     // --- Public Methods ---
@@ -187,8 +342,92 @@ export class DrawingManager {
         this._modeChanged.fire(mode);
     }
 
+    /** Cizim bitince imlec moduna doner; Keep Drawing Mode aciksa arac aktif kalir */
+    private _endToolAfterFinish(): void {
+        if (this._keepDrawing) return;
+        this._mode = 'none';
+        this._modeChanged.fire('none');
+    }
+
+    /** Keep Drawing Mode: yeni cizim baslarken onceki cizimin secimini kaldirir */
+    private _clearSelectionForNewDrawing(): void {
+        if (!this._keepDrawing || !this._selectedDrawing) return;
+        this._selectedDrawing.state = 'complete';
+        this._selectedDrawing = null;
+        this._selectionChanged.fire(null);
+    }
+
     /** Start a new drawing at the given coordinates */
     startDrawing(x: number, y: number, snappedPrice?: number): void {
+        const countBefore = this._drawings.size;
+        this._startDrawingInner(x, y, snappedPrice);
+        const created = this._drawings.size > countBefore ? [...this._drawings.values()].pop() ?? null : null;
+        // Text: gecmise metin girildikten sonra yazilir (bos metin cizimi kaldirir, gecmis kaydi olmaz)
+        if (created && SINGLE_CLICK_TEXT_TYPES.has(created.type) && this._requestNewTextEdit(created)) return;
+        // Tek noktali cizimler hemen tamamlanir; yarim kalanlar serialize()'da yoktur (dedupe)
+        this.commitHistory();
+    }
+
+    /** Satir ici metin editoru istenir (yeni cizim / var olan cizimi cift tiklama) */
+    get textEditRequested(): Delegate<{ drawing: Drawing; isNew: boolean }> {
+        return this._textEditRequested;
+    }
+
+    /** Yeni Text/Callout/Note/... icin editor ister; dinleyici yoksa false (cizim hemen gecmise yazilir) */
+    private _requestNewTextEdit(drawing: Drawing): boolean {
+        if (!this._textEditRequested.hasListeners()) return false;
+        // Onceki bekleyen yeni metin: editor acilirken commit edilir (isNew sayilir); edilmediyse kaldirilir
+        const prevId = this._pendingTextId && this._pendingTextId !== drawing.id ? this._pendingTextId : null;
+        this._stalePendingId = prevId;
+        this._pendingTextId = drawing.id;
+        this._textEditRequested.fire({ drawing, isNew: true });
+        if (this._stalePendingId) {
+            const prev = this._drawings.get(this._stalePendingId);
+            this._stalePendingId = null;
+            if (prev) {
+                this._drawings.delete(prev.id);
+                if (this._selectedDrawing === prev) {
+                    this._selectedDrawing = null;
+                    this._selectionChanged.fire(null);
+                }
+                this._drawingsChanged.fire();
+            }
+        }
+        return true;
+    }
+
+    /** Var olan Text/Callout/Note/...'u satir ici duzenlemek icin editor ister (Table: once beginCellEdit) */
+    requestTextEdit(drawing: Drawing): void {
+        if (!INLINE_TEXT_TYPES.has(drawing.type)) return;
+        this._textEditRequested.fire({ drawing, isNew: false });
+    }
+
+    /**
+     * Satir ici editorde metin kaydedilince: bos metin cizimi kaldirir (yeni cizimse gecmis kaydi olmadan),
+     * aksi halde metni uygular ve gecmise tek kayit ekler.
+     */
+    commitTextEdit(drawing: Drawing, text: string): void {
+        const isNew = this._pendingTextId === drawing.id || this._stalePendingId === drawing.id;
+        if (this._pendingTextId === drawing.id) this._pendingTextId = null;
+        if (this._stalePendingId === drawing.id) this._stalePendingId = null;
+        if (!this._drawings.has(drawing.id)) return;
+        // Table hucresi: bos metin hucreyi temizler, cizimi silmez
+        if (text.trim() === '' && !(drawing as any).allowEmptyText) {
+            this._drawings.delete(drawing.id);
+            if (this._selectedDrawing === drawing) {
+                this._selectedDrawing = null;
+                this._selectionChanged.fire(null);
+            }
+            this._drawingsChanged.fire();
+            if (!isNew) this.commitHistory();
+            return;
+        }
+        (drawing as any).setSettingValue('text', text);
+        this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    private _startDrawingInner(x: number, y: number, snappedPrice?: number): void {
         if (this._mode === 'none') return;
         if (!this._timeScale || !this._priceScale) return;
 
@@ -263,6 +502,12 @@ export class DrawingManager {
             case 'arrowMarkedDown':
                 drawing = new ArrowIconDrawing({ type: 'arrowMarkedDown' });
                 break;
+            case 'arrowMarkedLeft':
+                drawing = new ArrowIconDrawing({ type: 'arrowMarkedLeft' });
+                break;
+            case 'arrowMarkedRight':
+                drawing = new ArrowIconDrawing({ type: 'arrowMarkedRight' });
+                break;
             case 'rectangle':
                 drawing = new RectangleDrawing();
                 break;
@@ -290,14 +535,34 @@ export class DrawingManager {
             case 'curve':
                 drawing = new CurveDrawing();
                 break;
+            case 'doubleCurve':
+                drawing = new DoubleCurveDrawing();
+                break;
+            case 'cyclicLines':
+            case 'timeCycles':
+            case 'sineLine':
+                drawing = new CycleToolBase(this._mode as CycleToolType);
+                break;
             case 'xabcdPattern':
                 drawing = new XABCDPatternDrawing();
+                break;
+            case 'cypherPattern':
+                drawing = new CypherPatternDrawing();
                 break;
             case 'elliotImpulse':
                 drawing = new ElliottImpulseDrawing();
                 break;
             case 'elliotCorrection':
                 drawing = new ElliottCorrectionDrawing();
+                break;
+            case 'elliotTriangle':
+                drawing = new ElliottTriangleDrawing();
+                break;
+            case 'elliotDoubleCombo':
+                drawing = new ElliottDoubleComboDrawing();
+                break;
+            case 'elliotTripleCombo':
+                drawing = new ElliottTripleComboDrawing();
                 break;
             case 'threeDrives':
                 drawing = new ThreeDrivesDrawing();
@@ -367,8 +632,63 @@ export class DrawingManager {
             case 'priceLabel':
                 drawing = new PriceLabelDrawing();
                 break;
+            case 'note':
+            case 'priceNote':
+            case 'pin':
+            case 'signpost':
+            case 'comment':
+            case 'table':
+                drawing = createNoteTool(this._mode as NoteToolType);
+                break;
             case 'flagMarked':
                 drawing = new FlagMarkedDrawing();
+                break;
+            case 'anchoredVwap':
+                drawing = new AnchoredVwapDrawing();
+                break;
+            case 'fixedRangeVolumeProfile':
+            case 'anchoredVolumeProfile':
+                drawing = new VolumeProfileDrawing(this._mode);
+                break;
+            case 'pitchfork':
+            case 'schiffPitchfork':
+            case 'modifiedSchiffPitchfork':
+            case 'insidePitchfork':
+            case 'pitchfan':
+                drawing = new PitchToolBase(this._mode as PitchToolType);
+                break;
+            case 'fibTimeZone':
+            case 'trendBasedFibTime':
+            case 'fibSpeedResistanceFan':
+                drawing = new FibTimeToolBase(this._mode as FibTimeToolType);
+                break;
+            case 'fibSpeedResistanceArcs':
+            case 'fibCircles':
+            case 'fibSpiral':
+            case 'fibWedge':
+                drawing = new FibCircleToolBase(this._mode as FibCircleToolType);
+                break;
+            case 'gannBox':
+            case 'gannSquareFixed':
+            case 'gannSquare':
+            case 'gannFan':
+                drawing = new GannToolBase(this._mode as GannToolType);
+                break;
+            case 'disjointChannel':
+            case 'flatTopBottom':
+                drawing = new ChannelLinesTool(this._mode as ChannelLinesType);
+                break;
+            case 'projection':
+                drawing = new ProjectionDrawing();
+                break;
+            case 'positionForecast':
+                drawing = new PositionForecastDrawing();
+                break;
+            case 'barsPattern':
+                drawing = new BarsPatternDrawing();
+                break;
+            case 'ghostFeed':
+                drawing = new GhostFeedDrawing();
                 break;
             case 'sticker':
                 drawing = new StickerDrawing();
@@ -381,14 +701,16 @@ export class DrawingManager {
         }
 
         if (drawing) {
+            // Gizliyken yeni cizim baslarsa gorunmez kalmasin: gizlemeyi kapat (toolbar butonu chart-widget'ta senkronlanir)
+            if (this._drawingsHidden) this.drawingsHidden = false;
+            this._clearSelectionForNewDrawing();
             drawing.paneId = this._activePaneId;
             drawing.addPoint(time, price);
             this._drawings.set(drawing.id, drawing);
 
             // If drawing is complete after first point (single-point drawings), finish immediately
-            // If drawing is complete after first point (single-point drawings), finish immediately
-            if (drawing.isComplete?.()) {
-                this.setMode('none');
+            if (drawing.isComplete?.() || SINGLE_POINT_TYPES.has(drawing.type)) {
+                this._endToolAfterFinish();
                 this._selectedDrawing = drawing;
                 drawing.state = 'selected';
                 this._selectionChanged.fire(drawing);
@@ -402,11 +724,18 @@ export class DrawingManager {
     }
 
     /** Update active drawing preview */
-    updateDrawing(x: number, y: number, snappedPrice?: number): void {
+    updateDrawing(x: number, y: number, snappedPrice?: number, constrainAngle: boolean = false): void {
         if (!this._activeDrawing) return;
         if (!this._timeScale || !this._priceScale) return;
 
-        const time = this._pixelToTime(x);
+        let snapTime: number | null = null;
+        // Shift kilidi: kanal araclarinda yalnizca ikinci noktayi yerlestirirken (ucuncu nokta serbest)
+        if (constrainAngle && this._shiftTargetsLineA(this._activeDrawing)) {
+            const c = this._constrainToAngleStep(this._activeDrawing, 0, x, y);
+            if (c) { x = c.x; y = c.y; snappedPrice = c.price; snapTime = c.time; }
+        }
+
+        const time = snapTime ?? this._pixelToTime(x);
         const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
 
         if (time === null || price === null) return;
@@ -419,11 +748,25 @@ export class DrawingManager {
     }
 
     /** Finish the current drawing */
-    finishDrawing(x: number, y: number, snappedPrice?: number): void {
+    finishDrawing(x: number, y: number, snappedPrice?: number, constrainAngle: boolean = false): void {
+        let snapTime: number | null = null;
+        if (constrainAngle && this._activeDrawing && this._shiftTargetsLineA(this._activeDrawing)) {
+            const c = this._constrainToAngleStep(this._activeDrawing, 0, x, y);
+            if (c) { x = c.x; y = c.y; snappedPrice = c.price; snapTime = c.time; }
+        }
+        const active = this._activeDrawing;
+        this._finishDrawingInner(x, y, snappedPrice, snapTime);
+        // Callout: kutu yerlestirilince metin editoru acilir; gecmis kaydi metin girilince yazilir
+        if (active && TWO_CLICK_TEXT_TYPES.has(active.type) && this._activeDrawing === null && this._drawings.has(active.id)
+            && this._requestNewTextEdit(active)) return;
+        this.commitHistory();
+    }
+
+    private _finishDrawingInner(x: number, y: number, snappedPrice?: number, snapTime: number | null = null): void {
         if (!this._activeDrawing) return;
         if (!this._timeScale || !this._priceScale) return;
 
-        const time = this._pixelToTime(x);
+        const time = snapTime ?? this._pixelToTime(x);
         const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
 
         if (time === null || price === null) return;
@@ -432,6 +775,7 @@ export class DrawingManager {
         if (this._activeDrawing.type === 'trendLine' ||
             this._activeDrawing.type === 'fibRetracement' ||
             this._activeDrawing.type === 'ray' ||
+            this._activeDrawing.type === 'arrow' ||
             this._activeDrawing.type === 'infoLine' ||
             this._activeDrawing.type === 'extendedLine' ||
             this._activeDrawing.type === 'trendAngle' ||
@@ -441,7 +785,23 @@ export class DrawingManager {
             this._activeDrawing.type === 'priceRange' ||
             this._activeDrawing.type === 'dateRange' ||
             this._activeDrawing.type === 'datePriceRange' ||
-            this._activeDrawing.type === 'callout') {
+            this._activeDrawing.type === 'fibTimeZone' ||
+            this._activeDrawing.type === 'fibSpeedResistanceFan' ||
+            this._activeDrawing.type === 'fibSpeedResistanceArcs' ||
+            this._activeDrawing.type === 'fibCircles' ||
+            this._activeDrawing.type === 'fibSpiral' ||
+            this._activeDrawing.type === 'gannBox' ||
+            this._activeDrawing.type === 'gannSquareFixed' ||
+            this._activeDrawing.type === 'gannSquare' ||
+            this._activeDrawing.type === 'gannFan' ||
+            this._activeDrawing.type === 'fixedRangeVolumeProfile' ||
+            this._activeDrawing.type === 'positionForecast' ||
+            this._activeDrawing.type === 'cyclicLines' ||
+            this._activeDrawing.type === 'timeCycles' ||
+            this._activeDrawing.type === 'sineLine' ||
+            this._activeDrawing.type === 'callout' ||
+            this._activeDrawing.type === 'priceNote' ||
+            this._activeDrawing.type === 'comment') {
 
             const drawing = this._activeDrawing as any;
             if (drawing.points.length < 2) {
@@ -461,6 +821,8 @@ export class DrawingManager {
             this._activeDrawing.type === 'sticker' ||
             this._activeDrawing.type === 'arrowMarkedUp' ||
             this._activeDrawing.type === 'arrowMarkedDown' ||
+            this._activeDrawing.type === 'arrowMarkedLeft' ||
+            this._activeDrawing.type === 'arrowMarkedRight' ||
             this._activeDrawing.type === 'priceLabel' ||
             this._activeDrawing.type === 'flagMarked') {
 
@@ -482,15 +844,14 @@ export class DrawingManager {
                 curveDrawing.state = 'selected';
                 this._selectionChanged.fire(curveDrawing);
                 this._activeDrawing = null;
-                this._mode = 'none';
-                this._modeChanged.fire('none');
+                this._endToolAfterFinish();
                 this._drawingsChanged.fire();
                 return;
             }
         }
 
-        // Handle three-point drawings (ParallelChannel, FibExtension, FibChannel, RotatedRectangle, Ellipse)
-        if (this._activeDrawing.type === 'parallelChannel' || this._activeDrawing.type === 'fibExtension' || this._activeDrawing.type === 'fibChannel' || this._activeDrawing.type === 'rotatedRectangle' || this._activeDrawing.type === 'ellipse' || this._activeDrawing.type === 'triangle' || this._activeDrawing.type === 'arc') {
+        // Handle three-point drawings (ParallelChannel, FibExtension, FibChannel, Pitchforks, TrendBasedFibTime, RotatedRectangle, Ellipse, DisjointChannel, FlatTopBottom, Projection)
+        if (this._activeDrawing.type === 'parallelChannel' || this._activeDrawing.type === 'fibExtension' || this._activeDrawing.type === 'fibChannel' || PITCH_TOOL_TYPES.has(this._activeDrawing.type) || this._activeDrawing.type === 'trendBasedFibTime' || this._activeDrawing.type === 'fibWedge' || this._activeDrawing.type === 'rotatedRectangle' || this._activeDrawing.type === 'ellipse' || this._activeDrawing.type === 'triangle' || this._activeDrawing.type === 'arc' || this._activeDrawing.type === 'doubleCurve' || this._activeDrawing.type === 'disjointChannel' || this._activeDrawing.type === 'flatTopBottom' || this._activeDrawing.type === 'projection' || this._activeDrawing.type === 'barsPattern') {
             const drawing = this._activeDrawing as any; // Use any for flexibility with confirmPreviewPoint
 
             // First, finalize the preview point position
@@ -519,13 +880,17 @@ export class DrawingManager {
 
         // Handle multi-point patterns (XABCD, Elliott, Three Drives, ABCD)
         if (this._activeDrawing.type === 'xabcdPattern' ||
+            this._activeDrawing.type === 'cypherPattern' ||
             this._activeDrawing.type === 'elliotImpulse' ||
             this._activeDrawing.type === 'elliotCorrection' ||
+            this._activeDrawing.type === 'elliotTriangle' ||
+            this._activeDrawing.type === 'elliotDoubleCombo' ||
+            this._activeDrawing.type === 'elliotTripleCombo' ||
             this._activeDrawing.type === 'threeDrives' ||
             this._activeDrawing.type === 'headShoulders' ||
             this._activeDrawing.type === 'abcd' ||
             this._activeDrawing.type === 'trianglePattern') {
-            const patternDrawing = this._activeDrawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing | ABCDPatternDrawing | TrianglePatternDrawing;
+            const patternDrawing = this._activeDrawing as XABCDPatternDrawing | ElliottWaveDrawing | ThreeDrivesDrawing | HeadShouldersDrawing | ABCDPatternDrawing | TrianglePatternDrawing;
 
             // If there's a preview point, confirm it and update to click position
             if (patternDrawing.points.length > 0) {
@@ -541,8 +906,7 @@ export class DrawingManager {
 
             // Check if drawing is complete (5 for XABCD, 6 for Elliott Impulse, 4 for Correction, 7 for Three Drives)
             let requiredPoints = 5;
-            if (this._activeDrawing.type === 'elliotImpulse') requiredPoints = 6;
-            else if (this._activeDrawing.type === 'elliotCorrection') requiredPoints = 4;
+            if (this._activeDrawing instanceof ElliottWaveDrawing) requiredPoints = this._activeDrawing.requiredPoints;
             else if (this._activeDrawing.type === 'threeDrives') requiredPoints = 7;
             else if (this._activeDrawing.type === 'headShoulders') requiredPoints = 7;
             else if (this._activeDrawing.type === 'abcd') requiredPoints = 4;
@@ -553,8 +917,7 @@ export class DrawingManager {
                 patternDrawing.state = 'selected';
                 this._selectionChanged.fire(patternDrawing);
                 this._activeDrawing = null;
-                this._mode = 'none';
-                this._modeChanged.fire('none');
+                this._endToolAfterFinish();
                 this._drawingsChanged.fire();
                 return;
             }
@@ -579,6 +942,13 @@ export class DrawingManager {
             return;
         }
 
+        // Handle ghost feed drawing (polyline benzeri: tik nokta ekler, cift tik / Enter / Esc bitirir)
+        if (this._activeDrawing.type === 'ghostFeed') {
+            (this._activeDrawing as GhostFeedDrawing).confirmPreviewPoint();
+            this._drawingsChanged.fire();
+            return;
+        }
+
         // Handle polyline drawing (click adds points, click on start closes, ESC finishes open)
         if (this._activeDrawing.type === 'polyline') {
             const polylineDrawing = this._activeDrawing as PolylineDrawing;
@@ -590,8 +960,7 @@ export class DrawingManager {
                 polylineDrawing.state = 'selected';
                 this._selectionChanged.fire(polylineDrawing);
                 this._activeDrawing = null;
-                this._mode = 'none';
-                this._modeChanged.fire('none');
+                this._endToolAfterFinish();
                 this._drawingsChanged.fire();
                 return;
             }
@@ -620,7 +989,7 @@ export class DrawingManager {
 
         const finishedDrawing = this._activeDrawing;
         this._activeDrawing = null;
-        this.setMode('none');  // Return to cursor mode after drawing
+        this._endToolAfterFinish();  // Return to cursor mode after drawing (unless Keep Drawing Mode)
 
         if (finishedDrawing) {
             this._selectedDrawing = finishedDrawing;
@@ -633,12 +1002,40 @@ export class DrawingManager {
 
     /** Select a drawing at the given coordinates */
     selectDrawingAt(x: number, y: number, paneId: string | null = null): Drawing | null {
+        const prev = this._selectedDrawing;
+        const hit = this._selectDrawingAtInner(x, y, paneId);
+        if (prev && prev !== hit) this._removeIfEmptyCallout(prev);
+        return hit;
+    }
+
+    /** Secimi kaldirir (Esc); metni bos Callout silinir */
+    deselect(): void {
+        const prev = this._selectedDrawing;
+        if (!prev) return;
+        prev.state = 'complete';
+        this._selectedDrawing = null;
+        this._selectionChanged.fire(null);
+        this._drawingsChanged.fire();
+        this._removeIfEmptyCallout(prev);
+    }
+
+    /** TV shouldBeRemovedOnDeselect: secim kalkinca metni bos Callout silinir (editor aciksa / yeni cizim bekliyorsa dokunulmaz) */
+    private _removeIfEmptyCallout(d: Drawing): void {
+        if (!(d instanceof CalloutDrawing) || d.editing || this._pendingTextId === d.id) return;
+        if (d.points.length < 2 || d.text.trim() !== '' || !this._drawings.has(d.id)) return;
+        this._drawings.delete(d.id);
+        this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    private _selectDrawingAtInner(x: number, y: number, paneId: string | null): Drawing | null {
         const drawings = Array.from(this._drawings.values());
 
         for (let i = drawings.length - 1; i >= 0; i--) {
             const drawing = drawings[i];
 
-            if ((drawing.paneId ?? null) !== paneId) {
+            if (this._drawingsHidden || !drawing.visible || (drawing.paneId ?? null) !== paneId
+                || !this.isVisibleOnCurrentTimeframe(drawing)) {
                 continue;
             }
 
@@ -682,17 +1079,60 @@ export class DrawingManager {
         return null;
     }
 
+    /**
+     * Eraser tool: deletes the top-most unlocked drawing under (x, y) in the given pane.
+     * Same hit-test rules as selection; locked drawings are skipped. One history entry per erase.
+     * Returns true when a drawing was deleted.
+     */
+    eraseDrawingAt(x: number, y: number, paneId: string | null = null): boolean {
+        if (this._drawingsHidden || this._isLocked) return false;
+        const drawings = Array.from(this._drawings.values());
+        for (let i = drawings.length - 1; i >= 0; i--) {
+            const drawing = drawings[i];
+            if (!drawing.visible || drawing.locked || (drawing.paneId ?? null) !== paneId
+                || !this.isVisibleOnCurrentTimeframe(drawing)) {
+                continue;
+            }
+            if (drawing === this._activeDrawing && drawing.state === 'creating') continue;
+
+            if (drawing.type === 'longPosition' || drawing.type === 'shortPosition' || drawing.type === 'priceRange' || drawing.type === 'dateRange' || drawing.type === 'datePriceRange') {
+                if (drawing.points.length >= 2) {
+                    const x1 = this.timeToPixel(drawing.points[0].time);
+                    const y1 = this.priceToPixel(drawing.points[0].price);
+                    const x2 = this.timeToPixel(drawing.points[1].time);
+                    const y2 = this.priceToPixel(drawing.points[1].price);
+                    if (x1 !== null && y1 !== null && x2 !== null && y2 !== null) {
+                        (drawing as any).setPixelPoints([{ x: x1, y: y1 }, { x: x2, y: y2 }]);
+                    }
+                }
+            }
+
+            if (drawing.hitTest(x, y, 8)) {
+                this.deleteDrawing(drawing.id);
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Delete a drawing */
     deleteDrawing(id: string): void {
         const drawing = this._drawings.get(id);
         if (drawing) {
             this._drawings.delete(id);
+            this.clearPendingText(id);
             if (this._selectedDrawing === drawing) {
                 this._selectedDrawing = null;
                 this._selectionChanged.fire(null);
             }
             this._drawingsChanged.fire();
+            this.commitHistory();
         }
+    }
+
+    /** Drops the pending new-text marker when it refers to the given drawing id */
+    clearPendingText(id: string): void {
+        if (this._pendingTextId === id) this._pendingTextId = null;
     }
 
     /** Delete selected drawing */
@@ -709,16 +1149,29 @@ export class DrawingManager {
         this._selectedDrawing = null;
         this._selectionChanged.fire(null);
         this._drawingsChanged.fire();
+        this.commitHistory();
     }
 
-    /** Finish path drawing (called when ESC is pressed during path creation) */
-    finishPathDrawing(): void {
+    /** Cift tiklamanin iki mousedown'i ayni yere nokta koyar: sondaki yinelenen noktayi (<= px) sil */
+    private _dropTrailingDuplicate(points: { time: number; price: number }[], px: number = 3): void {
+        if (points.length < 3) return;
+        const a = points[points.length - 1];
+        const b = points[points.length - 2];
+        const ax = this.timeToPixel(a.time), ay = this.priceToPixel(a.price);
+        const bx = this.timeToPixel(b.time), by = this.priceToPixel(b.price);
+        if (ax === null || ay === null || bx === null || by === null) return;
+        if (Math.hypot(ax - bx, ay - by) <= px) points.pop();
+    }
+
+    /** Finish path drawing (ESC / Enter / double-click; dropDuplicate: double-click) */
+    finishPathDrawing(dropDuplicate: boolean = false): void {
         if (!this._activeDrawing || this._activeDrawing.type !== 'path') return;
 
         const pathDrawing = this._activeDrawing as any;
         if (typeof pathDrawing.finishPath === 'function') {
             pathDrawing.finishPath();
         }
+        if (dropDuplicate) this._dropTrailingDuplicate(pathDrawing.points);
 
         // Keep the drawing if it has at least 2 points
         if (pathDrawing.points.length >= 2) {
@@ -729,19 +1182,20 @@ export class DrawingManager {
         }
 
         this._activeDrawing = null;
-        this._mode = 'none';
-        this._modeChanged.fire('none');
+        this._endToolAfterFinish();
         this._drawingsChanged.fire();
+        this.commitHistory();
     }
 
-    /** Finish polyline drawing (called when ESC is pressed during polyline creation) */
-    finishPolylineDrawing(): void {
+    /** Finish polyline drawing (ESC / Enter / double-click; dropDuplicate: double-click) */
+    finishPolylineDrawing(dropDuplicate: boolean = false): void {
         if (!this._activeDrawing || this._activeDrawing.type !== 'polyline') return;
 
         const polylineDrawing = this._activeDrawing as PolylineDrawing;
         if (typeof polylineDrawing.finishPolyline === 'function') {
             polylineDrawing.finishPolyline();
         }
+        if (dropDuplicate) this._dropTrailingDuplicate(polylineDrawing.points);
 
         // Keep the drawing if it has at least 2 points
         if (polylineDrawing.points.length >= 2) {
@@ -753,8 +1207,7 @@ export class DrawingManager {
 
         const finishedDrawing = this._activeDrawing;
         this._activeDrawing = null;
-        this._mode = 'none';
-        this._modeChanged.fire('none');
+        this._endToolAfterFinish();
 
         if (finishedDrawing && finishedDrawing.state === 'complete') {
             this._selectedDrawing = finishedDrawing;
@@ -763,11 +1216,39 @@ export class DrawingManager {
         }
 
         this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    /** Finish ghost feed drawing (ESC / Enter / double-click; dropDuplicate: double-click) */
+    finishGhostFeedDrawing(dropDuplicate: boolean = false): void {
+        if (!this._activeDrawing || this._activeDrawing.type !== 'ghostFeed') return;
+
+        const ghost = this._activeDrawing as GhostFeedDrawing;
+        ghost.finishGhostFeed();
+        if (dropDuplicate) this._dropTrailingDuplicate(ghost.points);
+
+        if (ghost.points.length >= 2) {
+            ghost.state = 'complete';
+        } else {
+            this._drawings.delete(ghost.id);
+        }
+
+        this._activeDrawing = null;
+        this._endToolAfterFinish();
+
+        if (ghost.state === 'complete') {
+            this._selectedDrawing = ghost;
+            ghost.state = 'selected';
+            this._selectionChanged.fire(ghost);
+        }
+
+        this._drawingsChanged.fire();
+        this.commitHistory();
     }
 
     /** Move the selected drawing by a pixel delta */
     moveDrawing(deltaX: number, deltaY: number): void {
-        if (!this._selectedDrawing) return;
+        if (!this._selectedDrawing || this._selectedDrawing.locked) return;
         if (!this._timeScale || !this._priceScale) return;
 
         // Convert pixel delta directly to logical delta
@@ -795,8 +1276,11 @@ export class DrawingManager {
             if (price1 !== null && price2 !== null) {
                 const priceDelta = price2 - price1;
 
+                // Callout govdesi: yalniz kutu (nokta 2) tasinir, kuyruk ucu sabit kalir
+                const movePts = this._selectedDrawing instanceof CalloutDrawing && this._selectedDrawing.points.length >= 2
+                    ? [this._selectedDrawing.points[1]] : this._selectedDrawing.points;
                 // Apply delta to all points
-                for (const point of this._selectedDrawing.points) {
+                for (const point of movePts) {
                     point.time += timeDelta;
                     point.price += priceDelta;
                 }
@@ -816,12 +1300,33 @@ export class DrawingManager {
     }
 
     /** Move a specific control point of the selected drawing to new pixel position */
-    moveControlPoint(pointIndex: number, x: number, y: number, snappedPrice?: number): void {
-        if (!this._selectedDrawing) return;
+    moveControlPoint(pointIndex: number, x: number, y: number, snappedPrice?: number, constrainAngle: boolean = false): void {
+        if (!this._selectedDrawing || this._selectedDrawing.locked) return;
+
+        // Callout: 0 = sabit (kuyruk ucu; kutu yerinde kalir), 1 = kelime kaydirma tutamaci (yalniz yatay boyutlandirma)
+        if (this._selectedDrawing instanceof CalloutDrawing) {
+            const co = this._selectedDrawing;
+            if (pointIndex === 1) {
+                const cx = co.getPixelPoints()[1]?.x;
+                if (cx === undefined || !co.box.wrap) return;
+                co.box.wrapWidth = Math.min(2000, calloutWrapWidthFromHandle(x, cx));
+                this._drawingsChanged.fire();
+                return;
+            }
+            constrainAngle = false;
+        }
+
+        let snapTime: number | null = null;
+        const channelLines = this._selectedDrawing.type === 'disjointChannel' || this._selectedDrawing.type === 'flatTopBottom';
+        if (constrainAngle && (this._selectedDrawing.points.length === 2 || (channelLines && this._selectedDrawing.points.length === 3)) && (pointIndex === 0 || pointIndex === 1)) {
+            // Diger uc sabit kalir
+            const c = this._constrainToAngleStep(this._selectedDrawing, 1 - pointIndex, x, y);
+            if (c) { x = c.x; y = c.y; snappedPrice = c.price; snapTime = c.time; }
+        }
 
         if (this._selectedDrawing.type === 'longPosition') {
             const posDrawing = this._selectedDrawing as LongPositionDrawing;
-            const time = this._pixelToTime(x);
+            const time = snapTime ?? this._pixelToTime(x);
             const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
             if (time === null || price === null) return;
 
@@ -853,7 +1358,7 @@ export class DrawingManager {
 
         if (this._selectedDrawing.type === 'shortPosition') {
             const posDrawing = this._selectedDrawing as ShortPositionDrawing;
-            const time = this._pixelToTime(x);
+            const time = snapTime ?? this._pixelToTime(x);
             const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
             if (time === null || price === null) return;
 
@@ -889,7 +1394,7 @@ export class DrawingManager {
 
             if (pointIndex < 0 || pointIndex >= channel.points.length) return;
 
-            const time = this._pixelToTime(x);
+            const time = snapTime ?? this._pixelToTime(x);
             const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
             if (time === null || price === null) return;
 
@@ -934,12 +1439,13 @@ export class DrawingManager {
         if (pointIndex < 0 || pointIndex >= this._selectedDrawing.points.length) return;
 
         // Convert pixel to logical coordinates
-        const time = this._pixelToTime(x);
+        const time = snapTime ?? this._pixelToTime(x);
         const price = snappedPrice !== undefined ? snappedPrice : this._pixelToPrice(y);
         if (time === null || price === null) return;
 
-        // Update the specific point
-        this._selectedDrawing.points[pointIndex] = { time, price };
+        // Update the specific point (hacim araclari: capa bara yapisir)
+        const snapped = this._selectedDrawing instanceof VolumeToolBase ? snapTimeToBars(this._selectedDrawing.bars, time) : time;
+        this._selectedDrawing.points[pointIndex] = { time: snapped, price };
 
 
         // Check if polyline should close: last point moved near start point
@@ -987,12 +1493,42 @@ export class DrawingManager {
         this._drawingsChanged.fire();
     }
 
+    /** Olusturma sirasinda Shift kilidi bu noktaya uygulanir mi? Kanal araclarinda yalnizca P2'ye (birinci cizgi), digerlerinde her zaman. */
+    private _shiftTargetsLineA(drawing: Drawing): boolean {
+        return drawing instanceof ChannelLinesTool ? drawing.confirmedPointCount === 1 : true;
+    }
+
+    /**
+     * Shift: cizgi araclarinda (x, y) noktasini capa noktasina (anchorIndex) gore en yakin 45 derece
+     * adimina kilitler (ekran uzayi). Arac desteklemiyorsa ya da capa yoksa null.
+     */
+    private _constrainToAngleStep(drawing: Drawing, anchorIndex: number, x: number, y: number): { x: number; y: number; time: number | null; price: number | undefined } | null {
+        if (!supportsShiftConstraint(drawing.type)) return null;
+        const anchor = drawing.points[anchorIndex];
+        if (!anchor) return null;
+        const ax = this.timeToPixel(anchor.time);
+        const ay = this.priceToPixel(anchor.price);
+        if (ax === null || ay === null) return null;
+        const c = snapToAngleStep(ax, ay, x, y);
+        // Yatay/dikey kilitte capanin tam zaman/fiyati yeniden kullanilir (piksel->deger donusumundeki kayma olmasin).
+        // Zaman: kilitli noktada capa zamani ya da (son bar civarinda kenetlenmeden) ekstrapole zaman.
+        const time = Math.abs(c.x - ax) < 1e-6 ? anchor.time : this._pixelToTime(c.x, true);
+        const price = Math.abs(c.y - ay) < 1e-6 ? anchor.price : undefined;
+        return { x: c.x, y: c.y, time, price };
+    }
+
     /** Convert pixel X to time (timestamp) */
-    private _pixelToTime(x: number): number | null {
+    private _pixelToTime(x: number, extrapolate: boolean = false): number | null {
         if (!this._timeScale || this._timestamps.length === 0) return null;
 
         // Get float bar index from X coordinate (for smooth dragging)
         const floatIndex = this._timeScale.coordinateToFloatIndex(coordinate(x));
+
+        // Tam bar uzerinde (float hatasi icinde) birebir zaman damgasi: interpolasyon kaymasi olmasin (magnet)
+        const nearest = Math.round(floatIndex);
+        if (nearest >= 0 && nearest < this._timestamps.length && Math.abs(floatIndex - nearest) < 1e-6) {
+            return this._timestamps[nearest];
+        }
 
         // Check if within range (with some margin)
         if (floatIndex >= 0 && floatIndex < this._timestamps.length - 1) {
@@ -1003,8 +1539,8 @@ export class DrawingManager {
             const t2 = this._timestamps[idx2];
             const fraction = floatIndex - idx1;
             return t1 + fraction * (t2 - t1);
-        } else if (floatIndex >= this._timestamps.length - 1 && floatIndex < this._timestamps.length) {
-            // At or near last bar - use last timestamp
+        } else if (!extrapolate && floatIndex >= this._timestamps.length - 1 && floatIndex < this._timestamps.length) {
+            // At or near last bar - use last timestamp (extrapolate=true: Shift kilidi, bar kaymasin diye alttaki ekstrapolasyon kullanilir)
             return this._timestamps[this._timestamps.length - 1];
         } else if (floatIndex >= 0 && floatIndex < 1) {
             // Near first bar - interpolate from first bar
@@ -1121,6 +1657,15 @@ export class DrawingManager {
     // Serialization - Chart State Persistence
     // =========================================================================
 
+    /** Tek cizimin kalici verisi: toJSON + pane + (varsayilandan farkliysa) intervalsVisibilities */
+    private static _drawingToJSON(drawing: Drawing): SerializedDrawing {
+        const json: SerializedDrawing = { ...drawing.toJSON(), paneId: drawing.paneId ?? null };
+        const iv = drawing.intervalsVisibilities;
+        if (iv && !isDefaultIntervalsVisibilities(iv)) json.intervalsVisibilities = { ...iv };
+        else delete json.intervalsVisibilities;
+        return json;
+    }
+
     /** Serialize all drawings to JSON for persistence */
     serialize(): SerializedDrawing[] {
         const serialized: SerializedDrawing[] = [];
@@ -1128,10 +1673,10 @@ export class DrawingManager {
         for (const drawing of this._drawings.values()) {
             // Only save complete drawings (not in-progress ones)
             if (drawing.state === 'creating') continue;
-            serialized.push({
-                ...drawing.toJSON(),
-                paneId: drawing.paneId ?? null,
-            });
+            // Metin girisi bekleyen yeni Text: editor kapanmadan kalici veriye yazilmaz
+            if (this._pendingTextId === drawing.id) continue;
+            // Zaman dilimine gore gizli cizimler de kaydedilir (filtre yalnizca gosterim/etkilesim icin)
+            serialized.push(DrawingManager._drawingToJSON(drawing));
         }
 
         return serialized;
@@ -1139,164 +1684,560 @@ export class DrawingManager {
 
     /** Deserialize drawings from JSON and add them to the chart */
     deserialize(data: SerializedDrawing[]): void {
+        // Disaridan (state manager: sembol degisimi / yukleme) gelen yukleme: gecmis sifirlanir
+        this._restore(data);
+        this.resetHistory();
+    }
+
+    /** Verilen listeden tum cizimleri yeniden kurar (gecmise dokunmaz) */
+    private _restore(data: SerializedDrawing[]): void {
         // Clear all existing drawings first
         this._drawings.clear();
         this._activeDrawing = null;
         this._selectedDrawing = null;
 
         for (const item of data) {
-            let drawing: Drawing | null = null;
-
-            switch (item.type) {
-                case 'trendLine':
-                    drawing = TrendLineDrawing.fromJSON(item);
-                    break;
-                case 'horizontalLine':
-                    drawing = HorizontalLineDrawing.fromJSON(item);
-                    break;
-                case 'verticalLine':
-                    drawing = VerticalLineDrawing.fromJSON(item);
-                    break;
-                case 'fibRetracement':
-                    drawing = FibRetracementDrawing.fromJSON(item);
-                    break;
-                case 'ray':
-                    drawing = RayDrawing.fromJSON(item);
-                    break;
-                case 'infoLine':
-                    drawing = InfoLineDrawing.fromJSON(item);
-                    break;
-                case 'extendedLine':
-                    drawing = ExtendedLineDrawing.fromJSON(item);
-                    break;
-                case 'trendAngle':
-                    drawing = TrendAngleDrawing.fromJSON(item);
-                    break;
-                case 'horizontalRay':
-                    drawing = HorizontalRayDrawing.fromJSON(item);
-                    break;
-                case 'crossLine':
-                    drawing = CrossLineDrawing.fromJSON(item);
-                    break;
-                case 'sticker':
-                    drawing = StickerDrawing.fromJSON(item as any);
-                    break;
-                case 'parallelChannel':
-                    drawing = ParallelChannelDrawing.fromJSON(item);
-                    break;
-                case 'regressionTrend':
-                    drawing = RegressionTrendDrawing.fromJSON(item);
-                    break;
-                case 'fibExtension':
-                    drawing = FibExtensionDrawing.fromJSON(item);
-                    break;
-                case 'fibChannel':
-                    drawing = FibChannelDrawing.fromJSON(item);
-                    break;
-                case 'brush':
-                    drawing = BrushDrawing.fromJSON(item);
-                    break;
-                case 'highlighter':
-                    drawing = HighlighterDrawing.fromJSON(item);
-                    break;
-                case 'arrow':
-                    drawing = ArrowDrawing.fromJSON(item);
-                    break;
-                case 'arrowMarker':
-                    drawing = ArrowMarkerDrawing.fromJSON(item);
-                    break;
-                case 'arrowMarkedUp':
-                case 'arrowMarkedDown':
-                    drawing = ArrowIconDrawing.fromJSON(item);
-                    break;
-                case 'rectangle':
-                    drawing = RectangleDrawing.fromJSON(item);
-                    break;
-                case 'rotatedRectangle':
-                    drawing = RotatedRectangleDrawing.fromJSON(item);
-                    break;
-                case 'ellipse':
-                    drawing = EllipseDrawing.fromJSON(item);
-                    break;
-                case 'triangle':
-                    drawing = TriangleDrawing.fromJSON(item);
-                    break;
-                case 'arc':
-                    drawing = ArcDrawing.fromJSON(item);
-                    break;
-                case 'path':
-                    drawing = PathDrawing.fromJSON(item);
-                    break;
-                case 'circle':
-                    drawing = CircleDrawing.fromJSON(item);
-                    break;
-                case 'polyline':
-                    drawing = PolylineDrawing.fromJSON(item);
-                    break;
-                case 'curve':
-                    drawing = CurveDrawing.fromJSON(item);
-                    break;
-                case 'xabcdPattern':
-                    drawing = XABCDPatternDrawing.fromJSON(item);
-                    break;
-                case 'elliotImpulse':
-                    drawing = ElliottImpulseDrawing.fromJSON(item);
-                    break;
-                case 'elliotCorrection':
-                    drawing = ElliottCorrectionDrawing.fromJSON(item);
-                    break;
-                case 'threeDrives':
-                    drawing = ThreeDrivesDrawing.fromJSON(item);
-                    break;
-                case 'headShoulders':
-                    drawing = HeadShouldersDrawing.fromJSON(item);
-                    break;
-                case 'abcd':
-                    drawing = ABCDPatternDrawing.fromJSON(item);
-                    break;
-                case 'trianglePattern':
-                    drawing = TrianglePatternDrawing.fromJSON(item);
-                    break;
-                case 'longPosition':
-                    drawing = LongPositionDrawing.fromJSON(item);
-                    break;
-                case 'shortPosition':
-                    drawing = ShortPositionDrawing.fromJSON(item);
-                    break;
-                case 'priceRange':
-                    drawing = PriceRangeDrawing.fromJSON(item);
-                    break;
-                case 'dateRange':
-                    drawing = DateRangeDrawing.fromJSON(item);
-                    break;
-                case 'datePriceRange':
-                    drawing = DatePriceRangeDrawing.fromJSON(item);
-                    break;
-                case 'text':
-                    drawing = TextDrawing.fromJSON(item);
-                    break;
-                case 'callout':
-                    drawing = CalloutDrawing.fromJSON(item);
-                    break;
-                case 'priceLabel':
-                    drawing = PriceLabelDrawing.fromJSON(item);
-                    break;
-                case 'flagMarked':
-                    drawing = FlagMarkedDrawing.fromJSON(item);
-                    break;
-                // Add more types as needed...
-                default:
-                    console.warn(`Unknown drawing type: ${item.type}`);
-                    continue;
-            }
-
+            const drawing = this._createFromSerialized(item);
             if (drawing) {
-                drawing.paneId = item.paneId ?? null;
                 this._drawings.set(drawing.id, drawing);
             }
         }
 
+        if (this._hoveredForAddText !== null && !this._drawings.has(this._hoveredForAddText)) {
+            this._hoveredForAddText = null;
+        }
+        if (this._pendingTextId !== null && !this._drawings.has(this._pendingTextId)) {
+            this._pendingTextId = null;
+        }
+
         this._drawingsChanged.fire();
+    }
+
+    /** Tek bir serilestirilmis veriden cizim nesnesi uretir (id korunur) */
+    private _createFromSerialized(item: SerializedDrawing): Drawing | null {
+        let drawing: Drawing | null = null;
+
+        switch (item.type) {
+            case 'trendLine':
+                drawing = TrendLineDrawing.fromJSON(item);
+                break;
+            case 'horizontalLine':
+                drawing = HorizontalLineDrawing.fromJSON(item);
+                break;
+            case 'verticalLine':
+                drawing = VerticalLineDrawing.fromJSON(item);
+                break;
+            case 'fibRetracement':
+                drawing = FibRetracementDrawing.fromJSON(item);
+                break;
+            case 'ray':
+                drawing = RayDrawing.fromJSON(item);
+                break;
+            case 'infoLine':
+                drawing = InfoLineDrawing.fromJSON(item);
+                break;
+            case 'extendedLine':
+                drawing = ExtendedLineDrawing.fromJSON(item);
+                break;
+            case 'trendAngle':
+                drawing = TrendAngleDrawing.fromJSON(item);
+                break;
+            case 'horizontalRay':
+                drawing = HorizontalRayDrawing.fromJSON(item);
+                break;
+            case 'crossLine':
+                drawing = CrossLineDrawing.fromJSON(item);
+                break;
+            case 'sticker':
+                drawing = StickerDrawing.fromJSON(item as any);
+                break;
+            case 'parallelChannel':
+                drawing = ParallelChannelDrawing.fromJSON(item);
+                break;
+            case 'regressionTrend':
+                drawing = RegressionTrendDrawing.fromJSON(item);
+                break;
+            case 'fibExtension':
+                drawing = FibExtensionDrawing.fromJSON(item);
+                break;
+            case 'fibChannel':
+                drawing = FibChannelDrawing.fromJSON(item);
+                break;
+            case 'brush':
+                drawing = BrushDrawing.fromJSON(item);
+                break;
+            case 'highlighter':
+                drawing = HighlighterDrawing.fromJSON(item);
+                break;
+            case 'arrow':
+                drawing = ArrowDrawing.fromJSON(item);
+                break;
+            case 'arrowMarker':
+                drawing = ArrowMarkerDrawing.fromJSON(item);
+                break;
+            case 'arrowMarkedUp':
+            case 'arrowMarkedDown':
+            case 'arrowMarkedLeft':
+            case 'arrowMarkedRight':
+                drawing = ArrowIconDrawing.fromJSON(item);
+                break;
+            case 'rectangle':
+                drawing = RectangleDrawing.fromJSON(item);
+                break;
+            case 'rotatedRectangle':
+                drawing = RotatedRectangleDrawing.fromJSON(item);
+                break;
+            case 'ellipse':
+                drawing = EllipseDrawing.fromJSON(item);
+                break;
+            case 'triangle':
+                drawing = TriangleDrawing.fromJSON(item);
+                break;
+            case 'arc':
+                drawing = ArcDrawing.fromJSON(item);
+                break;
+            case 'path':
+                drawing = PathDrawing.fromJSON(item);
+                break;
+            case 'circle':
+                drawing = CircleDrawing.fromJSON(item);
+                break;
+            case 'polyline':
+                drawing = PolylineDrawing.fromJSON(item);
+                break;
+            case 'curve':
+                drawing = CurveDrawing.fromJSON(item);
+                break;
+            case 'doubleCurve':
+                drawing = DoubleCurveDrawing.fromJSON(item);
+                break;
+            case 'cyclicLines':
+            case 'timeCycles':
+            case 'sineLine':
+                drawing = CycleToolBase.fromJSON(item);
+                break;
+            case 'xabcdPattern':
+                drawing = XABCDPatternDrawing.fromJSON(item);
+                break;
+            case 'cypherPattern':
+                drawing = CypherPatternDrawing.fromJSON(item);
+                break;
+            case 'elliotImpulse':
+                drawing = ElliottImpulseDrawing.fromJSON(item);
+                break;
+            case 'elliotCorrection':
+                drawing = ElliottCorrectionDrawing.fromJSON(item);
+                break;
+            case 'elliotTriangle':
+                drawing = ElliottTriangleDrawing.fromJSON(item);
+                break;
+            case 'elliotDoubleCombo':
+                drawing = ElliottDoubleComboDrawing.fromJSON(item);
+                break;
+            case 'elliotTripleCombo':
+                drawing = ElliottTripleComboDrawing.fromJSON(item);
+                break;
+            case 'threeDrives':
+                drawing = ThreeDrivesDrawing.fromJSON(item);
+                break;
+            case 'headShoulders':
+                drawing = HeadShouldersDrawing.fromJSON(item);
+                break;
+            case 'abcd':
+                drawing = ABCDPatternDrawing.fromJSON(item);
+                break;
+            case 'trianglePattern':
+                drawing = TrianglePatternDrawing.fromJSON(item);
+                break;
+            case 'longPosition':
+                drawing = LongPositionDrawing.fromJSON(item);
+                break;
+            case 'shortPosition':
+                drawing = ShortPositionDrawing.fromJSON(item);
+                break;
+            case 'priceRange':
+                drawing = PriceRangeDrawing.fromJSON(item);
+                break;
+            case 'dateRange':
+                drawing = DateRangeDrawing.fromJSON(item);
+                break;
+            case 'datePriceRange':
+                drawing = DatePriceRangeDrawing.fromJSON(item);
+                break;
+            case 'text':
+                drawing = TextDrawing.fromJSON(item);
+                break;
+            case 'callout':
+                drawing = CalloutDrawing.fromJSON(item);
+                break;
+            case 'priceLabel':
+                drawing = PriceLabelDrawing.fromJSON(item);
+                break;
+            case 'note':
+            case 'priceNote':
+            case 'pin':
+            case 'signpost':
+            case 'comment':
+            case 'table':
+                drawing = NoteToolBase.fromJSON(item);
+                break;
+            case 'flagMarked':
+                drawing = FlagMarkedDrawing.fromJSON(item);
+                break;
+            case 'pitchfork':
+            case 'schiffPitchfork':
+            case 'modifiedSchiffPitchfork':
+            case 'insidePitchfork':
+            case 'pitchfan':
+                drawing = PitchToolBase.fromJSON(item);
+                break;
+            case 'fibTimeZone':
+            case 'trendBasedFibTime':
+            case 'fibSpeedResistanceFan':
+                drawing = FibTimeToolBase.fromJSON(item);
+                break;
+            case 'fibSpeedResistanceArcs':
+            case 'fibCircles':
+            case 'fibSpiral':
+            case 'fibWedge':
+                drawing = FibCircleToolBase.fromJSON(item);
+                break;
+            case 'gannBox':
+            case 'gannSquareFixed':
+            case 'gannSquare':
+            case 'gannFan':
+                drawing = GannToolBase.fromJSON(item);
+                break;
+            case 'disjointChannel':
+            case 'flatTopBottom':
+                drawing = ChannelLinesTool.fromJSON(item);
+                break;
+            case 'projection':
+                drawing = ProjectionDrawing.fromJSON(item);
+                break;
+            case 'positionForecast':
+                drawing = PositionForecastDrawing.fromJSON(item);
+                break;
+            case 'barsPattern':
+                drawing = BarsPatternDrawing.fromJSON(item);
+                break;
+            case 'ghostFeed':
+                drawing = GhostFeedDrawing.fromJSON(item);
+                break;
+            case 'anchoredVwap':
+                drawing = AnchoredVwapDrawing.fromJSON(item);
+                break;
+            case 'fixedRangeVolumeProfile':
+            case 'anchoredVolumeProfile':
+                drawing = VolumeProfileDrawing.fromJSON(item);
+                break;
+            // Add more types as needed...
+            default:
+                console.warn(`Unknown drawing type: ${item.type}`);
+                return null;
+        }
+
+        if (drawing) {
+            drawing.paneId = item.paneId ?? null;
+            // Eski kayitlarda alan yok -> varsayilan (hepsi gorunur); varsayilansa alan hic atanmaz
+            if (item.intervalsVisibilities) {
+                const iv = normalizeIntervalsVisibilities(item.intervalsVisibilities);
+                if (!isDefaultIntervalsVisibilities(iv)) drawing.intervalsVisibilities = iv;
+            }
+        }
+        return drawing;
+    }
+
+    // =========================================================================
+    // History (Undo / Redo)
+    // =========================================================================
+
+    get canUndo(): boolean {
+        return this._historyIndex > 0;
+    }
+
+    get canRedo(): boolean {
+        return this._historyIndex < this._history.length - 1;
+    }
+
+    /** Mevcut cizim durumunun karsilastirilabilir anlik goruntusu (secim durumu yok sayilir) */
+    private _snapshot(): string {
+        return JSON.stringify(this.serialize().map(d => ({
+            ...d,
+            state: 'complete' as const,
+        })));
+    }
+
+    /** Gecmisi mevcut durumla sifirlar (sembol degisimi / disaridan yukleme) */
+    resetHistory(): void {
+        this._history = [this._snapshot()];
+        this._historyIndex = 0;
+        this._lastCoalesceKey = null;
+    }
+
+    /**
+     * Tamamlanmis bir kullanici islemi sonrasi gecmise tek kayit ekler.
+     * Durum degismediyse kayit eklenmez. coalesceKey verilirse ayni anahtarla
+     * kisa sure icinde gelen cagrilar (ayar modalinde surukleme vb.) tek kayitta birlesir.
+     */
+    commitHistory(coalesceKey?: string): void {
+        const snap = this._snapshot();
+        if (snap === this._history[this._historyIndex]) return;
+
+        const now = Date.now();
+        if (coalesceKey && coalesceKey === this._lastCoalesceKey
+            && now - this._lastCommitTime < 1000 && this._historyIndex > 0
+            && this._historyIndex === this._history.length - 1) {
+            this._history[this._historyIndex] = snap;
+            // Birlesen kayit bir onceki ile ayniysa (ayar geri alindi) basi at
+            if (this._historyIndex > 0 && snap === this._history[this._historyIndex - 1]) {
+                this._history.pop();
+                this._historyIndex--;
+                // Bir sonraki degisiklik bu (gercek) onceki kaydin uzerine birlesmesin
+                this._lastCoalesceKey = null;
+                return;
+            }
+        } else {
+            this._history.length = this._historyIndex + 1; // redo dalini at
+            this._history.push(snap);
+            if (this._history.length > MAX_HISTORY) {
+                this._history.shift();
+            }
+            this._historyIndex = this._history.length - 1;
+        }
+        this._lastCoalesceKey = coalesceKey ?? null;
+        this._lastCommitTime = now;
+    }
+
+    /**
+     * Ayar modali / attribute bar degisikligi: cizim nesnesi yerinde degistirildigi icin
+     * once drawingsChanged tetiklenir (otomatik kayit + yeniden cizim), sonra coalesce'li tek gecmis kaydi eklenir.
+     */
+    commitSettingsChange(drawingId: string): void {
+        this._drawingsChanged.fire();
+        this.commitHistory(`settings:${drawingId}`);
+    }
+
+    /** Olusturulmakta olan (yarim) cizimi iptal eder; iptal edilecek bir sey yoksa false */
+    cancelActiveDrawing(): boolean {
+        const active = this._activeDrawing;
+        if (!active || active.state !== 'creating') return false;
+        this._drawings.delete(active.id);
+        this._activeDrawing = null;
+        this._drawingsChanged.fire();
+        return true;
+    }
+
+    undo(): boolean {
+        // Cizim surerken Ctrl+Z once yarim cizimi iptal eder (Escape gibi); gecmise dokunmaz
+        if (this.cancelActiveDrawing()) return true;
+        if (!this.canUndo) return false;
+        this._historyIndex--;
+        this._applyHistory();
+        return true;
+    }
+
+    redo(): boolean {
+        if (!this.canRedo) return false;
+        this._historyIndex++;
+        this._applyHistory();
+        return true;
+    }
+
+    private _applyHistory(): void {
+        const hadSelection = this._selectedDrawing !== null;
+        this._lastCoalesceKey = null;
+        this._restore(JSON.parse(this._history[this._historyIndex]) as SerializedDrawing[]);
+        if (hadSelection) {
+            this._selectionChanged.fire(null);
+        }
+        this._historyRestored.fire();
+    }
+
+    // =========================================================================
+    // Clone / Copy / Paste
+    // =========================================================================
+
+    /** Verilen cizimin kopyasini yeni id ile uretir (yonetime eklemez) */
+    private _duplicate(source: Drawing, timeOffset: number = 0): Drawing | null {
+        const json = JSON.parse(JSON.stringify(DrawingManager._drawingToJSON(source))) as SerializedDrawing;
+        json.id = generateDrawingId();
+        json.state = 'complete';
+        if (timeOffset !== 0) {
+            for (const pt of json.points) pt.time += timeOffset;
+        }
+        return this._createFromSerialized(json);
+    }
+
+    private _selectNew(drawing: Drawing): void {
+        if (this._selectedDrawing) {
+            this._selectedDrawing.state = 'complete';
+        }
+        this._drawings.set(drawing.id, drawing);
+        this._selectedDrawing = drawing;
+        drawing.state = 'selected';
+        this._selectionChanged.fire(drawing);
+        this._drawingsChanged.fire();
+    }
+
+    /**
+     * Cizimi ayni konumda kopyalar ve kopyayi secer (Ctrl/Cmd+surukle klonlamasi).
+     * Gecmis kaydi cagiran tarafindan (surukleme bitince) eklenir.
+     */
+    cloneDrawing(id: string): Drawing | null {
+        const source = this._drawings.get(id);
+        if (!source || source.locked) return null;
+        const copy = this._duplicate(source);
+        if (!copy) return null;
+        this._selectNew(copy);
+        return copy;
+    }
+
+    /** Secili cizimi panoya kopyalar */
+    copySelected(): boolean {
+        const sel = this._selectedDrawing;
+        if (!sel) return false;
+        _drawingClipboard = JSON.parse(JSON.stringify(DrawingManager._drawingToJSON(sel))) as SerializedDrawing;
+        return true;
+    }
+
+    get hasClipboard(): boolean {
+        if (!_drawingClipboard) return false;
+        // Kaynak pane bu grafikte yoksa yapistirma yapilamaz (pasteFromClipboard ile ayni kontrol)
+        const srcPane = _drawingClipboard.paneId ?? null;
+        if (srcPane !== null && this._paneExists && !this._paneExists(srcPane)) return false;
+        return true;
+    }
+
+    /** Panodaki cizimi yeni id ile, ~5 bar saga kaydirarak yapistirir ve secer */
+    pasteFromClipboard(): Drawing | null {
+        if (!_drawingClipboard) return null;
+        const item = JSON.parse(JSON.stringify(_drawingClipboard)) as SerializedDrawing;
+        item.id = generateDrawingId();
+        item.state = 'complete';
+        // Kaynak panele yapistir; o pane bu grafikte yoksa (ana pane degilse) yapistirma
+        const srcPane = item.paneId ?? null;
+        if (srcPane !== null && this._paneExists && !this._paneExists(srcPane)) return null;
+        item.paneId = srcPane;
+        if (this._timestamps.length >= 2) {
+            const offset = this._estimateInterval() * 5;
+            for (const pt of item.points) pt.time += offset;
+        }
+        const drawing = this._createFromSerialized(item);
+        if (!drawing) return null;
+        this._selectNew(drawing);
+        this.commitHistory();
+        return drawing;
+    }
+
+    /** Cizimin kopyasini ~5 bar saga kaydirarak ekler ve secer (baglam menusu Clone; kilitli cizimde de calisir) */
+    duplicateDrawing(id: string): Drawing | null {
+        const source = this._drawings.get(id);
+        if (!source) return null;
+        const offset = this._timestamps.length >= 2 ? this._estimateInterval() * 5 : 0;
+        const copy = this._duplicate(source, offset);
+        if (!copy) return null;
+        this._selectNew(copy);
+        this.commitHistory();
+        return copy;
+    }
+
+    /** Cizimi en uste (en son cizilen) tasir */
+    bringToFront(id: string): void {
+        const drawing = this._drawings.get(id);
+        if (!drawing) return;
+        this._drawings.delete(id);
+        this._drawings.set(id, drawing);
+        this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    /** Cizimi en alta (ilk cizilen) tasir */
+    sendToBack(id: string): void {
+        const drawing = this._drawings.get(id);
+        if (!drawing) return;
+        const rest = Array.from(this._drawings.entries()).filter(([key]) => key !== id);
+        this._drawings.clear();
+        this._drawings.set(id, drawing);
+        for (const [key, value] of rest) this._drawings.set(key, value);
+        this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    /**
+     * Cizimi cizim sirasinda verilen konuma tasir (index: sonuc listesindeki 0-tabanli konum, 0 = en alt).
+     * Sira degisirse tek gecmis kaydi eklenir; serialize() sirayi korur.
+     */
+    moveDrawingTo(id: string, index: number): void {
+        const drawing = this._drawings.get(id);
+        if (!drawing) return;
+        const entries = Array.from(this._drawings.entries()).filter(([key]) => key !== id);
+        const at = Math.max(0, Math.min(entries.length, Math.floor(index)));
+        const before = Array.from(this._drawings.keys()).indexOf(id);
+        if (before === at) return;
+        entries.splice(at, 0, [id, drawing]);
+        this._drawings.clear();
+        for (const [key, value] of entries) this._drawings.set(key, value);
+        this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    /**
+     * Cizimi kimlikle secer (nesne agaci satir tiklamasi). Gizli / mevcut zaman diliminde gorunmeyen
+     * ya da yarim cizimler secilemez; basarili ise true.
+     */
+    selectDrawingById(id: string): boolean {
+        const drawing = this._drawings.get(id);
+        if (!drawing || this._drawingsHidden || !drawing.visible || drawing.state === 'creating'
+            || !this.isVisibleOnCurrentTimeframe(drawing)) return false;
+        if (this._selectedDrawing === drawing) return true;
+        if (this._selectedDrawing) this._selectedDrawing.state = 'complete';
+        this._selectedDrawing = drawing;
+        drawing.state = 'selected';
+        this._selectionChanged.fire(drawing);
+        this._drawingsChanged.fire();
+        return true;
+    }
+
+    /** Cizimi kilitler / kilidini acar */
+    setDrawingLocked(id: string, locked: boolean): void {
+        const drawing = this._drawings.get(id);
+        if (!drawing) return;
+        drawing.locked = locked;
+        this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    /** Cizimi gizler / gosterir (gizlenen cizimin secimi kalkar) */
+    setDrawingVisible(id: string, visible: boolean): void {
+        const drawing = this._drawings.get(id);
+        if (!drawing) return;
+        drawing.visible = visible;
+        if (!visible && this._selectedDrawing === drawing) {
+            drawing.state = 'complete';
+            this._selectedDrawing = null;
+            this._selectionChanged.fire(null);
+        }
+        this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    /** Cizim bazinda gizlenmis (visible=false) cizim sayisi */
+    get hiddenDrawingCount(): number {
+        let n = 0;
+        for (const d of this._drawings.values()) if (!d.visible) n++;
+        return n;
+    }
+
+    /** Cizim bazinda gizlenmis tum cizimleri gosterir (tek gecmis kaydi) */
+    showHiddenDrawings(): void {
+        let changed = false;
+        for (const d of this._drawings.values()) {
+            if (!d.visible) { d.visible = true; changed = true; }
+        }
+        if (!changed) return;
+        this._drawingsChanged.fire();
+        this.commitHistory();
     }
 
     /** Check if there are any drawings */
@@ -1305,45 +2246,107 @@ export class DrawingManager {
     }
 
     getDrawingsForPane(paneId: string | null): Drawing[] {
-        return this.drawings.filter((drawing) => (drawing.paneId ?? null) === paneId);
+        if (this._drawingsHidden) return [];
+        return this.drawings.filter((drawing) =>
+            (drawing.paneId ?? null) === paneId && this.isVisibleOnCurrentTimeframe(drawing));
+    }
+
+    // --- Zaman dilimlerinde gorunurluk ---
+
+    /** Grafigin mevcut zaman dilimi (chart-widget acilista ve zaman dilimi degisince cagirir) */
+    get timeframe(): string {
+        return this._timeframe;
+    }
+
+    setTimeframe(timeframe: string): void {
+        if (this._timeframe === timeframe) return;
+        this._timeframe = timeframe;
+        this._parsedTimeframe = parseTimeframe(timeframe);
+        // Yeni zaman diliminde gizlenen secili cizimin secimi kalkar
+        const sel = this._selectedDrawing;
+        if (sel && !this.isVisibleOnCurrentTimeframe(sel)) {
+            sel.state = 'complete';
+            this._selectedDrawing = null;
+            this._selectionChanged.fire(null);
+        }
+        if (this._hoveredDrawingId !== null) {
+            const hd = this._drawings.get(this._hoveredDrawingId);
+            if (!hd || !this.isVisibleOnCurrentTimeframe(hd)) this._hoveredDrawingId = null;
+        }
+    }
+
+    /** Cizim mevcut zaman diliminde gorunur mu (yalnizca intervalsVisibilities; visible/global gizleme ayri) */
+    isVisibleOnCurrentTimeframe(drawing: Drawing): boolean {
+        return isVisibleOnTimeframe(drawing.intervalsVisibilities, this._parsedTimeframe);
+    }
+
+    /** Cizim/hit-test icin: global gizleme kapali ve mevcut zaman diliminde gorunur cizimler (kopya liste) */
+    get displayableDrawings(): Drawing[] {
+        if (this._drawingsHidden) return [];
+        return this.drawings.filter((d) => this.isVisibleOnCurrentTimeframe(d));
+    }
+
+    /** Hazir gorunurluk ayarini (mevcut zaman dilimine gore) cizime uygular; tek gecmis kaydi */
+    applyIntervalsPreset(id: string, preset: IntervalsPreset): void {
+        const drawing = this._drawings.get(id);
+        if (!drawing) return;
+        const iv = buildIntervalsPreset(preset, this._parsedTimeframe);
+        if (isDefaultIntervalsVisibilities(iv)) delete drawing.intervalsVisibilities;
+        else drawing.intervalsVisibilities = iv;
+        if (this._selectedDrawing === drawing && !this.isVisibleOnCurrentTimeframe(drawing)) {
+            drawing.state = 'complete';
+            this._selectedDrawing = null;
+            this._selectionChanged.fire(null);
+        }
+        this._drawingsChanged.fire();
+        this.commitHistory();
+    }
+
+    /** Cizimin gorunurluk ayarini (yoksa varsayilan) dondurur; kopya degil, UI dogrudan degistirir */
+    getIntervalsVisibilities(drawing: Drawing): IntervalsVisibilities {
+        return ensureIntervalsVisibilities(drawing);
     }
 
     /**
-     * Apply magnet snap to coordinate - snaps to nearest OHLC value within threshold
-     * Returns adjusted y coordinate (pixel), or original y if no snap
+     * Apply magnet snap: snaps to the bar under the cursor (x) and to its nearest OHLC / indicator value (y).
+     * Bar snapping only where a bar exists (within half a bar spacing); blank future/past space stays free.
+     * `modeOverride` (e.g. Ctrl toggle) replaces magnetMode for this call only. Never snaps on indicator panes.
      */
-    applyMagnet(x: number, y: number, barData: { time: number; open: number; high: number; low: number; close: number }[]): { x: number; y: number; snapped: boolean; snappedPrice?: number; snappedX?: number } {
-        if (this._magnetMode === 'none' || !this._timeScale || !this._priceScale) {
+    applyMagnet(x: number, y: number, barData: { time: number; open: number; high: number; low: number; close: number }[], modeOverride?: 'none' | 'weak' | 'strong'): { x: number; y: number; snapped: boolean; snappedPrice?: number; snappedX?: number } {
+        const mode = modeOverride ?? this._magnetMode;
+        if (mode === 'none' || !this._timeScale || !this._priceScale || this._activePaneId !== null) {
             return { x, y, snapped: false };
         }
 
-        if (barData.length === 0) {
+        const n = barData.length;
+        if (n === 0) {
             return { x, y, snapped: false };
         }
 
-        // Find the bar at this x position
-        const time = this._pixelToTime(x);
-        if (time === null) {
+        // Bar under the cursor: time scale index -> timestamp -> binary search in bar data
+        const floatIndex = this._timeScale.coordinateToFloatIndex(coordinate(x));
+        if (!isFinite(floatIndex)) {
             return { x, y, snapped: false };
         }
-
-        // Find closest bar by time
-        let closestBar = null;
-        let minTimeDiff = Infinity;
-        for (const bar of barData) {
-            const diff = Math.abs(bar.time - time);
-            if (diff < minTimeDiff) {
-                minTimeDiff = diff;
-                closestBar = bar;
-            }
-        }
-
-        if (!closestBar) {
+        const idx = Math.round(floatIndex);
+        if (idx < 0 || idx > this._timestamps.length - 1) {
             return { x, y, snapped: false };
         }
-
-        // Get bar center X
-        const snappedX = this.timeToPixel(closestBar.time) ?? x;
+        const barTime = this._timestamps[idx];
+        let lo = 0, hi = n - 1;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (barData[mid].time < barTime) lo = mid + 1; else hi = mid;
+        }
+        if (barData[lo].time !== barTime) {
+            return { x, y, snapped: false };
+        }
+        const closestBar = barData[lo];
+        const snappedX = this._timeScale.indexToCoordinate(timePointIndex(idx)) as number;
+        const spacing = this._timeScale.barSpacing;
+        if (spacing > 0 && Math.abs(x - snappedX) > spacing / 2 + 0.5) {
+            return { x, y, snapped: false };
+        }
 
         // Get OHLC values as pixel y coordinates
         const ohlcPrices = [closestBar.open, closestBar.high, closestBar.low, closestBar.close];
@@ -1353,6 +2356,17 @@ export class DrawingManager {
             const pixelY = this.priceToPixel(price);
             if (pixelY !== null) {
                 ohlcPixels.push({ price, pixelY });
+            }
+        }
+
+        // Snap to indicators: overlay indicator values at this bar are extra price candidates
+        if (this._snapToIndicators && this._indicatorPriceProvider) {
+            for (const price of this._indicatorPriceProvider(closestBar.time)) {
+                if (!isFinite(price)) continue;
+                const pixelY = this.priceToPixel(price);
+                if (pixelY !== null) {
+                    ohlcPixels.push({ price, pixelY });
+                }
             }
         }
 
@@ -1369,12 +2383,12 @@ export class DrawingManager {
         }
 
         if (!closestOhlc) {
-            return { x: snappedX, y, snapped: false };
+            return { x: snappedX, y, snapped: false, snappedX };
         }
 
         // Weak magnet: only snap if within threshold
         // Strong magnet: always snap
-        const threshold = this._magnetMode === 'weak' ? this._magnetThreshold : Infinity;
+        const threshold = mode === 'weak' ? this._magnetThreshold : Infinity;
 
         if (minDist <= threshold) {
             return { x: snappedX, y: closestOhlc.pixelY, snapped: true, snappedPrice: closestOhlc.price, snappedX };

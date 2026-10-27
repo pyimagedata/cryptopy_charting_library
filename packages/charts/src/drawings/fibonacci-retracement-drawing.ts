@@ -31,6 +31,7 @@ export interface FibLevel {
     label: string;
     color: string;
     enabled: boolean;
+    text?: string;
 }
 
 /** Standard Fibonacci retracement levels with colors */
@@ -76,7 +77,7 @@ export class FibRetracementDrawing implements Drawing, DrawingSettingsProvider {
     private _pixelPoints: { x: number; y: number }[] = [];
 
     // Pre-calculated level prices and Y coordinates (DPR-SCALED for rendering)
-    private _levelData: { level: number; label: string; color: string; price: number; y: number }[] = [];
+    private _levelData: { level: number; label: string; color: string; text?: string; price: number; y: number }[] = [];
 
     // Pre-calculated level Y coordinates (NON-SCALED for hit testing)
     private _levelYNonScaled: number[] = [];
@@ -85,7 +86,7 @@ export class FibRetracementDrawing implements Drawing, DrawingSettingsProvider {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#f0b90b',  // Golden color for Fibonacci
+            color: options.color || '#808080', // TradingView varsayilani (trend cizgisi grisi)
             lineWidth: options.lineWidth || 1,
             lineDash: [],
         };
@@ -233,9 +234,9 @@ export class FibRetracementDrawing implements Drawing, DrawingSettingsProvider {
         const useLog = this.fib.logScale && isLogScale;
 
         const enabledLevels = this.levels.filter(l => l.enabled);
-        this._levelData = enabledLevels.map(({ level, label, color }) => {
+        this._levelData = enabledLevels.map(({ level, label, color, text }) => {
             const price = fibLevelPrice(base, target, level, useLog);
-            return { level, label, color, price, y: priceToYScaled(price) };
+            return { level, label, color, text, price, y: priceToYScaled(price) };
         });
         this._levelYNonScaled = priceToYNonScaled
             ? this._levelData.map(ld => priceToYNonScaled(ld.price))
@@ -243,7 +244,7 @@ export class FibRetracementDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     /** Get calculated level data (DPR-scaled for rendering) */
-    getLevelData(): { level: number; label: string; color: string; price: number; y: number }[] {
+    getLevelData(): { level: number; label: string; color: string; text?: string; price: number; y: number }[] {
         return this._levelData;
     }
 
@@ -343,7 +344,7 @@ export class FibRetracementDrawing implements Drawing, DrawingSettingsProvider {
             backgroundOpacity: data.backgroundOpacity,
             reversed: data.reversed,
             levels: levelsFromJSON(data.levels),
-            opacityValue: data.opacity,
+            opacityValue: 1, // modalda artik duzenlenmiyor: eski kayitlardaki saydamlik yok sayilir
         });
         drawing.style = { ...drawing.style, ...data.style };
         drawing.fib.applyJSON(data.fib);

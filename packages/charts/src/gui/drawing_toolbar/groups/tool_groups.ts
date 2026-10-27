@@ -39,7 +39,13 @@ export const TOOL_GROUPS: ToolGroup[] = [
         defaultIcon: DRAWING_ICONS.parallelChannel,
         tools: [
             { id: 'parallelChannel', name: 'Parallel Channel', icon: DRAWING_ICONS.parallelChannel, favorite: true },
+            { id: 'disjointChannel', name: 'Disjoint Channel', icon: DRAWING_ICONS.disjointChannel },
+            { id: 'flatTopBottom', name: 'Flat Top/Bottom', icon: DRAWING_ICONS.flatTopBottom },
             { id: 'regressionTrend', name: 'Regression Trend', icon: DRAWING_ICONS.regressionTrend },
+            { id: 'pitchfork', name: 'Pitchfork', icon: DRAWING_ICONS.pitchfork },
+            { id: 'schiffPitchfork', name: 'Schiff Pitchfork', icon: DRAWING_ICONS.schiffPitchfork },
+            { id: 'modifiedSchiffPitchfork', name: 'Modified Schiff Pitchfork', icon: DRAWING_ICONS.modifiedSchiffPitchfork },
+            { id: 'insidePitchfork', name: 'Inside Pitchfork', icon: DRAWING_ICONS.insidePitchfork },
         ]
     },
     {
@@ -50,6 +56,18 @@ export const TOOL_GROUPS: ToolGroup[] = [
             { id: 'fibRetracement', name: 'Fib Retracement', icon: DRAWING_ICONS.fibRetracement, favorite: true },
             { id: 'fibExtension', name: 'Fib Extension', icon: DRAWING_ICONS.fibExtension },
             { id: 'fibChannel', name: 'Fib Channel', icon: DRAWING_ICONS.fibChannel },
+            { id: 'pitchfan', name: 'Pitchfan', icon: DRAWING_ICONS.pitchfan },
+            { id: 'fibTimeZone', name: 'Fib Time Zone', icon: DRAWING_ICONS.fibTimeZone },
+            { id: 'trendBasedFibTime', name: 'Trend-Based Fib Time', icon: DRAWING_ICONS.trendBasedFibTime },
+            { id: 'fibSpeedResistanceFan', name: 'Fib Speed Resistance Fan', icon: DRAWING_ICONS.fibSpeedResistanceFan },
+            { id: 'fibSpeedResistanceArcs', name: 'Fib Speed Resistance Arcs', icon: DRAWING_ICONS.fibSpeedResistanceArcs },
+            { id: 'fibCircles', name: 'Fib Circles', icon: DRAWING_ICONS.fibCircles },
+            { id: 'fibSpiral', name: 'Fib Spiral', icon: DRAWING_ICONS.fibSpiral },
+            { id: 'fibWedge', name: 'Fib Wedge', icon: DRAWING_ICONS.fibWedge },
+            { id: 'gannBox', name: 'Gann Box', icon: DRAWING_ICONS.gannBox },
+            { id: 'gannSquareFixed', name: 'Gann Square Fixed', icon: DRAWING_ICONS.gannSquareFixed },
+            { id: 'gannSquare', name: 'Gann Square', icon: DRAWING_ICONS.gannSquare },
+            { id: 'gannFan', name: 'Gann Fan', icon: DRAWING_ICONS.gannFan },
         ]
     },
     {
@@ -63,6 +81,8 @@ export const TOOL_GROUPS: ToolGroup[] = [
             { id: 'arrowMarker', name: 'Arrow Marker', icon: DRAWING_ICONS.arrowMarker },
             { id: 'arrowMarkedUp', name: 'Arrow Marked Up', icon: DRAWING_ICONS.arrowMarkedUp },
             { id: 'arrowMarkedDown', name: 'Arrow Marked Down', icon: DRAWING_ICONS.arrowMarkedDown },
+            { id: 'arrowMarkedLeft', name: 'Arrow Marked Left', icon: DRAWING_ICONS.arrowMarkedLeft },
+            { id: 'arrowMarkedRight', name: 'Arrow Marked Right', icon: DRAWING_ICONS.arrowMarkedRight },
             { id: 'rectangle', name: 'Rectangle', icon: DRAWING_ICONS.rectangle },
             { id: 'rotatedRectangle', name: 'Rotated Rectangle', icon: DRAWING_ICONS.rotatedRectangle },
             { id: 'ellipse', name: 'Ellipse', icon: DRAWING_ICONS.ellipse },
@@ -70,6 +90,21 @@ export const TOOL_GROUPS: ToolGroup[] = [
             { id: 'arc', name: 'Arc', icon: DRAWING_ICONS.arc },
             { id: 'path', name: 'Path', icon: DRAWING_ICONS.path },
             { id: 'circle', name: 'Circle', icon: DRAWING_ICONS.circle },
+            { id: 'doubleCurve', name: 'Double Curve', icon: DRAWING_ICONS.doubleCurve },
+        ]
+    },
+    {
+        id: 'projection',
+        name: 'Projection',
+        defaultIcon: DRAWING_ICONS.anchoredVwap,
+        tools: [
+            { id: 'projection', name: 'Projection', icon: DRAWING_ICONS.projection },
+            { id: 'positionForecast', name: 'Position Forecast', icon: DRAWING_ICONS.positionForecast },
+            { id: 'barsPattern', name: 'Bars Pattern', icon: DRAWING_ICONS.barsPattern },
+            { id: 'ghostFeed', name: 'Ghost Feed', icon: DRAWING_ICONS.ghostFeed },
+            { id: 'anchoredVwap', name: 'Anchored VWAP', icon: DRAWING_ICONS.anchoredVwap },
+            { id: 'fixedRangeVolumeProfile', name: 'Fixed Range Volume Profile', icon: DRAWING_ICONS.fixedRangeVolumeProfile },
+            { id: 'anchoredVolumeProfile', name: 'Anchored Volume Profile', icon: DRAWING_ICONS.anchoredVolumeProfile },
         ]
     },
     {
@@ -79,6 +114,12 @@ export const TOOL_GROUPS: ToolGroup[] = [
         tools: [
             { id: 'text', name: 'Text', icon: DRAWING_ICONS.text, favorite: true },
             { id: 'callout', name: 'Callout', icon: DRAWING_ICONS.callout },
+            { id: 'note', name: 'Note', icon: DRAWING_ICONS.note },
+            { id: 'priceNote', name: 'Price Note', icon: DRAWING_ICONS.priceNote },
+            { id: 'pin', name: 'Pin', icon: DRAWING_ICONS.pin },
+            { id: 'signpost', name: 'Signpost', icon: DRAWING_ICONS.signpost },
+            { id: 'comment', name: 'Comment', icon: DRAWING_ICONS.comment },
+            { id: 'table', name: 'Table', icon: DRAWING_ICONS.table },
         ]
     },
     {
@@ -125,7 +166,15 @@ export const TOOL_GROUPS: ToolGroup[] = [
         defaultIcon: DRAWING_ICONS.xabcdPattern,
         tools: [
             { id: 'xabcdPattern', name: 'XABCD Pattern', icon: DRAWING_ICONS.xabcdPattern, favorite: true },
+            { id: 'cypherPattern', name: 'Cypher Pattern', icon: DRAWING_ICONS.xabcdPattern },
             { id: 'elliotImpulse', name: 'Elliott Impulse Wave (12345)', icon: DRAWING_ICONS.elliottImpulse, favorite: true },
+            { id: 'elliotCorrection', name: 'Elliott Correction Wave (ABC)', icon: DRAWING_ICONS.elliottCorrection },
+            { id: 'elliotTriangle', name: 'Elliott Triangle Wave (ABCDE)', icon: DRAWING_ICONS.elliottTriangle },
+            { id: 'elliotDoubleCombo', name: 'Elliott Double Combo Wave (WXY)', icon: DRAWING_ICONS.elliottDoubleCombo },
+            { id: 'elliotTripleCombo', name: 'Elliott Triple Combo Wave (WXYXZ)', icon: DRAWING_ICONS.elliottTripleCombo },
+            { id: 'cyclicLines', name: 'Cyclic Lines', icon: DRAWING_ICONS.cyclicLines },
+            { id: 'timeCycles', name: 'Time Cycles', icon: DRAWING_ICONS.timeCycles },
+            { id: 'sineLine', name: 'Sine Line', icon: DRAWING_ICONS.sineLine },
         ]
     },
     {

@@ -12,4 +12,5 @@ export { createCheckbox } from './Checkbox';
 export { createSelect, SelectOption } from './Select';
 export { createToggleButton, createToggleButtonGroup, TOGGLE_ICONS, ToggleButtonOptions } from './ToggleButton';
 export { createTextInput, TextInputOptions } from './TextInput';
-export { createFibLevelsEditor, createFibLevelsCompact, FibLevel } from './FibLevelsEditor';
+export { createPitchLevelsEditor, PitchLevelEdit, PitchLevelsEditorOptions } from './PitchLevelsEditor';
+export { createFibLevelsEditor, createFibLevelTextEditor, createFibLevelsCompact, FibLevel } from './FibLevelsEditor';

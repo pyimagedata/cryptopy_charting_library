@@ -6,6 +6,7 @@ export interface FibLevel {
     label: string;
     color: string;
     visible: boolean;
+    text?: string;
 }
 
 const styles = {
@@ -66,9 +67,15 @@ const styles = {
     `,
 };
 
+export interface FibLevelsEditorOptions {
+    /** Sabit seviye listesi: ekleme/silme dugmeleri gizlenir (TradingView gibi). */
+    fixed?: boolean;
+}
+
 export function createFibLevelsEditor(
     levels: FibLevel[],
-    onChange: (levels: FibLevel[]) => void
+    onChange: (levels: FibLevel[]) => void,
+    options: FibLevelsEditorOptions = {}
 ): HTMLElement {
     const container = document.createElement('div');
     container.style.cssText = styles.container;
@@ -96,7 +103,7 @@ export function createFibLevelsEditor(
             render();
         };
         toolbar.appendChild(addButton);
-        container.appendChild(toolbar);
+        if (!options.fixed) container.appendChild(toolbar);
 
         const grid = document.createElement('div');
         grid.style.cssText = styles.grid;
@@ -105,7 +112,7 @@ export function createFibLevelsEditor(
             grid.appendChild(createLevelRow(level, index, state, () => {
                 onChange([...state]);
                 render();
-            }));
+            }, !!options.fixed));
         });
 
         container.appendChild(grid);
@@ -119,7 +126,8 @@ function createLevelRow(
     level: FibLevel,
     index: number,
     levels: FibLevel[],
-    notify: () => void
+    notify: () => void,
+    fixed: boolean
 ): HTMLElement {
     const row = document.createElement('div');
     row.style.cssText = styles.row;
@@ -167,9 +175,44 @@ function createLevelRow(
         levels.splice(index, 1);
         notify();
     };
-    row.appendChild(remove);
+    if (!fixed) row.appendChild(remove);
 
     return row;
+}
+
+/** Seviye basina metin girisi (Metin sekmesi): renk noktasi + katsayi + metin kutusu. */
+export function createFibLevelTextEditor(
+    levels: FibLevel[],
+    onChange: (levels: FibLevel[]) => void
+): HTMLElement {
+    const grid = document.createElement('div');
+    grid.style.cssText = styles.grid;
+    const state = levels.map((level) => ({ ...level }));
+    state.forEach((level, index) => {
+        const row = document.createElement('div');
+        row.style.cssText = styles.row;
+        const dot = document.createElement('span');
+        dot.style.cssText = `width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${level.color};`;
+        row.appendChild(dot);
+        const coeff = document.createElement('span');
+        coeff.textContent = normalizeDisplayValue(level.level);
+        coeff.style.cssText = 'width:44px;flex-shrink:0;font-size:13px;color:var(--text-primary);';
+        row.appendChild(coeff);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = level.text ?? '';
+        input.style.cssText = styles.input;
+        input.onfocus = () => { input.style.borderColor = '#2962ff'; };
+        input.onblur = () => { input.style.borderColor = 'var(--border-color)'; };
+        // Her tusta guncelle (yeniden cizim yok: odak kaybolmasin).
+        input.oninput = () => {
+            state[index].text = input.value;
+            onChange(state.map((l) => ({ ...l })));
+        };
+        row.appendChild(input);
+        grid.appendChild(row);
+    });
+    return grid;
 }
 
 function normalizeDisplayValue(value: number): string {

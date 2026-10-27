@@ -18,12 +18,23 @@ import {
     DrawingSettingsConfig,
     AttributeBarItem,
     createStyleTab,
-    createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
-    checkboxRow
+    createVisibilityTab
 } from './drawing-settings-config';
+
+import {
+    LineToolProps,
+    createLineProps,
+    getLineProp,
+    setLineProp,
+    isLineProp,
+    serializeLineProps,
+    deserializeLineProps,
+    buildLineStyleSections,
+    lineAxisLabels,
+    DEFAULT_LINE_TOOL_PROPS,
+    AxisLabelProvider,
+    DrawingAxisLabels
+} from './line-tool-common';
 
 export interface TrendLineOptions {
     color?: string;
@@ -36,7 +47,7 @@ export interface TrendLineOptions {
 /**
  * Trend Line - A line connecting two points on the chart
  */
-export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
+export class TrendLineDrawing implements Drawing, DrawingSettingsProvider, AxisLabelProvider {
     readonly id: string;
     readonly type: DrawingType = 'trendLine';
 
@@ -50,6 +61,9 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
     extendLeft: boolean = false;
     extendRight: boolean = false;
 
+    /** Ortak cizgi ozellikleri: uc sekilleri, orta nokta, fiyat etiketleri, istatistikler */
+    lineProps: LineToolProps = createLineProps(undefined, this.getDefaultLineProps());
+
     // Cached pixel coordinates (updated by renderer)
     private _pixelPoints: { x: number; y: number }[] = [];
 
@@ -60,6 +74,8 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
             color: options.color || '#2962ff',
             lineWidth: options.lineWidth || 2,
             lineDash: options.lineDash || [],
+            // TradingView varsayilani: metin cizginin altinda (eski kayitlar fromJSON'da 'middle' kalir)
+            textVAlign: 'bottom',
         };
         this.extendLeft = options.extendLeft || false;
         this.extendRight = options.extendRight || false;
@@ -69,26 +85,30 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
     // DrawingSettingsProvider Implementation
     // =========================================================================
 
+    /** Ayar bolumu basligi (ray / extendedLine alt siniflari degistirir) */
+    protected getToolTitle(): string {
+        return 'Trend Line';
+    }
+
+    /** Bu aracin varsayilan cizgi ozellikleri (Info Line / Arrow alt siniflari degistirir) */
+    protected getDefaultLineProps(): Readonly<LineToolProps> {
+        return DEFAULT_LINE_TOOL_PROPS;
+    }
+
+    /** Fiyat ekseni etiketleri (showPriceLabels); zaman etiketi yok */
+    getAxisLabels(): DrawingAxisLabels {
+        return { prices: lineAxisLabels(this.lineProps, this.points, this.style.color), times: [] };
+    }
+
+    /** Extend bolumu gosterilsin mi (ray / extendedLine'da sabit oldugu icin gizli) */
+    protected allowExtendSettings(): boolean {
+        return true;
+    }
+
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Trend Line',
-                        rows: [
-                            colorRow('color', 'Line Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Extend',
-                        rows: [
-                            checkboxRow('extendLeft', 'Extend Left'),
-                            checkboxRow('extendRight', 'Extend Right'),
-                        ]
-                    }
-                ]),
+                createStyleTab(buildLineStyleSections(this.getToolTitle(), this.allowExtendSettings())),
                 createVisibilityTab()
             ]
         };
@@ -113,7 +133,7 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
             case 'extendLeft': return this.extendLeft;
             case 'extendRight': return this.extendRight;
             case 'visible': return this.visible;
-            default: return undefined;
+            default: return getLineProp(this.lineProps, key);
         }
     }
 
@@ -138,6 +158,9 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
                 break;
             case 'visible':
                 this.visible = value;
+                break;
+            default:
+                if (isLineProp(key)) setLineProp(this.lineProps, key, value);
                 break;
         }
     }
@@ -261,6 +284,7 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
             locked: this.locked,
             extendLeft: this.extendLeft,
             extendRight: this.extendRight,
+            lineProps: serializeLineProps(this.lineProps),
             // Text properties
             text: this.style.text,
             textColor: this.style.textColor,
@@ -272,6 +296,32 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
         };
     }
 
+    /**
+     * Kayitli veriyi (id, noktalar, durum, metin, lineProps) cizime uygular.
+     * Eksik alanlar varsayilana duser; eski kayitlar degismeden yuklenir.
+     */
+    protected static applySerialized<T extends TrendLineDrawing>(drawing: T, data: SerializedDrawing): T {
+        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
+
+        drawing.points = [...data.points];
+        drawing.state = data.state;
+        drawing.visible = data.visible;
+        drawing.locked = data.locked;
+        drawing.lineProps = deserializeLineProps(data.lineProps, drawing.getDefaultLineProps());
+
+        // Restore text properties
+        if (data.text) drawing.style.text = data.text;
+        if (data.textColor) drawing.style.textColor = data.textColor;
+        if (data.fontSize) drawing.style.fontSize = data.fontSize;
+        if (data.fontWeight) drawing.style.fontWeight = data.fontWeight;
+        if (data.fontStyle) drawing.style.fontStyle = data.fontStyle;
+        if (data.textHAlign) drawing.style.textHAlign = data.textHAlign;
+        // Alani olmayan eski kayitlar eski varsayilani (middle) korur
+        drawing.style.textVAlign = data.textVAlign || 'middle';
+
+        return drawing;
+    }
+
     /** Create TrendLineDrawing from serialized data */
     static fromJSON(data: SerializedDrawing): TrendLineDrawing {
         const drawing = new TrendLineDrawing({
@@ -281,25 +331,6 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider {
             extendLeft: data.extendLeft,
             extendRight: data.extendRight,
         });
-
-        // Override generated id with saved id
-        (drawing as any)._id = data.id;
-        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
-
-        drawing.points = [...data.points];
-        drawing.state = data.state;
-        drawing.visible = data.visible;
-        drawing.locked = data.locked;
-
-        // Restore text properties
-        if (data.text) drawing.style.text = data.text;
-        if (data.textColor) drawing.style.textColor = data.textColor;
-        if (data.fontSize) drawing.style.fontSize = data.fontSize;
-        if (data.fontWeight) drawing.style.fontWeight = data.fontWeight;
-        if (data.fontStyle) drawing.style.fontStyle = data.fontStyle;
-        if (data.textHAlign) drawing.style.textHAlign = data.textHAlign;
-        if (data.textVAlign) drawing.style.textVAlign = data.textVAlign;
-
-        return drawing;
+        return TrendLineDrawing.applySerialized(drawing, data);
     }
 }

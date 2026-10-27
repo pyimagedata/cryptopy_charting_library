@@ -159,6 +159,15 @@ export class PriceAxisWidget implements Disposable {
             this._ctx.stroke();
         }
 
+        // Cizim fiyat etiketleri (ornegin trend cizgisi uclari): son fiyat rozetinin ALTINDA kalsin diye once
+        // Cizim fiyat etiketleri (ornegin trend cizgisi uclari)
+        for (const label of this._drawingLabels) {
+            const y = this._priceScale.priceToCoordinate(label.price);
+            // TradingView gibi: gorunur olcegin disindaki cizim etiketleri gizlenir (±20 tolerans sadece crosshair/son fiyat)
+            if (y < 0 || y > this._height) continue;
+            this._drawLabel(y, label.text, label.color, false);
+        }
+
         // Draw last value label
         if (this._lastValue) {
             const y = this._priceScale.priceToCoordinate(this._lastValue.price);
@@ -206,6 +215,15 @@ export class PriceAxisWidget implements Disposable {
         }
 
 
+
+        if (this._drawingLabels.length) {
+            this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+            for (const label of this._drawingLabels) {
+                const ly = this._priceScale.priceToCoordinate(label.price);
+                if (ly < 0 || ly > this._height) continue;
+                maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(label.text).width);
+            }
+        }
 
         return Math.ceil(Math.max(44, maxTextWidth + 12));
     }
@@ -260,6 +278,12 @@ export class PriceAxisWidget implements Disposable {
     }
 
     private _lastValue: { price: number; text: string; color: string } | null = null;
+    private _drawingLabels: { price: number; text: string; color: string }[] = [];
+
+    /** Cizimlerin fiyat etiketleri (her cizimde yeniden verilir) */
+    setDrawingLabels(labels: { price: number; text: string; color: string }[]): void {
+        this._drawingLabels = labels;
+    }
     private _crosshairY: number | null = null;
     private _crosshairText: string | null = null;
     private _countdown: string | null = null;

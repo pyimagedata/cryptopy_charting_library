@@ -24,19 +24,23 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
 } from './drawing-settings-config';
+
+import {
+    createPatternStyle,
+    applySerializedPattern,
+    getPatternSetting,
+    setPatternSetting,
+    patternStyleSections,
+    patternAttributeBarItems,
+} from './pattern-common';
+
 
 export interface ThreeDrivesOptions {
     color?: string;
     lineWidth?: number;
     lineDash?: number[];
 }
-
-// Point labels for Three Drives (no labels, just numbered internally)
-export const THREE_DRIVES_LABELS = ['1', '2', '3', '4', '5', '6', '7'];
 
 /**
  * Three Drives Pattern - 7-point zigzag pattern
@@ -59,13 +63,7 @@ export class ThreeDrivesDrawing implements Drawing, DrawingSettingsProvider {
 
     constructor(options: ThreeDrivesOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#673ab7',
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-            fillColor: undefined, // No fill for Three Drives
-        };
+        this.style = createPatternStyle('threeDrives', DEFAULT_DRAWING_STYLE, options);
     }
 
     // =========================================================================
@@ -75,59 +73,24 @@ export class ThreeDrivesDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    }
-                ]),
+                createStyleTab(patternStyleSections(false)),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return patternAttributeBarItems(false);
     }
 
     getSettingValue(key: string): any {
-        switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'visible': return this.visible;
-            default: return undefined;
-        }
+        if (key === 'visible') return this.visible;
+        return getPatternSetting(this.style, key);
     }
 
     setSettingValue(key: string, value: any): void {
-        switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
-        }
+        if (key === 'visible') this.visible = value;
+        else setPatternSetting(this.style, key, value);
     }
 
     // =========================================================================
@@ -176,9 +139,9 @@ export class ThreeDrivesDrawing implements Drawing, DrawingSettingsProvider {
         this._previewPointIndex = -1;
     }
 
-    /** Get the label for a point index */
-    getPointLabel(index: number): string {
-        return THREE_DRIVES_LABELS[index] || '';
+    /** Three Drives has no point labels (ratio badges are drawn instead) */
+    getPointLabel(_index: number): string {
+        return '';
     }
 
     /** Set cached pixel coordinates */
@@ -268,18 +231,8 @@ export class ThreeDrivesDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     static fromJSON(data: SerializedDrawing): ThreeDrivesDrawing {
-        const drawing = new ThreeDrivesDrawing({
-            color: data.style.color,
-            lineWidth: data.style.lineWidth,
-            lineDash: data.style.lineDash
-        });
-
-        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
-        drawing.points = [...data.points];
-        drawing.state = data.state as DrawingState;
-        drawing.visible = data.visible;
-        drawing.locked = data.locked;
-
+        const drawing = new ThreeDrivesDrawing();
+        applySerializedPattern(drawing, data);
         return drawing;
     }
 }

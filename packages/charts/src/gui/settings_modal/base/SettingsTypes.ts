@@ -20,6 +20,8 @@ export interface NumberRow {
     min?: number;
     max?: number;
     step?: number;
+    /** Wide input (5+ digits), opt-in */
+    wide?: boolean;
 }
 
 export interface SliderRow {
@@ -82,6 +84,19 @@ export interface LevelsGridRow {
     label: string;
 }
 
+/** Pitchfork / Pitchfan seviye tablosu: gorunur + katsayi + renk + kalinlik + stil (key: 'levels') */
+export interface PitchLevelsRow {
+    type: 'pitchLevels';
+    key: string;
+    label: string;
+    /** 0 katsayisi gecerli (varsayilan: katsayi > 0) */
+    allowZero?: boolean;
+    /** En buyuk katsayi (varsayilan 100) */
+    max?: number;
+    /** Satirda cizgi kalinlik/stil dugmesi (varsayilan true) */
+    lines?: boolean;
+}
+
 // Union of all row types
 export type SettingsRow =
     | ColorRow
@@ -94,7 +109,8 @@ export type SettingsRow =
     | TextareaRow
     | ToggleColorRow
     | GroupRow
-    | LevelsGridRow;
+    | LevelsGridRow
+    | PitchLevelsRow;
 
 // ========================================
 // Section - Group of related settings
@@ -123,6 +139,8 @@ export interface SettingsTab {
 
 export interface SettingsConfig {
     tabs: SettingsTab[];
+    /** Tab selected on open (default 'style') */
+    initialTab?: string;
 }
 
 // ========================================
@@ -203,4 +221,8 @@ export function isGroupRow(row: SettingsRow): row is GroupRow {
 
 export function isLevelsGridRow(row: SettingsRow): row is LevelsGridRow {
     return row.type === 'levelsGrid';
+}
+
+export function isPitchLevelsRow(row: SettingsRow): row is PitchLevelsRow {
+    return row.type === 'pitchLevels';
 }

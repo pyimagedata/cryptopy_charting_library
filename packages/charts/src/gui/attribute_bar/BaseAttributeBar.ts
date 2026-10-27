@@ -6,7 +6,11 @@
 import { Delegate } from '../../helpers/delegate';
 import { Drawing } from '../../drawings';
 import { DrawingType } from '../../drawings/drawing';
-import { createToolbarButton, createSeparator, createColorButton, createLineWidthButton, ICONS } from './components';
+import { AttributeBarItem } from '../../drawings/drawing-settings-config';
+import { shapeAttributeBarItems } from '../../drawings/shape-common';
+import { t } from '../../helpers/translations';
+import { createToolbarButton, createSeparator, createColorButton, createLineWidthButton, createLineStyleButton, createFontSizeButton, ICONS } from './components';
+import { ATTR_BAR_STYLE, barColors, refreshButtonState } from './components/style';
 
 /**
  * Events emitted by attribute bar
@@ -15,10 +19,13 @@ export interface AttributeBarEvents {
     colorChanged: Delegate<string>;
     lineWidthChanged: Delegate<number>;
     lineStyleChanged: Delegate<'solid' | 'dashed' | 'dotted'>;
+    fontSizeChanged: Delegate<number>;
     deleteClicked: Delegate<void>;
     lockClicked: Delegate<void>;
     cloneClicked: Delegate<void>;
     settingsClicked: Delegate<void>;
+    /** More (...) button clicked; carries the button's bounding rect for menu placement */
+    moreClicked: Delegate<DOMRect>;
 }
 
 /**
@@ -43,10 +50,14 @@ export class BaseAttributeBar {
     readonly colorChanged = new Delegate<string>();
     readonly lineWidthChanged = new Delegate<number>();
     readonly lineStyleChanged = new Delegate<'solid' | 'dashed' | 'dotted'>();
+    readonly fontSizeChanged = new Delegate<number>();
     readonly deleteClicked = new Delegate<void>();
     readonly lockClicked = new Delegate<void>();
     readonly cloneClicked = new Delegate<void>();
     readonly settingsClicked = new Delegate<void>();
+    readonly moreClicked = new Delegate<DOMRect>();
+
+    private _lockBtn: HTMLButtonElement | null = null;
 
     constructor(container: HTMLElement) {
         this._boundMouseMove = this._onMouseMove.bind(this);
@@ -61,10 +72,10 @@ export class BaseAttributeBar {
         this._theme = theme;
 
         if (this._element) {
-            const isDark = theme === 'dark';
-            this._element.style.background = isDark ? '#1e222d' : '#ffffff';
-            this._element.style.boxShadow = isDark ? '0 4px 20px rgba(0,0,0,0.4)' : '0 4px 20px rgba(0,0,0,0.15)';
-            this._element.style.border = isDark ? 'none' : '1px solid #e0e3eb';
+            const c = barColors(theme);
+            this._element.style.background = c.barBg;
+            this._element.style.boxShadow = c.barShadow;
+            this._element.style.border = `1px solid ${c.barBorder}`;
         }
 
         // Rebuild if visible to update buttons
@@ -87,6 +98,15 @@ export class BaseAttributeBar {
         this._element.style.display = 'none';
         this._isVisible = false;
         this._currentDrawing = null;
+        this._lockBtn = null;
+    }
+
+    /** Updates the lock button icon/tooltip/active colour from the current drawing's locked flag (no rebuild) */
+    syncLockState(): void {
+        const btn = this._lockBtn;
+        const drawing = this._currentDrawing;
+        if (!btn || !drawing) return;
+        this._applyLockState(btn, !!drawing.locked);
     }
 
     isVisible(): boolean {
@@ -100,10 +120,12 @@ export class BaseAttributeBar {
         this.colorChanged.destroy();
         this.lineWidthChanged.destroy();
         this.lineStyleChanged.destroy();
+        this.fontSizeChanged.destroy();
         this.deleteClicked.destroy();
         this.lockClicked.destroy();
         this.cloneClicked.destroy();
         this.settingsClicked.destroy();
+        this.moreClicked.destroy();
 
         if (this._element?.parentNode) {
             this._element.parentNode.removeChild(this._element);
@@ -137,7 +159,71 @@ export class BaseAttributeBar {
                 this._buildSimpleLineBar();
                 break;
             case 'rectangle':
+            case 'rotatedRectangle':
             case 'ellipse':
+            case 'circle':
+            case 'triangle':
+            case 'arc':
+            case 'path':
+            case 'polyline':
+            case 'brush':
+            case 'highlighter':
+            case 'curve':
+            case 'doubleCurve':
+            case 'cyclicLines':
+            case 'timeCycles':
+            case 'sineLine':
+            case 'xabcdPattern':
+            case 'cypherPattern':
+            case 'elliotImpulse':
+            case 'elliotCorrection':
+            case 'elliotTriangle':
+            case 'elliotDoubleCombo':
+            case 'elliotTripleCombo':
+            case 'abcd':
+            case 'headShoulders':
+            case 'trianglePattern':
+            case 'threeDrives':
+            case 'text':
+            case 'callout':
+            case 'note':
+            case 'priceNote':
+            case 'pin':
+            case 'signpost':
+            case 'comment':
+            case 'table':
+            case 'priceLabel':
+            case 'flagMarked':
+            case 'arrowMarkedUp':
+            case 'arrowMarkedDown':
+            case 'arrowMarkedLeft':
+            case 'arrowMarkedRight':
+            case 'arrowMarker':
+            case 'anchoredVwap':
+            case 'fixedRangeVolumeProfile':
+            case 'anchoredVolumeProfile':
+            case 'pitchfork':
+            case 'schiffPitchfork':
+            case 'modifiedSchiffPitchfork':
+            case 'insidePitchfork':
+            case 'pitchfan':
+            case 'fibTimeZone':
+            case 'trendBasedFibTime':
+            case 'fibSpeedResistanceFan':
+            case 'fibSpeedResistanceArcs':
+            case 'fibCircles':
+            case 'fibSpiral':
+            case 'fibWedge':
+            case 'gannBox':
+            case 'gannSquareFixed':
+            case 'gannSquare':
+            case 'gannFan':
+            case 'disjointChannel':
+            case 'flatTopBottom':
+            case 'projection':
+            case 'positionForecast':
+            case 'barsPattern':
+            case 'ghostFeed':
                 this._buildShapeBar();
                 break;
             case 'parallelChannel':
@@ -181,18 +267,36 @@ export class BaseAttributeBar {
         this._addSeparator();
         this._addLockButton();
         this._addDeleteButton();
+        this._addMoreButton();
     }
 
     protected _buildShapeBar(): void {
-        // Border color
-        this._addColorButton('color', 'Border Color');
-        // Fill color
-        this._addColorButton('fillColor', 'Background Color');
-        this._addLineWidthButton();
+        // Items come from the drawing (border color, fill color, width, style)
+        const drawing: any = this._currentDrawing;
+        const items: AttributeBarItem[] = typeof drawing?.getAttributeBarItems === 'function'
+            ? drawing.getAttributeBarItems()
+            : shapeAttributeBarItems();
+        for (const item of items) {
+            if (item.type === 'color') {
+                if (item.key === 'fillColor' || item.key === 'color') {
+                    // Eski davranis: yalnizca fillColor / color (kalem simgesi); icon verilirse ona uyulur
+                    this._addColorButton(item.key === 'fillColor' ? 'fillColor' : 'color', item.tooltip, item.icon);
+                } else {
+                    this._addColorButton(item.key, item.tooltip, item.icon);
+                }
+            } else if (item.type === 'number' && item.key === 'fontSize') {
+                this._addFontSizeSelect(item.tooltip);
+            } else if (item.type === 'lineWidth') {
+                this._addLineWidthButton();
+            } else if (item.type === 'lineStyle') {
+                this._addLineStyleButton();
+            }
+        }
         this._addSeparator();
         this._addSettingsButton();
         this._addLockButton();
         this._addDeleteButton();
+        this._addMoreButton();
     }
 
     protected _buildChannelBar(): void {
@@ -202,6 +306,7 @@ export class BaseAttributeBar {
         this._addSettingsButton();
         this._addLockButton();
         this._addDeleteButton();
+        this._addMoreButton();
     }
 
     protected _buildDefaultBar(): void {
@@ -210,6 +315,7 @@ export class BaseAttributeBar {
         this._addSeparator();
         this._addLockButton();
         this._addDeleteButton();
+        this._addMoreButton();
     }
 
     // --- Protected: Button Helpers ---
@@ -217,10 +323,11 @@ export class BaseAttributeBar {
     protected _addDragHandle(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.drag, title: 'Move toolbar', className: 'drag-handle', theme: this._theme },
+            { icon: ICONS.drag, title: t('Move toolbar'), className: 'drag-handle', theme: this._theme },
             () => { }
         );
         btn.style.cursor = 'grab';
+        btn.style.width = `${ATTR_BAR_STYLE.metrics.gripWidth}px`;
         btn.addEventListener('mousedown', (e) => {
             btn.style.cursor = 'grabbing';
             this._onDragStart(e);
@@ -234,7 +341,7 @@ export class BaseAttributeBar {
     protected _addTemplateButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.template, title: 'Template', theme: this._theme },
+            { icon: ICONS.template, title: t('Template'), theme: this._theme },
             () => this.settingsClicked.fire()
         );
         this._element.appendChild(btn);
@@ -242,26 +349,35 @@ export class BaseAttributeBar {
 
     protected _addSeparator(): void {
         if (!this._element) return;
-        // Separator can be theme-aware too if implementation supports it, 
-        // but it's usually just a border. Assuming createSeparator handles or returns simple element.
-        // Let's check separator implementation effectively? It's just a div with border-left usually.
-        // I'll leave as is for now, but really should check if it needs color update.
-        const sep = createSeparator();
-        if (this._theme === 'light') {
-            sep.style.borderLeftColor = '#e0e3eb';
-        }
+        const sep = createSeparator(this._theme);
         this._element.appendChild(sep);
     }
 
-    protected _addColorButton(property: 'color' | 'fillColor' = 'color', title: string = 'Color'): void {
+    protected _addColorButton(
+        property: string = 'color',
+        title: string = 'Color',
+        iconName?: 'pencil' | 'fillBucket' | 'textColor'
+    ): void {
         if (!this._element || !this._currentDrawing) return;
-        const icon = property === 'fillColor' ? ICONS.fillBucket : ICONS.pencil;
+        const icon = iconName ? ICONS[iconName] : property === 'fillColor' ? ICONS.fillBucket : ICONS.pencil;
         const colorBtn = createColorButton(
             this._currentDrawing,
-            { property, icon, title, theme: this._theme },
+            { property, icon, title: t(title), theme: this._theme },
             (color) => this.colorChanged.fire(color)
         );
         this._element.appendChild(colorBtn);
+    }
+
+    /** Yazi boyutu secici (Text / Callout / Price Label / Arrow Mark / Arrow Marker): TV tarzi acilir dugme */
+    protected _addFontSizeSelect(title: string = 'Font Size'): void {
+        if (!this._element || !this._currentDrawing) return;
+        const btn = createFontSizeButton(
+            this._currentDrawing,
+            t(title),
+            (size) => this.fontSizeChanged.fire(size),
+            this._theme
+        );
+        this._element.appendChild(btn);
     }
 
     protected _addLineWidthButton(): void {
@@ -274,11 +390,21 @@ export class BaseAttributeBar {
         this._element.appendChild(btn);
     }
 
+    protected _addLineStyleButton(): void {
+        if (!this._element || !this._currentDrawing) return;
+        const btn = createLineStyleButton(
+            this._currentDrawing,
+            (style) => this.lineStyleChanged.fire(style),
+            this._theme
+        );
+        this._element.appendChild(btn);
+    }
+
     protected _addTextColorButton(): void {
         if (!this._element || !this._currentDrawing) return;
         const colorBtn = createColorButton(
             this._currentDrawing,
-            { property: 'textColor', icon: ICONS.textColor, title: 'Text Color', theme: this._theme },
+            { property: 'textColor', icon: ICONS.textColor, title: t('Text Color'), theme: this._theme },
             (color) => this.colorChanged.fire(color)
         );
         this._element.appendChild(colorBtn);
@@ -287,7 +413,7 @@ export class BaseAttributeBar {
     protected _addSettingsButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.settings, title: 'Settings', theme: this._theme },
+            { icon: ICONS.settings, title: t('Settings'), theme: this._theme },
             () => this.settingsClicked.fire()
         );
         this._element.appendChild(btn);
@@ -296,16 +422,26 @@ export class BaseAttributeBar {
     protected _addLockButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.lock, title: 'Lock drawing', theme: this._theme },
+            { icon: ICONS.lock, title: t('Lock'), theme: this._theme },
             () => this.lockClicked.fire()
         );
+        this._lockBtn = btn;
+        this._applyLockState(btn, !!this._currentDrawing?.locked);
         this._element.appendChild(btn);
+    }
+
+    private _applyLockState(btn: HTMLButtonElement, locked: boolean): void {
+        btn.innerHTML = locked ? ICONS.lock : ICONS.lockOpen;
+        btn.title = locked ? t('Unlock') : t('Lock');
+        btn.dataset.locked = locked ? '1' : '0';
+        // Locked state uses the accent icon colour (see bindButtonStates isToggled)
+        refreshButtonState(btn);
     }
 
     protected _addDeleteButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.delete, title: 'Delete', isDestructive: true, theme: this._theme },
+            { icon: ICONS.delete, title: t('Delete'), isDestructive: true, theme: this._theme },
             () => this.deleteClicked.fire()
         );
         this._element.appendChild(btn);
@@ -314,8 +450,8 @@ export class BaseAttributeBar {
     protected _addMoreButton(): void {
         if (!this._element) return;
         const btn = createToolbarButton(
-            { icon: ICONS.more, title: 'More options', theme: this._theme },
-            () => { }
+            { icon: ICONS.more, title: t('More options'), theme: this._theme },
+            () => this.moreClicked.fire(btn.getBoundingClientRect())
         );
         this._element.appendChild(btn);
     }
@@ -324,6 +460,8 @@ export class BaseAttributeBar {
 
     private _createElement(container: HTMLElement): void {
         this._element = document.createElement('div');
+        const m = ATTR_BAR_STYLE.metrics;
+        const c = barColors(this._theme);
         this._element.style.cssText = `
             position: absolute;
             top: 60px;
@@ -331,12 +469,16 @@ export class BaseAttributeBar {
             transform: translateX(-50%);
             display: none;
             align-items: center;
-            background: #1e222d;
-            border-radius: 6px;
-            padding: 4px 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            box-sizing: border-box;
+            height: ${m.barHeight}px;
+            background: ${c.barBg};
+            border: 1px solid ${c.barBorder};
+            border-radius: ${m.barRadius}px;
+            padding: 0 ${m.barPadding}px;
+            box-shadow: ${c.barShadow};
             z-index: 2000;
-            gap: 2px;
+            gap: ${m.barGap}px;
+            font-family: ${m.fontFamily};
         `;
         container.appendChild(this._element);
     }

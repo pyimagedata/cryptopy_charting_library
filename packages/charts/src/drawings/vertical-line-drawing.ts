@@ -23,8 +23,22 @@ import {
     colorRow,
     lineWidthRow,
     lineStyleRow,
-    checkboxRow
+    checkboxRow,
+    selectRow
 } from './drawing-settings-config';
+
+import {
+    AxisLabelProvider,
+    DrawingAxisLabels,
+    TextOrientation,
+    applyTextFields,
+    textFieldsToJSON,
+    drawLabeledVerticalLine,
+    lineStyleFromDash,
+    dashFromLineStyle
+} from './line-tool-common';
+
+import { t } from '../helpers/translations';
 
 export interface VerticalLineOptions {
     color?: string;
@@ -36,7 +50,7 @@ export interface VerticalLineOptions {
 /**
  * Vertical Line - A line that spans the entire chart height at a specific time
  */
-export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
+export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider, AxisLabelProvider {
     readonly id: string;
     readonly type: DrawingType = 'verticalLine';
 
@@ -48,6 +62,13 @@ export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
 
     // Options
     showTime: boolean = true;
+    /** Metin yonu: cizgi boyunca (dikey) ya da duz yazi */
+    textOrientation: TextOrientation = 'vertical';
+    /**
+     * Tam pane yuksekligi. Yalnizca true desteklenir (false'un TradingView karsiligi belirsiz oldugu icin
+     * arayuzde gosterilmez); kayitta korunur.
+     */
+    extendLine: boolean = true;
 
     // Cached pixel coordinates
     private _pixelX: number = 0;
@@ -59,6 +80,10 @@ export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
             color: options.color || '#2962ff',
             lineWidth: options.lineWidth || 1,
             lineDash: options.lineDash || [],
+            // TradingView varsayilani: metin 14px, ortada
+            fontSize: 14,
+            textHAlign: 'center',
+            textVAlign: 'middle',
         };
         this.showTime = options.showTime !== false;
     }
@@ -82,13 +107,33 @@ export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
                     {
                         title: 'Labels',
                         rows: [
-                            checkboxRow('showTime', 'Show Time'),
+                            checkboxRow('showTime', 'Time label'),
                         ]
                     }
                 ]),
+                {
+                    id: 'text',
+                    label: 'Text',
+                    sections: [{
+                        rows: [
+                            selectRow('textOrientation', 'Text orientation', [
+                                { value: 'vertical', label: t('Vertical') },
+                                { value: 'horizontal', label: t('Horizontal') },
+                            ]),
+                        ]
+                    }]
+                },
                 createVisibilityTab()
             ]
         };
+    }
+
+    /** Zaman ekseninde cizgi renginde etiket (showTime) */
+    getAxisLabels(): DrawingAxisLabels {
+        const times = this.showTime && this.points.length > 0
+            ? [{ time: this.points[0].time, color: this.style.color }]
+            : [];
+        return { prices: [], times };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
@@ -103,11 +148,9 @@ export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
         switch (key) {
             case 'color': return this.style.color;
             case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 5) return 'dashed';
-                return 'dotted';
+            case 'lineStyle': return lineStyleFromDash(this.style.lineDash);
             case 'showTime': return this.showTime;
+            case 'textOrientation': return this.textOrientation;
             default: return undefined;
         }
     }
@@ -120,13 +163,16 @@ export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
             case 'lineWidth':
                 this.style.lineWidth = value;
                 break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [5, 5];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
+            case 'lineStyle': {
+                const dash = dashFromLineStyle(value);
+                if (dash) this.style.lineDash = dash;
                 break;
+            }
             case 'showTime':
                 this.showTime = value;
+                break;
+            case 'textOrientation':
+                if (value === 'vertical' || value === 'horizontal') this.textOrientation = value;
                 break;
         }
     }
@@ -172,44 +218,10 @@ export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
 
         this._pixelX = x;
 
-        ctx.save();
-        ctx.strokeStyle = this.style.color;
-        ctx.lineWidth = this.style.lineWidth * dpr;
-        if (this.style.lineDash && this.style.lineDash.length > 0) {
-            ctx.setLineDash(this.style.lineDash.map(d => d * dpr));
-        }
-
-        // Draw line across entire canvas height (in DPR-scaled coordinates)
+        // Tum yukseklik boyunca cizgi + (varsa) metin; zaman etiketi zaman ekseninde cizilir
         const xScaled = x * dpr;
-        ctx.beginPath();
-        ctx.moveTo(xScaled, 0);
-        ctx.lineTo(xScaled, canvasHeight * dpr);
-        ctx.stroke();
-
-        // Draw time label at the bottom
-        if (this.showTime) {
-            const date = new Date(this.points[0].time);
-            const timeText = date.toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            });
-            ctx.font = `${11 * dpr}px Arial`;
-            const textMetrics = ctx.measureText(timeText);
-            const padding = 4 * dpr;
-            const labelWidth = textMetrics.width + padding * 2;
-            const labelHeight = 16 * dpr;
-
-            // Background
-            ctx.fillStyle = this.style.color;
-            ctx.fillRect(xScaled - labelWidth / 2, canvasHeight * dpr - labelHeight - 2 * dpr, labelWidth, labelHeight);
-
-            // Text
-            ctx.fillStyle = '#ffffff';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(timeText, xScaled, canvasHeight * dpr - labelHeight / 2 - 2 * dpr);
-        }
+        ctx.save();
+        drawLabeledVerticalLine(ctx, this.style, xScaled, 0, canvasHeight * dpr, dpr, this.textOrientation);
 
         // Selection handles
         if (this.state === 'selected' || this.state === 'editing') {
@@ -263,6 +275,9 @@ export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
             visible: this.visible,
             locked: this.locked,
             showLabels: this.showTime,
+            extendLine: this.extendLine,
+            textOrientation: this.textOrientation,
+            ...textFieldsToJSON(this.style),
         };
     }
 
@@ -278,6 +293,11 @@ export class VerticalLineDrawing implements Drawing, DrawingSettingsProvider {
         drawing.state = data.state;
         drawing.visible = data.visible;
         drawing.locked = data.locked;
+        drawing.extendLine = data.extendLine !== false;
+        if (data.textOrientation === 'vertical' || data.textOrientation === 'horizontal') {
+            drawing.textOrientation = data.textOrientation;
+        }
+        applyTextFields(drawing.style, data);
         return drawing;
     }
 }

@@ -22,7 +22,18 @@ import {
     colorRow,
     lineWidthRow,
     lineStyleRow,
+    checkboxRow,
 } from './drawing-settings-config';
+
+import {
+    createShapeStyle,
+    restoreShapeStyle,
+    getShapeSetting,
+    setShapeSetting,
+    shapeStyleSections,
+    shapeAttributeBarItems,
+    SHAPE_DEFAULTS,
+} from './shape-common';
 
 export interface RectangleOptions {
     color?: string;
@@ -45,17 +56,16 @@ export class RectangleDrawing implements Drawing, DrawingSettingsProvider {
     visible: boolean = true;
     locked: boolean = false;
 
+    /** Kutuyu yatayda pencere kenarina uzat */
+    extendLeft: boolean = false;
+    extendRight: boolean = false;
+    /** Yatay orta cizgi */
+    middleLine = { show: false, color: SHAPE_DEFAULTS.rectangle.color, width: 1, style: 'dashed' };
+
     // Rectangle specific options
     constructor(options: RectangleOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2962ff',
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-            fillColor: options.fillColor || 'rgba(41, 98, 255, 0.2)', // Default blue with opacity
-            fillOpacity: options.fillOpacity || 0.2,
-        };
+        this.style = createShapeStyle('rectangle', DEFAULT_DRAWING_STYLE, options);
     }
 
     // =========================================================================
@@ -65,77 +75,57 @@ export class RectangleDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
+                createStyleTab(shapeStyleSections([
                     {
-                        title: 'Border',
+                        title: 'Extend',
                         rows: [
-                            colorRow('color', 'Border Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
+                            checkboxRow('extendLeft', 'Extend left', false),
+                            checkboxRow('extendRight', 'Extend right', false),
                         ]
                     },
                     {
-                        title: 'Background',
+                        title: 'Middle line',
                         rows: [
-                            colorRow('fillColor', 'Background Color'),
-                            {
-                                type: 'checkbox',
-                                key: 'fillEnabled', // We'll manage this via fillColor/opacity logic if needed, or just transparency
-                                label: 'Fill Background',
-                                defaultValue: true
-                            }
+                            checkboxRow('middleShow', 'Show', false),
+                            colorRow('middleColor', 'Color'),
+                            lineWidthRow('middleWidth'),
+                            lineStyleRow('middleStyle'),
                         ]
-                    }
-                ]),
+                    },
+                ])),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Border Color' },
-            { type: 'color', key: 'fillColor', tooltip: 'Background Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Border Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Border Style' },
-        ];
+        return shapeAttributeBarItems();
     }
 
     getSettingValue(key: string): any {
         switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'fillColor': return this.style.fillColor;
-            case 'fillEnabled': return true; // Always enabled, just transparent if needed
             case 'visible': return this.visible;
-            default: return undefined;
+            case 'extendLeft': return this.extendLeft;
+            case 'extendRight': return this.extendRight;
+            case 'middleShow': return this.middleLine.show;
+            case 'middleColor': return this.middleLine.color;
+            case 'middleWidth': return this.middleLine.width;
+            case 'middleStyle': return this.middleLine.style;
         }
+        return getShapeSetting(this.style, key);
     }
 
     setSettingValue(key: string, value: any): void {
         switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'fillColor':
-                this.style.fillColor = value;
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
+            case 'visible': this.visible = value; return;
+            case 'extendLeft': this.extendLeft = !!value; return;
+            case 'extendRight': this.extendRight = !!value; return;
+            case 'middleShow': this.middleLine.show = !!value; return;
+            case 'middleColor': this.middleLine.color = value; return;
+            case 'middleWidth': this.middleLine.width = value; return;
+            case 'middleStyle': this.middleLine.style = value; return;
         }
+        setShapeSetting(this.style, key, value);
     }
 
     /** Add a point to the drawing */
@@ -183,8 +173,8 @@ export class RectangleDrawing implements Drawing, DrawingSettingsProvider {
         const p1 = this._pixelPoints[0];
         const p2 = this._pixelPoints[1];
 
-        const minX = Math.min(p1.x, p2.x);
-        const maxX = Math.max(p1.x, p2.x);
+        const minX = this.extendLeft ? -Infinity : Math.min(p1.x, p2.x);
+        const maxX = this.extendRight ? Infinity : Math.max(p1.x, p2.x);
         const minY = Math.min(p1.y, p2.y);
         const maxY = Math.max(p1.y, p2.y);
 
@@ -240,22 +230,24 @@ export class RectangleDrawing implements Drawing, DrawingSettingsProvider {
             state: this.state === 'selected' ? 'complete' : this.state,
             visible: this.visible,
             locked: this.locked,
+            extendLeft: this.extendLeft,
+            extendRight: this.extendRight,
+            middleLine: { ...this.middleLine },
         };
     }
 
     static fromJSON(data: SerializedDrawing): RectangleDrawing {
-        const drawing = new RectangleDrawing({
-            color: data.style.color,
-            lineWidth: data.style.lineWidth,
-            lineDash: data.style.lineDash,
-            fillColor: data.style.fillColor
-        });
+        const drawing = new RectangleDrawing();
+        restoreShapeStyle(drawing.style, data.style);
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
         drawing.points = [...data.points];
         drawing.state = data.state as DrawingState;
         drawing.visible = data.visible;
         drawing.locked = data.locked;
+        drawing.extendLeft = !!data.extendLeft;
+        drawing.extendRight = !!data.extendRight;
+        if (data.middleLine) drawing.middleLine = { ...drawing.middleLine, ...data.middleLine };
 
         return drawing;
     }

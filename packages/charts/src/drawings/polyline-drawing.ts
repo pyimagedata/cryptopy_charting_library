@@ -25,16 +25,27 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
 } from './drawing-settings-config';
+
+import { restoreShapeStyle } from './shape-common';
+import {
+    TV_CYAN,
+    createOpenStyle,
+    openLineSection,
+    backgroundSection,
+    openAttributeBarItems,
+    getOpenSetting,
+    setOpenSetting,
+} from './open-shape-common';
 
 export interface PolylineOptions {
     color?: string;
     lineWidth?: number;
     lineDash?: number[];
     fillColor?: string;
+    fillOpacity?: number;
+    /** Acikken de (>=3 nokta) kapali alan gibi doldur (yeni cizimlerde true; eski kayitlarda false) */
+    fillOpenArea?: boolean;
 }
 
 /**
@@ -53,6 +64,9 @@ export class PolylineDrawing implements Drawing, DrawingSettingsProvider {
     // Is the shape closed (polygon)?
     isClosed: boolean = false;
 
+    // Fill the implied polygon of an open polyline too (TradingView behaviour)
+    fillOpenArea: boolean = true;
+
     // Preview point tracking
     private _previewPointIndex: number = -1;
 
@@ -61,13 +75,12 @@ export class PolylineDrawing implements Drawing, DrawingSettingsProvider {
 
     constructor(options: PolylineOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2962ff',
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-            fillColor: options.fillColor || 'rgba(41, 98, 255, 0.2)',
-        };
+        this.style = createOpenStyle(DEFAULT_DRAWING_STYLE, {
+            color: TV_CYAN,
+            lineWidth: 2,
+            fill: { color: TV_CYAN, opacity: 0.2, enabled: true },
+        }, options);
+        this.fillOpenArea = options.fillOpenArea !== false;
     }
 
     // =========================================================================
@@ -77,70 +90,29 @@ export class PolylineDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Background',
-                        rows: [
-                            colorRow('fillColor', 'Fill Color'),
-                        ]
-                    }
-                ]),
+                createStyleTab([openLineSection(), backgroundSection()]),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'color', key: 'fillColor', tooltip: 'Fill Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return openAttributeBarItems({ fill: true, style: true });
     }
 
     getSettingValue(key: string): any {
-        switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'fillColor': return this.style.fillColor;
-            case 'visible': return this.visible;
-            default: return undefined;
-        }
+        if (key === 'visible') return this.visible;
+        return getOpenSetting(this.style, undefined, key);
     }
 
     setSettingValue(key: string, value: any): void {
-        switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'fillColor':
-                this.style.fillColor = value;
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
-        }
+        if (key === 'visible') this.visible = value;
+        else setOpenSetting(this.style, undefined, key, value);
+    }
+
+    /** Dolgu cizilmeli mi: kapali sekil ya da (fillOpenArea) en az 3 nokta */
+    shouldFill(pointCount: number): boolean {
+        return this.isClosed || (this.fillOpenArea && pointCount >= 3);
     }
 
     // =========================================================================
@@ -237,8 +209,8 @@ export class PolylineDrawing implements Drawing, DrawingSettingsProvider {
     hitTest(x: number, y: number, threshold: number = 5): boolean {
         if (this._pixelPoints.length < 2) return false;
 
-        // If closed, check if point is inside the polygon
-        if (this.isClosed) {
+        // If filled (closed or open-but-filled), check if point is inside the polygon
+        if (this.shouldFill(this._pixelPoints.length)) {
             if (this._isPointInPolygon(x, y)) return true;
         }
 
@@ -328,16 +300,18 @@ export class PolylineDrawing implements Drawing, DrawingSettingsProvider {
             visible: this.visible,
             locked: this.locked,
             isClosed: this.isClosed,
+            fillOpenArea: this.fillOpenArea,
         } as any;
     }
 
     static fromJSON(data: SerializedDrawing): PolylineDrawing {
-        const drawing = new PolylineDrawing({
-            color: data.style.color,
-            lineWidth: data.style.lineWidth,
-            lineDash: data.style.lineDash,
-            fillColor: data.style.fillColor
-        });
+        const drawing = new PolylineDrawing();
+        restoreShapeStyle(drawing.style, data.style);
+        // Eski kayitlarda opaklik rengin kendi alfasindaydi (fillOpacity yok)
+        // fillColor yoksa dolgu kapali kalir (ani opak dolgu olmasin)
+        if (data.style?.fillColor && data.style?.fillOpacity === undefined) drawing.style.fillOpacity = 1;
+        // Eski kayitlarda yalnizca kapali sekil dolduruluyordu
+        drawing.fillOpenArea = (data as any).fillOpenArea === true;
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
         drawing.points = [...data.points];

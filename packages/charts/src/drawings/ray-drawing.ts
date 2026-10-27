@@ -8,15 +8,6 @@ import {
     SerializedDrawing
 } from './drawing';
 
-import {
-    DrawingSettingsConfig,
-    createStyleTab,
-    createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow
-} from './drawing-settings-config';
-
 import { TrendLineDrawing } from './trend-line-drawing';
 
 export interface RayOptions {
@@ -41,27 +32,13 @@ export class RayDrawing extends TrendLineDrawing {
         });
     }
 
-    // =========================================================================
-    // Override Settings to hide Extend options
-    // =========================================================================
+    // Ray is always extended right: no Extend section in settings
+    protected getToolTitle(): string {
+        return 'Ray';
+    }
 
-    getSettingsConfig(): DrawingSettingsConfig {
-        return {
-            tabs: [
-                createStyleTab([
-                    {
-                        title: 'Ray',
-                        rows: [
-                            colorRow('color', 'Line Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    }
-                    // No Extend section - Ray is always extended right
-                ]),
-                createVisibilityTab()
-            ]
-        };
+    protected allowExtendSettings(): boolean {
+        return false;
     }
 
     // Override setSettingValue to prevent changing extend properties
@@ -95,15 +72,6 @@ export class RayDrawing extends TrendLineDrawing {
             lineWidth: data.style.lineWidth,
             lineDash: data.style.lineDash,
         });
-
-        // Override generated id with saved id
-        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
-
-        drawing.points = [...data.points];
-        drawing.state = data.state;
-        drawing.visible = data.visible;
-        drawing.locked = data.locked;
-
-        return drawing;
+        return TrendLineDrawing.applySerialized(drawing, data);
     }
 }

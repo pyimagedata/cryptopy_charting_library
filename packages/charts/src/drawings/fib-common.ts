@@ -27,31 +27,34 @@ export interface FibLevelLike {
     label: string;
     color: string;
     enabled: boolean;
+    /** Seviyenin kendi (istege bagli) metni; cizgi uzerine yazilir. */
+    text?: string;
 }
 
 /** Standart Fibonacci seviye kumesi: yaygin olanlar acik, ileri uzatmalar kapali. */
 export function defaultFibLevels(): FibLevelLike[] {
+    // TradingView sirasi: once yaygin seviyeler, sonra kapali olanlar.
     const rows: [number, string, boolean][] = [
-        [0, '#787b86', true],
+        [0, '#808080', true],
         [0.236, '#f23645', true],
         [0.382, '#ff9800', true],
         [0.5, '#4caf50', true],
         [0.618, '#089981', true],
         [0.786, '#00bcd4', true],
-        [1, '#787b86', true],
+        [1, '#808080', true],
+        [1.618, '#2962ff', true],
+        [2.618, '#f23645', true],
+        [3.618, '#9c27b0', true],
+        [4.236, '#e91e63', true],
         [1.272, '#ff9800', false],
         [1.414, '#f23645', false],
-        [1.618, '#2962ff', true],
-        [2, '#089981', false],
         [2.272, '#ff9800', false],
         [2.414, '#4caf50', false],
-        [2.618, '#f23645', true],
+        [2, '#089981', false],
         [3, '#00bcd4', false],
-        [3.272, '#787b86', false],
+        [3.272, '#808080', false],
         [3.414, '#2962ff', false],
-        [3.618, '#9c27b0', true],
         [4, '#f23645', false],
-        [4.236, '#e91e63', true],
         [4.272, '#9c27b0', false],
         [4.414, '#e91e63', false],
         [4.618, '#ff9800', false],
@@ -61,13 +64,32 @@ export function defaultFibLevels(): FibLevelLike[] {
 }
 
 /** Kaydedilmis seviyeleri (eski format dahil) okunabilir hale getirir. */
-export function levelsFromJSON(data: Array<{ value: number; color: string; visible: boolean }> | undefined): FibLevelLike[] | undefined {
+export function levelsFromJSON(data: Array<{ value: number; color: string; visible: boolean; text?: string }> | undefined): FibLevelLike[] | undefined {
     if (!data) return undefined;
-    return data.map((l) => ({ level: l.value, label: String(l.value), color: l.color, enabled: l.visible }));
+    const loaded = data.map((l) => {
+        const out: FibLevelLike = { level: l.value, label: String(l.value), color: l.color, enabled: l.visible };
+        if (l.text) out.text = l.text;
+        return out;
+    });
+    // Eski kayitlarda eksik olan TradingView varsayilan seviyeleri kapali olarak eklenir
+    // (sabit 24 satirlik tablo bunlari gosterip acabilsin); kayitli sira/degerler degismez.
+    for (const d of defaultFibLevels()) {
+        if (!loaded.some((l) => Math.abs(l.level - d.level) < 1e-9)) loaded.push({ ...d, enabled: false });
+    }
+    return loaded;
 }
 
-export function levelsToJSON(levels: FibLevelLike[]): Array<{ value: number; color: string; visible: boolean }> {
-    return levels.map((l) => ({ value: l.level, color: l.color, visible: l.enabled }));
+export function levelsToJSON(levels: FibLevelLike[]): Array<{ value: number; color: string; visible: boolean; text?: string }> {
+    return levels.map((l) => {
+        const out: { value: number; color: string; visible: boolean; text?: string } = { value: l.level, color: l.color, visible: l.enabled };
+        if (l.text) out.text = l.text;
+        return out;
+    });
+}
+
+/** Dolgu icin seviyeleri katsayiya gore artan siralar (kullanici sirayi bozmus olabilir). */
+export function sortedByLevel<T extends { level: number }>(rows: T[]): T[] {
+    return [...rows].sort((a, b) => a.level - b.level);
 }
 
 /**
@@ -104,6 +126,12 @@ export interface FibCommonCapabilities {
     prices: boolean;
     /** Log olcek secenegi anlamli mi (fiyat uzerinden hesaplanan araclar). */
     logScale: boolean;
+    /** Trend cizgisi ayari var mi (kanalda yok; varsayilan true). */
+    trendLine?: boolean;
+    /** "Reverse" secenegi var mi (kanalda yok; varsayilan true). */
+    reverse?: boolean;
+    /** Seviye basina metin (varsayilan true). */
+    levelText?: boolean;
 }
 
 /** Uc aracin paylastigi ayarlar; her cizim bir ornek tutar. */
@@ -121,8 +149,13 @@ export class FibCommonSettings {
     trendLineVisible = true;
     trendLineStyle: FibLineStyle = 'dashed';
     trendLineWidth = 1;
+    showText = true;
+    horzTextAlign: FibLabelHAlign = 'center';
+    vertTextAlign: FibLabelVAlign = 'middle';
 
-    constructor(private readonly _caps: FibCommonCapabilities = { prices: true, logScale: true }) {}
+    constructor(private readonly _caps: FibCommonCapabilities = { prices: true, logScale: true }) {
+        this.trendLineVisible = _caps.trendLine !== false;
+    }
 
     get capabilities(): Readonly<FibCommonCapabilities> {
         return this._caps;
@@ -131,6 +164,7 @@ export class FibCommonSettings {
     static readonly KEYS = [
         'extendLeft', 'extendRight', 'showLabels', 'showPrices', 'coeffsAsPercents', 'fillBackground',
         'labelHAlign', 'labelVAlign', 'labelFontSize', 'logScale', 'trendLineVisible', 'trendLineStyle', 'trendLineWidth',
+        'showText', 'horzTextAlign', 'vertTextAlign',
     ] as const;
 
     has(key: string): boolean {
@@ -154,7 +188,7 @@ export class FibCommonSettings {
         return true;
     }
 
-    /** Stil sekmesi bolumleri; cizim kendi seviye tablosunu sona ekler. */
+    /** Stil sekmesi bolumleri; cizim kendi seviye tablosunu sona ekler. (levelText yalniz Text sekmesini etkiler, burada satir yok.) */
     sections(): SettingsSection[] {
         const labels = [
             checkboxRow('showLabels', 'Show Levels'),
@@ -175,7 +209,7 @@ export class FibCommonSettings {
         const options = [
             checkboxRow('extendLeft', 'Extend Left'),
             checkboxRow('extendRight', 'Extend Right'),
-            checkboxRow('reversed', 'Reverse'),
+            ...(this._caps.reverse !== false ? [checkboxRow('reversed', 'Reverse')] : []),
             ...(this._caps.logScale ? [checkboxRow('logScale', 'Fib levels based on log scale')] : []),
         ];
         return [
@@ -183,14 +217,16 @@ export class FibCommonSettings {
                 title: 'Levels Line',
                 rows: [lineWidthRow('lineWidth'), lineStyleRow('lineStyle'), sliderRow('opacity', 'Line Opacity', 10, 100, '%')],
             },
-            {
-                title: 'Trend Line',
-                rows: [
-                    checkboxRow('trendLineVisible', 'Show Trend Line'),
-                    colorRow('color', 'Trend Line Color'),
-                    lineStyleRow('trendLineStyle', 'Trend Line Style'),
-                ],
-            },
+            ...(this._caps.trendLine !== false
+                ? [{
+                    title: 'Trend Line',
+                    rows: [
+                        checkboxRow('trendLineVisible', 'Show Trend Line'),
+                        colorRow('color', 'Trend Line Color'),
+                        lineStyleRow('trendLineStyle', 'Trend Line Style'),
+                    ],
+                }]
+                : []),
             { title: 'Labels', rows: labels },
             {
                 title: 'Background',
@@ -270,6 +306,45 @@ export class FibCommonSettings {
         } else {
             ctx.textBaseline = 'bottom';
             y -= 2 * dpr;
+        }
+        ctx.fillText(text, x, y);
+    }
+
+    /**
+     * Seviyenin kendi metnini cizgi uzerine yazar (cizgi egikse yazi konumundaki
+     * yukseklige gore). Koordinatlar DPR olcekli.
+     */
+    drawLevelText(
+        ctx: CanvasRenderingContext2D,
+        text: string | undefined,
+        color: string,
+        x1: number, y1: number, x2: number, y2: number,
+        dpr: number,
+    ): void {
+        if (!this.showText || !text) return;
+        const pad = 4 * dpr;
+        ctx.font = `${this.labelFontSize * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+        ctx.fillStyle = color;
+        let x: number;
+        if (this.horzTextAlign === 'left') {
+            ctx.textAlign = 'left';
+            x = Math.min(x1, x2) + pad;
+        } else if (this.horzTextAlign === 'right') {
+            ctx.textAlign = 'right';
+            x = Math.max(x1, x2) - pad;
+        } else {
+            ctx.textAlign = 'center';
+            x = (x1 + x2) / 2;
+        }
+        let y = x2 !== x1 ? y1 + ((y2 - y1) * (x - x1)) / (x2 - x1) : y1;
+        if (this.vertTextAlign === 'top') {
+            ctx.textBaseline = 'bottom';
+            y -= 2 * dpr;
+        } else if (this.vertTextAlign === 'bottom') {
+            ctx.textBaseline = 'top';
+            y += 2 * dpr;
+        } else {
+            ctx.textBaseline = 'middle';
         }
         ctx.fillText(text, x, y);
     }

@@ -89,6 +89,12 @@ export class ChartStateManager {
     private _currentSymbol: string = '';
     private _autoSave: boolean = true;
     private _saveDebounceTimer: number | null = null;
+    private _unloadListenersAttached = false;
+
+    private _onUnload = (): void => this.flushPendingSave();
+    private _onVisibilityChange = (): void => {
+        if (document.visibilityState === 'hidden') this.flushPendingSave();
+    };
 
     constructor(
         drawingManager: DrawingManager,
@@ -115,6 +121,7 @@ export class ChartStateManager {
 
         this._indicatorManager.onIndicatorAdded = saveHandler;
         this._indicatorManager.onIndicatorRemoved = saveHandler;
+        this._attachUnloadListeners();
         // Note: We might want to subscribe to detailed changes (options/data) too, 
         // but for now add/remove is the main trigger. 
         // Ideally IndicatorManager should emit a generic 'stateChanged' event.
@@ -128,6 +135,7 @@ export class ChartStateManager {
     setSymbol(symbol: string): void {
         // Save current symbol's state before switching
         if (this._currentSymbol && this._currentSymbol !== symbol) {
+            this._cancelPendingSave();
             this.saveState();
         }
 
@@ -292,10 +300,40 @@ export class ChartStateManager {
         }, 500); // 500ms debounce
     }
 
-    /** Cleanup */
-    destroy(): void {
+    private _cancelPendingSave(): void {
         if (this._saveDebounceTimer !== null) {
             clearTimeout(this._saveDebounceTimer);
+            this._saveDebounceTimer = null;
         }
+    }
+
+    /** If a debounced save is pending, write it now (synchronously) */
+    flushPendingSave(): void {
+        if (this._saveDebounceTimer === null) return;
+        this._cancelPendingSave();
+        this.saveState();
+    }
+
+    private _attachUnloadListeners(): void {
+        if (this._unloadListenersAttached || typeof window === 'undefined') return;
+        this._unloadListenersAttached = true;
+        window.addEventListener('pagehide', this._onUnload);
+        window.addEventListener('beforeunload', this._onUnload);
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
+    }
+
+    private _detachUnloadListeners(): void {
+        if (!this._unloadListenersAttached) return;
+        this._unloadListenersAttached = false;
+        window.removeEventListener('pagehide', this._onUnload);
+        window.removeEventListener('beforeunload', this._onUnload);
+        document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    }
+
+    /** Cleanup */
+    destroy(): void {
+        this.flushPendingSave();
+        this._detachUnloadListeners();
+        this._cancelPendingSave();
     }
 }

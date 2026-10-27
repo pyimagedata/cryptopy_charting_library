@@ -64,6 +64,8 @@ export interface NumberSettingRow {
     max?: number;
     step?: number;
     defaultValue?: number;
+    /** Genis girdi (5+ basamak, ornegin hesap buyuklugu) */
+    wide?: boolean;
 }
 
 /** Fibonacci levels grid setting */
@@ -71,6 +73,19 @@ export interface LevelsGridSettingRow {
     type: 'levelsGrid';
     key: string;
     label: string;
+}
+
+/** Pitchfork / Pitchfan levels table (visible, coefficient, colour, width, style) */
+export interface PitchLevelsSettingRow {
+    type: 'pitchLevels';
+    key: string;
+    label: string;
+    /** 0 katsayisi gecerli (varsayilan: katsayi > 0) */
+    allowZero?: boolean;
+    /** En buyuk katsayi (varsayilan 100) */
+    max?: number;
+    /** Satirda cizgi kalinlik/stil dugmesi (varsayilan true) */
+    lines?: boolean;
 }
 
 /** Dropdown select setting */
@@ -100,6 +115,7 @@ export type SettingRow =
     | SliderSettingRow
     | NumberSettingRow
     | LevelsGridSettingRow
+    | PitchLevelsSettingRow
     | SelectSettingRow
     | TextSettingRow
     | TextareaSettingRow
@@ -146,6 +162,8 @@ export interface SettingsTab {
 /** Complete settings configuration for a drawing */
 export interface DrawingSettingsConfig {
     tabs: SettingsTab[];
+    /** Modal acilista secili sekme (varsayilan 'style') */
+    initialTab?: string;
 }
 
 // ============================================================================
@@ -166,6 +184,8 @@ export interface AttributeBarItemBase {
 export interface AttributeBarColorItem extends AttributeBarItemBase {
     type: 'color';
     key: string;
+    /** Dugme simgesi (varsayilan: fillColor/backgroundColor icin kova, digerleri kalem) */
+    icon?: 'pencil' | 'fillBucket' | 'textColor';
 }
 
 /** Line width selector in attribute bar */
@@ -311,7 +331,7 @@ export function sliderRow(key: string, label: string, min: number, max: number, 
 /**
  * Standard number row
  */
-export function numberRow(key: string, label: string, options: { min?: number, max?: number, step?: number } = {}): NumberSettingRow {
+export function numberRow(key: string, label: string, options: { min?: number, max?: number, step?: number, wide?: boolean } = {}): NumberSettingRow {
     return { type: 'number', key, label, ...options };
 }
 

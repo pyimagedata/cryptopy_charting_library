@@ -245,7 +245,7 @@ export class IndicatorPaneWidget implements Disposable {
             {
                 _ctx: this._ctx,
                 _canvas: this._canvas,
-                _model: { serieses: [{ data: this._chartData }] },
+                _model: { serieses: [{ data: this._chartData }], rightPriceScale: this._priceScale },
             },
             drawings,
             timeToPixel,

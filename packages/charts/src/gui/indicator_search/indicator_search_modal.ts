@@ -278,6 +278,14 @@ const AVAILABLE_INDICATORS: IndicatorItem[] = [
         category: 'pattern',
         type: 'overlay'
     },
+    {
+        id: 'smt-divergence',
+        name: 'SMT Divergence',
+        shortName: 'SMT',
+        description: 'ICT SMT Divergence: korele varlıkla (ör. altın/gümüş) tepe/dip uyumsuzluğunu çizgilerle gösterir',
+        category: 'pattern',
+        type: 'overlay'
+    },
 ];
 
 export class IndicatorSearchModal {

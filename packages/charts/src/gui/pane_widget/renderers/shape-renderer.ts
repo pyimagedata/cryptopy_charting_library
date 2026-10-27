@@ -13,9 +13,74 @@ import {
     CircleDrawing,
     PolylineDrawing,
     CurveDrawing,
+    DoubleCurveDrawing,
+    doubleCurveControls,
+    doubleCurveEndDirs,
 } from '../../../drawings';
 
-import { fillWithOpacity } from './utils';
+import { shapeFillCss } from '../../../drawings/shape-common';
+import { dashFromLineStyle, drawArrowHead } from '../../../drawings/line-tool-common';
+
+/** Kapali sekil dolgusu: renk + seffaflik (style.fillColor/fillOpacity/fillEnabled). Mevcut yolu doldurur. */
+function fillShape(ctx: CanvasRenderingContext2D, style: RectangleDrawing['style']): void {
+    const css = shapeFillCss(style);
+    if (!css) return;
+    ctx.save();
+    ctx.fillStyle = css;
+    ctx.fill();
+    ctx.restore();
+}
+
+/**
+ * Sekil icine metin (cok satir, kutu genisligine gore sarar). Hiza yalnizca `align` aciksa uygulanir.
+ * `span` verilirse (uzatilmis dikdortgen) metin bu yatay aralikta hizalanir; metin `box` ile kirpilir.
+ */
+function drawShapeText(
+    ctx: CanvasRenderingContext2D,
+    style: RectangleDrawing['style'],
+    box: { x: number; y: number; w: number; h: number },
+    dpr: number,
+    align: boolean,
+    span?: { x: number; w: number }
+): void {
+    const text = style.text;
+    if (!text || !text.trim()) return;
+    const size = (style.fontSize || 14) * dpr;
+    const pad = 6 * dpr;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(span ? span.x : box.x, box.y, span ? span.w : box.w, box.h);
+    ctx.clip();
+    ctx.font = `${style.fontStyle === 'italic' ? 'italic' : 'normal'} ${style.fontWeight === 'bold' ? 'bold' : 'normal'} ${size}px Arial`;
+    ctx.fillStyle = style.textColor || style.color;
+    ctx.textBaseline = 'top';
+    const sx = span ? span.x : box.x;
+    const sw = span ? span.w : box.w;
+    const maxW = Math.max(size, sw - 2 * pad);
+    const lines: string[] = [];
+    for (const para of text.split('\n')) {
+        let cur = '';
+        for (const word of para.split(/\s+/)) {
+            const trial = cur ? cur + ' ' + word : word;
+            if (cur && ctx.measureText(trial).width > maxW) {
+                lines.push(cur);
+                cur = word;
+            } else {
+                cur = trial;
+            }
+        }
+        lines.push(cur);
+    }
+    const lh = size * 1.2;
+    const total = lines.length * lh;
+    const h = align ? style.textHAlign || 'center' : 'center';
+    const v = align ? style.textVAlign || 'middle' : 'middle';
+    const top = v === 'top' ? box.y + pad : v === 'bottom' ? box.y + box.h - pad - total : box.y + (box.h - total) / 2;
+    const x = h === 'left' ? sx + pad : h === 'right' ? sx + sw - pad : sx + sw / 2;
+    ctx.textAlign = h;
+    lines.forEach((ln, i) => ctx.fillText(ln, x, top + i * lh));
+    ctx.restore();
+}
 
 // ============================================================================
 // Rectangle
@@ -34,16 +99,20 @@ export function drawRectangle(
     const p2 = points[1];
     const style = drawing.style;
 
-    const x = Math.min(p1.x, p2.x);
+    const bx = Math.min(p1.x, p2.x);
     const y = Math.min(p1.y, p2.y);
-    const w = Math.abs(p2.x - p1.x);
+    const bw = Math.abs(p2.x - p1.x);
     const h = Math.abs(p2.y - p1.y);
+    // Uzatma: kutuyu pencere kenarina kadar yatay uzat
+    const x = drawing.extendLeft ? 0 : bx;
+    const right = drawing.extendRight ? ctx.canvas.width : bx + bw;
+    const w = Math.max(0, right - x);
 
     // Draw Fill
     if (style.fillColor) {
         ctx.beginPath();
         ctx.rect(x, y, w, h);
-        fillWithOpacity(ctx, style.fillColor, style.fillOpacity);
+        fillShape(ctx, style);
     }
 
     // Draw Border
@@ -57,9 +126,39 @@ export function drawRectangle(
         ctx.setLineDash([]);
     }
 
-    ctx.rect(x, y, w, h);
+    if (!drawing.extendLeft && !drawing.extendRight) {
+        ctx.rect(x, y, w, h);
+    } else {
+        // Uzatilan tarafta dikey kenar cizilmez
+        ctx.moveTo(x, y);
+        ctx.lineTo(right, y);
+        ctx.moveTo(x, y + h);
+        ctx.lineTo(right, y + h);
+        if (!drawing.extendLeft) { ctx.moveTo(x, y); ctx.lineTo(x, y + h); }
+        if (!drawing.extendRight) { ctx.moveTo(right, y); ctx.lineTo(right, y + h); }
+    }
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // Orta cizgi
+    const ml = drawing.middleLine;
+    if (ml && ml.show) {
+        const my = y + h / 2;
+        ctx.beginPath();
+        ctx.strokeStyle = ml.color;
+        ctx.lineWidth = ml.width * dpr;
+        ctx.setLineDash((dashFromLineStyle(ml.style) || []).map(d => d * dpr));
+        ctx.moveTo(x, my);
+        ctx.lineTo(right, my);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Uzatilmis halde metin gorunen aralikta (tuval ile kirpilmis) hizalanir
+    const vx = Math.max(0, x);
+    const vw = Math.max(0, Math.min(right, ctx.canvas.width) - vx);
+    drawShapeText(ctx, style, { x: bx, y, w: bw, h }, dpr, true,
+        drawing.extendLeft || drawing.extendRight ? { x: vx, w: vw } : undefined);
 
     // Draw selection points
     if (isSelected) {
@@ -112,7 +211,7 @@ export function drawRotatedRectangle(
                 ctx.lineTo(scaledCorners[i].x, scaledCorners[i].y);
             }
             ctx.closePath();
-            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+            fillShape(ctx, drawing.style);
         }
 
         // Draw stroke
@@ -205,7 +304,7 @@ export function drawEllipse(
         if (drawing.style.fillColor && scaledRx > 0 && scaledRy > 0) {
             ctx.beginPath();
             ctx.ellipse(scaledCx, scaledCy, scaledRx, scaledRy, rotation, 0, Math.PI * 2);
-            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+            fillShape(ctx, drawing.style);
         }
 
         if (scaledRx > 0 && scaledRy > 0) {
@@ -216,6 +315,13 @@ export function drawEllipse(
             ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
             ctx.stroke();
             ctx.setLineDash([]);
+        }
+
+        if (scaledRx > 0 && scaledRy > 0) {
+            const k = Math.SQRT1_2;
+            drawShapeText(ctx, drawing.style, {
+                x: scaledCx - scaledRx * k, y: scaledCy - scaledRy * k, w: scaledRx * 2 * k, h: scaledRy * 2 * k
+            }, dpr, false);
         }
     }
 
@@ -281,7 +387,7 @@ export function drawTriangleShape(
             ctx.lineTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
             ctx.closePath();
-            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+            fillShape(ctx, drawing.style);
         }
 
         ctx.beginPath();
@@ -340,7 +446,7 @@ export function drawArc(
             ctx.moveTo(p0.x, p0.y);
             ctx.quadraticCurveTo(controlX, controlY, p1.x, p1.y);
             ctx.lineTo(p0.x, p0.y);
-            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+            fillShape(ctx, drawing.style);
         }
 
         ctx.beginPath();
@@ -384,27 +490,19 @@ export function drawPath(
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Draw arrow head at the last point
-    if (pixelPoints.length >= 2) {
-        const lastPoint = pixelPoints[pixelPoints.length - 1];
-        const prevPoint = pixelPoints[pixelPoints.length - 2];
-
-        const angle = Math.atan2(lastPoint.y - prevPoint.y, lastPoint.x - prevPoint.x);
-        const arrowSize = 10 * dpr;
-
-        ctx.beginPath();
-        ctx.moveTo(lastPoint.x, lastPoint.y);
-        ctx.lineTo(
-            lastPoint.x - arrowSize * Math.cos(angle - Math.PI / 6),
-            lastPoint.y - arrowSize * Math.sin(angle - Math.PI / 6)
-        );
-        ctx.lineTo(
-            lastPoint.x - arrowSize * Math.cos(angle + Math.PI / 6),
-            lastPoint.y - arrowSize * Math.sin(angle + Math.PI / 6)
-        );
-        ctx.closePath();
-        ctx.fillStyle = drawing.style.color;
-        ctx.fill();
+    // Arrow heads at the first / last point (lineProps.leftEnd / rightEnd)
+    const first = pixelPoints[0];
+    const last = pixelPoints[pixelPoints.length - 1];
+    const next = pixelPoints.find(p => p.x !== first.x || p.y !== first.y);
+    let prev: { x: number; y: number } | undefined;
+    for (let i = pixelPoints.length - 2; i >= 0; i--) {
+        if (pixelPoints[i].x !== last.x || pixelPoints[i].y !== last.y) { prev = pixelPoints[i]; break; }
+    }
+    if (drawing.lineProps.leftEnd === 'arrow' && next) {
+        drawArrowHead(ctx, first, next, drawing.style.color, drawing.style.lineWidth, dpr);
+    }
+    if (drawing.lineProps.rightEnd === 'arrow' && prev) {
+        drawArrowHead(ctx, last, prev, drawing.style.color, drawing.style.lineWidth, dpr);
     }
 
     if (isSelected) {
@@ -432,7 +530,7 @@ export function drawCircle(
     if (drawing.style.fillColor) {
         ctx.beginPath();
         ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
-        fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+        fillShape(ctx, drawing.style);
     }
 
     ctx.beginPath();
@@ -442,6 +540,11 @@ export function drawCircle(
     ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
     ctx.stroke();
     ctx.setLineDash([]);
+
+    const k = Math.SQRT1_2;
+    drawShapeText(ctx, drawing.style, {
+        x: center.x - radius * k, y: center.y - radius * k, w: radius * 2 * k, h: radius * 2 * k
+    }, dpr, false);
 
     if (isSelected) {
         drawControlPoints(ctx, pixelPoints, drawing.style.color, dpr);
@@ -461,14 +564,14 @@ export function drawPolyline(
 ): void {
     if (pixelPoints.length < 2) return;
 
-    if (drawing.isClosed && drawing.style.fillColor) {
+    if (pixelPoints.length >= 3 && drawing.shouldFill(pixelPoints.length)) {
         ctx.beginPath();
         ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
         for (let i = 1; i < pixelPoints.length; i++) {
             ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
         }
         ctx.closePath();
-        fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+        fillShape(ctx, drawing.style);
     }
 
     ctx.beginPath();
@@ -506,27 +609,57 @@ export function drawCurve(
 ): void {
     if (pixelPoints.length < 2) return;
 
-    ctx.beginPath();
-    ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+    const p0 = pixelPoints[0];
+    const hasCurve = pixelPoints.length >= 3;
+    const pm = pixelPoints[1];
+    const p2 = pixelPoints[hasCurve ? 2 : 1];
+    // Bezier control point from the on-curve middle point: C = 2*Pm - 0.5*(P0 + P2)
+    const controlX = hasCurve ? 2 * pm.x - 0.5 * (p0.x + p2.x) : (p0.x + p2.x) / 2;
+    const controlY = hasCurve ? 2 * pm.y - 0.5 * (p0.y + p2.y) : (p0.y + p2.y) / 2;
 
-    if (pixelPoints.length >= 3) {
-        const p0 = pixelPoints[0];
-        const pm = pixelPoints[1];
-        const p2 = pixelPoints[2];
+    const tracePath = () => {
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        if (hasCurve) ctx.quadraticCurveTo(controlX, controlY, p2.x, p2.y);
+        else ctx.lineTo(p2.x, p2.y);
+    };
 
-        const controlX = 2 * pm.x - 0.5 * (p0.x + p2.x);
-        const controlY = 2 * pm.y - 0.5 * (p0.y + p2.y);
-
-        ctx.quadraticCurveTo(controlX, controlY, p2.x, p2.y);
-    } else {
-        ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
+    if (hasCurve) {
+        tracePath();
+        ctx.closePath();
+        fillShape(ctx, drawing.style);
     }
 
+    tracePath();
     ctx.strokeStyle = drawing.style.color;
     ctx.lineWidth = drawing.style.lineWidth * dpr;
     ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
     ctx.stroke();
+
+    // End tangents: start = P0 - C (outwards), end = P2 - C
+    const sdx = p0.x - controlX, sdy = p0.y - controlY;
+    const edx = p2.x - controlX, edy = p2.y - controlY;
+    const far = (ctx.canvas.width + ctx.canvas.height) * 2;
+    const extend = (o: { x: number; y: number }, dx: number, dy: number) => {
+        const len = Math.hypot(dx, dy);
+        if (len === 0) return;
+        ctx.beginPath();
+        ctx.moveTo(o.x, o.y);
+        ctx.lineTo(o.x + (dx / len) * far, o.y + (dy / len) * far);
+        ctx.stroke();
+    };
+    if (drawing.extendLeft) extend(p0, sdx, sdy);
+    if (drawing.extendRight) extend(p2, edx, edy);
     ctx.setLineDash([]);
+
+    // Arrow heads stay at the original end points
+    const tipFrom = (o: { x: number; y: number }, dx: number, dy: number) => ({ x: o.x - dx, y: o.y - dy });
+    if (drawing.lineProps.leftEnd === 'arrow') {
+        drawArrowHead(ctx, p0, tipFrom(p0, sdx, sdy), drawing.style.color, drawing.style.lineWidth, dpr);
+    }
+    if (drawing.lineProps.rightEnd === 'arrow') {
+        drawArrowHead(ctx, p2, tipFrom(p2, edx, edy), drawing.style.color, drawing.style.lineWidth, dpr);
+    }
 
     if (showControlPoints) {
         ctx.fillStyle = '#fff';
@@ -559,6 +692,81 @@ export function drawCurve(
             ctx.stroke();
 
             ctx.setLineDash([]);
+        }
+    }
+}
+
+// ============================================================================
+// Double Curve (cubic bezier through P2, see double-curve-drawing.ts)
+// ============================================================================
+
+export function drawDoubleCurve(
+    ctx: CanvasRenderingContext2D,
+    drawing: DoubleCurveDrawing,
+    pixelPoints: { x: number; y: number }[],
+    dpr: number,
+    showControlPoints: boolean
+): void {
+    if (pixelPoints.length < 2) return;
+    const p0 = pixelPoints[0];
+    const hasCurve = pixelPoints.length >= 3;
+    const p2 = pixelPoints[hasCurve ? 2 : 1];
+    const { c1, c2 } = hasCurve
+        ? doubleCurveControls(p0, pixelPoints[1], p2)
+        : { c1: { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 }, c2: { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 } };
+
+    const tracePath = () => {
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        if (hasCurve) ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, p2.x, p2.y);
+        else ctx.lineTo(p2.x, p2.y);
+    };
+
+    if (hasCurve) {
+        tracePath();
+        ctx.closePath();
+        fillShape(ctx, drawing.style);
+    }
+
+    tracePath();
+    ctx.strokeStyle = drawing.style.color;
+    ctx.lineWidth = drawing.style.lineWidth * dpr;
+    ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+    ctx.stroke();
+
+    // End tangents: start = P0 - C1 (outwards), end = P2 - C2
+    const dirs = doubleCurveEndDirs(p0, c1, c2, p2);
+    const sdx = dirs.start.x, sdy = dirs.start.y;
+    const edx = dirs.end.x, edy = dirs.end.y;
+    const far = (ctx.canvas.width + ctx.canvas.height) * 2;
+    const extend = (o: { x: number; y: number }, dx: number, dy: number) => {
+        const len = Math.hypot(dx, dy);
+        if (len === 0) return;
+        ctx.beginPath();
+        ctx.moveTo(o.x, o.y);
+        ctx.lineTo(o.x + (dx / len) * far, o.y + (dy / len) * far);
+        ctx.stroke();
+    };
+    if (drawing.extendLeft) extend(p0, sdx, sdy);
+    if (drawing.extendRight) extend(p2, edx, edy);
+    ctx.setLineDash([]);
+
+    if (drawing.lineProps.leftEnd === 'arrow') drawArrowHead(ctx, p0, { x: p0.x - sdx, y: p0.y - sdy }, drawing.style.color, drawing.style.lineWidth, dpr);
+    if (drawing.lineProps.rightEnd === 'arrow') drawArrowHead(ctx, p2, { x: p2.x - edx, y: p2.y - edy }, drawing.style.color, drawing.style.lineWidth, dpr);
+
+    if (showControlPoints) {
+        for (const point of pixelPoints) {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            ctx.strokeStyle = drawing.style.color;
+            ctx.lineWidth = 2 * dpr;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
+            ctx.fillStyle = drawing.style.color;
+            ctx.fill();
         }
     }
 }

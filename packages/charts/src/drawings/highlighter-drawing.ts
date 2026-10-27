@@ -20,13 +20,14 @@ import {
     DrawingSettingsProvider,
     DrawingSettingsConfig,
     AttributeBarItem,
+    SettingsSection,
     createStyleTab,
     createVisibilityTab,
     colorRow,
-    lineWidthRow,
-    lineStyleRow,
-    sliderRow
 } from './drawing-settings-config';
+
+import { parseColor, colorToHex, restoreShapeStyle } from './shape-common';
+import { TV_RED, createOpenStyle } from './open-shape-common';
 
 export interface HighlighterOptions {
     color?: string;
@@ -49,21 +50,19 @@ export class HighlighterDrawing implements Drawing, DrawingSettingsProvider {
     locked: boolean = false;
 
     // Highlighter specific options
-    opacity: number = 0.35; // Lower default opacity for highlighting
+    opacity: number = 0.2; // TradingView: transparency 80
     smooth: boolean = true;
+
+    /** Attribute bar genislik secenekleri (varsayilan 1-5 yerine) */
+    readonly lineWidthOptions: number[] = [5, 10, 20, 30, 40];
 
     // Cached pixel coordinates
     private _pixelPoints: { x: number; y: number }[] = [];
 
     constructor(options: HighlighterOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#ffeb3b', // Default yellow highlighter
-            lineWidth: options.lineWidth || 10, // Thicker default
-            lineDash: [],
-        };
-        this.opacity = options.opacity ?? 0.35;
+        this.style = createOpenStyle(DEFAULT_DRAWING_STYLE, { color: TV_RED, lineWidth: 20 }, options);
+        this.opacity = options.opacity ?? 0.2;
         this.smooth = options.smooth !== false;
     }
 
@@ -72,45 +71,35 @@ export class HighlighterDrawing implements Drawing, DrawingSettingsProvider {
     // =========================================================================
 
     getSettingsConfig(): DrawingSettingsConfig {
-        return {
-            tabs: [
-                createStyleTab([
-                    {
-                        title: 'Highlighter',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Opacity',
-                        rows: [
-                            sliderRow('opacity', 'Opacity', 10, 100, '%'),
-                        ]
-                    }
-                ]),
-                createVisibilityTab()
+        const section: SettingsSection = {
+            title: 'Highlighter',
+            rows: [
+                colorRow('color', 'Color'),
+                { type: 'slider', key: 'transparency', label: 'Transparency', min: 0, max: 100, step: 1, unit: '%', suffix: '%' } as any,
+                { type: 'slider', key: 'lineWidth', label: 'Width', min: 1, max: 50, step: 1, unit: 'px' } as any,
             ]
         };
+        return { tabs: [createStyleTab([section]), createVisibilityTab()] };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
         return [
             { type: 'color', key: 'color', tooltip: 'Color' },
             { type: 'lineWidth', key: 'lineWidth', tooltip: 'Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Style' },
         ];
+    }
+
+    /** Etkin alfa = rengin kendi alfasi x opacity */
+    private _effectiveAlpha(): number {
+        const p = parseColor(this.style.color);
+        return (p ? p.a : 1) * this.opacity;
     }
 
     getSettingValue(key: string): any {
         switch (key) {
             case 'color': return this.style.color;
             case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
+            case 'transparency': return Math.round((1 - this._effectiveAlpha()) * 100);
             case 'opacity': return Math.round(this.opacity * 100);
             case 'visible': return this.visible;
             default: return undefined;
@@ -119,16 +108,20 @@ export class HighlighterDrawing implements Drawing, DrawingSettingsProvider {
 
     setSettingValue(key: string, value: any): void {
         switch (key) {
-            case 'color':
+            case 'color': {
+                // Gorunen etkin alfayi koru; rengin kendi alfasi varsa o belirler
+                const eff = this._effectiveAlpha();
+                const next = parseColor(value);
                 this.style.color = value;
+                this.opacity = Math.max(0, Math.min(1, eff / (next && next.a > 0 ? next.a : 1)));
                 break;
+            }
             case 'lineWidth':
                 this.style.lineWidth = value;
                 break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
+            case 'transparency':
+                this.style.color = colorToHex(this.style.color) ?? this.style.color;
+                this.opacity = Math.max(0, Math.min(1, 1 - Number(value) / 100));
                 break;
             case 'opacity':
                 this.opacity = value / 100;
@@ -264,7 +257,9 @@ export class HighlighterDrawing implements Drawing, DrawingSettingsProvider {
             lineWidth: data.style.lineWidth,
             opacity: data.opacity,
         });
+        drawing.opacity = data.opacity ?? 0.35; // Eski kayit: opacity yoksa eski varsayilan
 
+        restoreShapeStyle(drawing.style, data.style);
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
         drawing.points = [...data.points];
         drawing.state = data.state;

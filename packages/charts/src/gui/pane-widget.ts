@@ -32,7 +32,6 @@ import {
     drawTrendAngle,
     drawHorizontalRay,
     drawCrossLine,
-    drawInfoLine,
     drawFibRetracement,
     drawFibExtension,
     drawFibChannel,
@@ -41,7 +40,6 @@ import {
     drawBrush,
     drawArrowMarker,
     drawArrowIcon,
-    drawArrow,
     drawLongPosition,
     drawShortPosition,
     drawPriceRange,
@@ -50,8 +48,22 @@ import {
     drawText,
     drawCallout,
     drawPriceLabel,
+    drawNoteTool,
     drawFlagMarked,
     drawSticker,
+    drawAnchoredVwap,
+    drawVolumeProfile,
+    drawPitchTool,
+    drawFibTimeTool,
+    drawCycleTool,
+    drawDoubleCurve,
+    drawFibCircleTool,
+    drawGannTool,
+    drawChannelLinesTool,
+    drawProjectionTool,
+    drawPositionForecast,
+    drawBarsPattern,
+    drawGhostFeed,
 } from './pane_widget/renderers';
 import {
     Drawing,
@@ -59,14 +71,12 @@ import {
     FibRetracementDrawing,
     HorizontalLineDrawing,
     VerticalLineDrawing,
-    InfoLineDrawing,
     ParallelChannelDrawing,
     RegressionTrendDrawing,
     FibExtensionDrawing,
     FibChannelDrawing,
     BrushDrawing,
     HighlighterDrawing,
-    ArrowDrawing,
     ArrowMarkerDrawing,
     ArrowIconDrawing,
     RectangleDrawing,
@@ -79,10 +89,10 @@ import {
     PolylineDrawing,
     CurveDrawing,
     XABCDPatternDrawing,
-    ElliottImpulseDrawing,
-    ElliottCorrectionDrawing,
+    ElliottWaveDrawing,
     ThreeDrivesDrawing,
     HeadShouldersDrawing,
+    HEAD_SHOULDERS_LABELS,
     ABCDPatternDrawing,
     TrianglePatternDrawing,
     LongPositionDrawing,
@@ -92,10 +102,26 @@ import {
     DatePriceRangeDrawing,
     TextDrawing,
     CalloutDrawing,
+    NOTE_TOOL_TYPES,
+    NoteToolDrawing,
     PriceLabelDrawing,
     FlagMarkedDrawing,
     StickerDrawing,
+    AnchoredVwapDrawing,
+    VolumeProfileDrawing,
+    PitchToolBase,
+    FibTimeToolBase,
+    CycleToolBase,
+    DoubleCurveDrawing,
+    FibCircleToolBase,
+    GannToolBase,
+    ChannelLinesTool,
+    ProjectionDrawing,
+    PositionForecastDrawing,
+    BarsPatternDrawing,
+    GhostFeedDrawing,
 } from '../drawings';
+import { computeDrawingStats, estimatePricePrecision } from '../drawings/line-tool-common';
 
 /** Disposable interface for cleanup */
 export interface Disposable {
@@ -434,7 +460,8 @@ export class PaneWidget implements Disposable {
         drawings: Drawing[],
         timeToPixel: (time: number) => number | null,
         priceToPixel: (price: number) => number | null,
-        hoveredForAddTextId: string | null = null
+        hoveredForAddTextId: string | null = null,
+        hoveredDrawingId: string | null = null
     ): void {
         if (!this._ctx || !this._canvas) return;
 
@@ -496,13 +523,12 @@ export class PaneWidget implements Disposable {
                 drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                 drawing.calculateLevelLines(
                     pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })),
-                    canvasWidth / dpr
+                    canvasWidth / dpr,
+                    (y: number) => this._model.rightPriceScale.priceRange ? this._model.rightPriceScale.coordinateToPrice(y as any) as number : undefined
                 );
             } else if (drawing instanceof BrushDrawing) {
                 drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
             } else if (drawing instanceof HighlighterDrawing) {
-                drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
-            } else if (drawing instanceof ArrowDrawing) {
                 drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
             } else if (drawing instanceof ArrowMarkerDrawing) {
                 drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
@@ -542,6 +568,91 @@ export class PaneWidget implements Disposable {
                 continue;
             }
 
+            // Pitchfork ailesi / Pitchfan: ekran uzayinda hesaplanan geometri (css px)
+            if (drawing instanceof PitchToolBase) {
+                drawPitchTool(ctx, drawing, pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })), canvasWidth / dpr, canvasHeight / dpr, dpr, drawing.state === 'selected' || drawing.state === 'creating');
+                continue;
+            }
+
+            // Dongu araclari (Dongusel Cizgiler, Zaman Dongulari, Sinus Cizgisi): ekran uzayinda geometri
+            if (drawing instanceof CycleToolBase) {
+                drawCycleTool(ctx, drawing, pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })), canvasWidth / dpr, canvasHeight / dpr, dpr, drawing.state === 'selected' || drawing.state === 'creating');
+                continue;
+            }
+
+            // Fib zaman araclari (Zaman Bolgesi, Trend Tabanli Zaman, Hiz Direnc Yelpazesi): ekran uzayinda geometri
+            if (drawing instanceof FibTimeToolBase) {
+                drawFibTimeTool(ctx, drawing, pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })), canvasWidth / dpr, canvasHeight / dpr, dpr, drawing.state === 'selected' || drawing.state === 'creating');
+                continue;
+            }
+
+            // Dairesel fib araclari (Yaylar, Daireler, Spiral, Kama): ekran uzayinda geometri, yuvarlak kalir
+            if (drawing instanceof FibCircleToolBase) {
+                drawFibCircleTool(ctx, drawing, pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })), canvasWidth / dpr, canvasHeight / dpr, dpr, drawing.state === 'selected' || drawing.state === 'creating');
+                continue;
+            }
+
+            // Gann araclari (Kutu, Yelpaze, Kare, Sabit Kare): ekran uzayinda geometri
+            if (drawing instanceof GannToolBase) {
+                // Olcek kilidi yedegi: gorunen fiyat olceginden piksel basina fiyat (P1 satirinda +-0.5 px'in fiyat farki; dogrusal olcekte
+                // gorunen fiyat araligi / panel yuksekligi ile ayni, logaritmikte yerel oran)
+                let pricePerPx: number | undefined;
+                const rps = this._model.rightPriceScale;
+                if (drawing.scaleLock && rps.priceRange && pixelPoints.length > 0) {
+                    const y1 = pixelPoints[0].y / dpr;
+                    const pp = Math.abs((rps.coordinateToPrice((y1 - 0.5) as any) as number) - (rps.coordinateToPrice((y1 + 0.5) as any) as number));
+                    if (Number.isFinite(pp) && pp > 0) pricePerPx = pp;
+                }
+                drawGannTool(ctx, drawing, pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })), canvasWidth / dpr, canvasHeight / dpr, dpr, drawing.state === 'selected' || drawing.state === 'creating', this._model.timeScale.barSpacing, pricePerPx);
+                continue;
+            }
+
+            // Ayrik Kanal / Duz Ust-Alt: ekran uzayinda iki cizgi + dolgu; istatistikler A cizgisi (P1-P2) icin
+            if (drawing instanceof ChannelLinesTool) {
+                const cssPts = pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr }));
+                const selectedOrCreating = drawing.state === 'selected' || drawing.state === 'creating';
+                const lp = drawing.lineProps;
+                const statsVisible = lp.alwaysShowStats || selectedOrCreating || hoveredDrawingId === drawing.id;
+                const statsLines = statsVisible && cssPts.length >= 2
+                    ? computeDrawingStats(lp, drawing.points.slice(0, 2), cssPts.slice(0, 2), this._model.serieses[0]?.data ?? [], timeToPixel, 2, this._model.symbol)
+                    : [];
+                drawChannelLinesTool(ctx, drawing, cssPts, canvasWidth / dpr, canvasHeight / dpr, dpr, selectedOrCreating, statsLines);
+                continue;
+            }
+
+            // Projeksiyon (sektor): ekran uzayinda yaylar
+            if (drawing instanceof ProjectionDrawing) {
+                drawProjectionTool(ctx, drawing, pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })), canvasWidth / dpr, canvasHeight / dpr, dpr, drawing.state === 'selected' || drawing.state === 'creating');
+                continue;
+            }
+
+            // Tahmin araclari (Pozisyon Tahmini, Bar Deseni, Hayalet Akis): barlardan / sentetik, css px
+            if (drawing instanceof PositionForecastDrawing || drawing instanceof BarsPatternDrawing || drawing instanceof GhostFeedDrawing) {
+                drawing.setBarData(this._model.serieses[0]?.data ?? []);
+                const cssPts = pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr }));
+                const selected = drawing.state === 'selected' || drawing.state === 'creating';
+                if (drawing instanceof PositionForecastDrawing) {
+                    drawPositionForecast(ctx, drawing, cssPts, canvasWidth / dpr, canvasHeight / dpr, dpr, selected, this._model.symbol);
+                } else if (drawing instanceof BarsPatternDrawing) {
+                    drawBarsPattern(ctx, drawing, cssPts, timeToPixel, priceToPixel, canvasWidth / dpr, canvasHeight / dpr, dpr, selected);
+                } else {
+                    drawGhostFeed(ctx, drawing, cssPts, priceToPixel, canvasWidth / dpr, canvasHeight / dpr, dpr, selected);
+                }
+                continue;
+            }
+
+            // Hacim tabanli araclar: ana serinin barlarindan hesaplanir
+            if (drawing instanceof AnchoredVwapDrawing || drawing instanceof VolumeProfileDrawing) {
+                drawing.setBarData(this._model.serieses[0]?.data ?? []);
+                const selected = drawing.state === 'selected' || drawing.state === 'creating';
+                if (drawing instanceof AnchoredVwapDrawing) {
+                    drawAnchoredVwap(ctx, drawing, timeToPixel, priceToPixel, canvasWidth / dpr, canvasHeight / dpr, dpr, selected);
+                } else {
+                    drawVolumeProfile(ctx, drawing, timeToPixel, priceToPixel, canvasWidth / dpr, canvasHeight / dpr, dpr, selected);
+                }
+                continue;
+            }
+
             // Handle single-point drawings: arrowMarker
             if (drawing.type === 'arrowMarker') {
                 if (pixelPoints.length >= 1) {
@@ -551,7 +662,8 @@ export class PaneWidget implements Disposable {
             }
 
             // Handle single-point drawings: arrowMarkedUp, arrowMarkedDown
-            if (drawing.type === 'arrowMarkedUp' || drawing.type === 'arrowMarkedDown') {
+            if (drawing.type === 'arrowMarkedUp' || drawing.type === 'arrowMarkedDown' ||
+                drawing.type === 'arrowMarkedLeft' || drawing.type === 'arrowMarkedRight') {
                 if (pixelPoints.length >= 1) {
                     drawArrowIcon(ctx, drawing as ArrowIconDrawing, pixelPoints[0], dpr, drawing.state === 'selected');
                 }
@@ -579,6 +691,13 @@ export class PaneWidget implements Disposable {
                 continue;
             }
 
+            if (NOTE_TOOL_TYPES.has(drawing.type)) {
+                if (pixelPoints.length >= 1) {
+                    drawNoteTool(ctx, drawing as NoteToolDrawing, pixelPoints, dpr, drawing.state === 'selected' || drawing.state === 'creating');
+                }
+                continue;
+            }
+
             if (drawing.type === 'priceLabel') {
                 if (pixelPoints.length >= 1) {
                     const priceLabelDrawing = drawing as PriceLabelDrawing;
@@ -586,7 +705,10 @@ export class PaneWidget implements Disposable {
                     priceLabelDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
 
                     const isSelected = drawing.state === 'selected' || drawing.state === 'creating';
-                    drawPriceLabel(ctx, priceLabelDrawing, pixelPoints[0], drawing.points[0].price, dpr, isSelected);
+                    // Fiyat, seri hassasiyetiyle (son 100 mumun ondalik sayisi) bicimlenir
+                    const plData = this._model.serieses[0]?.data ?? [];
+                    const plPrecision = estimatePricePrecision(plData.slice(-100).map((d: any) => Number(d.close ?? d.value)), 2);
+                    drawPriceLabel(ctx, priceLabelDrawing, pixelPoints[0], drawing.points[0].price, dpr, isSelected, plPrecision);
                 }
                 continue;
             }
@@ -619,40 +741,52 @@ export class PaneWidget implements Disposable {
             if (pixelPoints.length < 2) continue;
 
             // Draw based on type
-            if (drawing.type === 'trendLine' || drawing.type === 'ray' || drawing.type === 'extendedLine') {
+            if (drawing.type === 'trendLine' || drawing.type === 'ray' || drawing.type === 'extendedLine'
+                || drawing.type === 'infoLine' || drawing.type === 'arrow') {
                 const trendLine = drawing as TrendLineDrawing;
                 const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                 const isHoveredForAddText = hoveredForAddTextId === drawing.id;
-                drawTrendLine(ctx, pixelPoints, drawing.style, showControlPoints, trendLine.extendLeft, trendLine.extendRight, this._canvas!.width, isHoveredForAddText);
+                const lp = trendLine.lineProps;
+                // Istatistikler: hep acik ya da yalnizca secili/uzerinde gelinen cizimde
+                const statsVisible = lp.alwaysShowStats || showControlPoints || hoveredDrawingId === drawing.id;
+                const statsLines = statsVisible
+                    ? computeDrawingStats(
+                        lp, drawing.points,
+                        pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })),
+                        this._model.serieses[0]?.data ?? [],
+                        timeToPixel,
+                        2,
+                        this._model.symbol
+                    )
+                    : [];
+                drawTrendLine(ctx, pixelPoints, drawing.style, showControlPoints, trendLine.extendLeft, trendLine.extendRight, this._canvas!.width, isHoveredForAddText, { props: lp, statsLines });
             } else if (drawing.type === 'trendAngle') {
+                const trendAngle = drawing as TrendLineDrawing;
                 const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                drawTrendAngle(ctx, pixelPoints, drawing.style, dpr, showControlPoints);
-            } else if (drawing.type === 'infoLine') {
-                const infoLine = drawing as InfoLineDrawing;
-                // Calculate measurements
-                if (drawing.points.length >= 2) {
-                    const p1 = drawing.points[0];
-                    const p2 = drawing.points[1];
-
-                    // Get bar interval from chart data (difference between 2 consecutive bars)
-                    let barIntervalMs = 60000; // Default 1 minute
-                    const mainSeries = this._model.serieses[0];
-                    if (mainSeries && mainSeries.data.length >= 2) {
-                        const data = mainSeries.data;
-                        // Calculate average interval from last few bars
-                        const t1 = data[data.length - 2].time;
-                        const t2 = data[data.length - 1].time;
-                        barIntervalMs = Math.abs(t2 - t1);
-                    }
-
-                    infoLine.calculateMeasurements(
-                        { x: pixelPoints[0].x, y: pixelPoints[0].y, price: p1.price, time: p1.time },
-                        { x: pixelPoints[1].x, y: pixelPoints[1].y, price: p2.price, time: p2.time },
-                        barIntervalMs
-                    );
-                }
-                const showInfoLinePoints = drawing.state === 'selected' || drawing.state === 'creating';
-                drawInfoLine(ctx, pixelPoints, infoLine, dpr, showInfoLinePoints);
+                // Trend Angle yalnizca fiyat/yuzde/pip/bar istatistiklerini ve orta nokta/fiyat etiketlerini gosterir
+                const lp = {
+                    ...trendAngle.lineProps,
+                    leftEnd: 'normal' as const, rightEnd: 'normal' as const,
+                    showDateTimeRange: false, showDistance: false, showAngle: false,
+                };
+                const statsVisible = lp.alwaysShowStats || showControlPoints || hoveredDrawingId === drawing.id;
+                const statsLines = statsVisible
+                    ? computeDrawingStats(
+                        lp, drawing.points,
+                        pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })),
+                        this._model.serieses[0]?.data ?? [],
+                        timeToPixel,
+                        2,
+                        this._model.symbol
+                    )
+                    : [];
+                drawTrendAngle(ctx, pixelPoints, drawing.style, dpr, showControlPoints, {
+                    extendLeft: trendAngle.extendLeft,
+                    extendRight: trendAngle.extendRight,
+                    canvasWidth: this._canvas!.width,
+                    isHoveredForAddText: hoveredForAddTextId === drawing.id,
+                    decor: { props: lp, statsLines },
+                });
             } else if (drawing.type === 'fibRetracement') {
                 drawFibRetracement(ctx, drawing as FibRetracementDrawing, pixelPoints, canvasWidth, dpr, drawing.state === 'selected');
             } else if (drawing.type === 'fibExtension') {
@@ -682,10 +816,6 @@ export class PaneWidget implements Disposable {
             } else if (drawing.type === 'highlighter') {
                 if (pixelPoints.length >= 2) {
                     drawBrush(ctx, drawing as any, pixelPoints, dpr, drawing.state === 'selected');
-                }
-            } else if (drawing.type === 'arrow') {
-                if (pixelPoints.length >= 2) {
-                    drawArrow(ctx, drawing as ArrowDrawing, pixelPoints, dpr, drawing.state === 'selected');
                 }
             } else if (drawing.type === 'rotatedRectangle') {
                 // Need at least 2 points for preview, 3 for complete
@@ -744,23 +874,30 @@ export class PaneWidget implements Disposable {
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     drawCurve(ctx, curveDrawing, pixelPoints, dpr, showControlPoints);
                 }
-            } else if (drawing.type === 'xabcdPattern' || drawing.type === 'elliotImpulse' || drawing.type === 'elliotCorrection' || drawing.type === 'threeDrives' || drawing.type === 'headShoulders' || drawing.type === 'abcd' || drawing.type === 'trianglePattern') {
+            } else if (drawing instanceof DoubleCurveDrawing) {
                 if (pixelPoints.length >= 2) {
-                    const patternDrawing = drawing as XABCDPatternDrawing | ElliottImpulseDrawing | ElliottCorrectionDrawing | ThreeDrivesDrawing | HeadShouldersDrawing | ABCDPatternDrawing | TrianglePatternDrawing;
+                    drawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
+                    drawDoubleCurve(ctx, drawing, pixelPoints, dpr, drawing.state === 'selected' || drawing.state === 'creating');
+                }
+            } else if (drawing.type === 'xabcdPattern' || drawing.type === 'cypherPattern' || drawing.type === 'elliotImpulse' || drawing.type === 'elliotCorrection' || drawing.type === 'elliotTriangle' || drawing.type === 'elliotDoubleCombo' || drawing.type === 'elliotTripleCombo' || drawing.type === 'threeDrives' || drawing.type === 'headShoulders' || drawing.type === 'abcd' || drawing.type === 'trianglePattern') {
+                if (pixelPoints.length >= 2) {
+                    const patternDrawing = drawing as XABCDPatternDrawing | ElliottWaveDrawing | ThreeDrivesDrawing | HeadShouldersDrawing | ABCDPatternDrawing | TrianglePatternDrawing;
                     patternDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
                     let labels: string[] = [];
-                    if (drawing.type === 'xabcdPattern') {
+                    if (drawing.type === 'xabcdPattern' || drawing.type === 'cypherPattern') {
                         labels = ['X', 'A', 'B', 'C', 'D'];
-                    } else if (drawing.type === 'elliotImpulse') {
-                        labels = ['(0)', '(1)', '(2)', '(3)', '(4)', '(5)'];
-                    } else if (drawing.type === 'elliotCorrection') {
-                        labels = ['(0)', '(A)', '(B)', '(C)'];
+                    } else if (drawing instanceof ElliottWaveDrawing) {
+                        labels = drawing.getLabels();
                     } else if (drawing.type === 'abcd') {
                         labels = ['A', 'B', 'C', 'D'];
                     } else if (drawing.type === 'trianglePattern') {
                         labels = ['A', 'B', 'C', 'D'];
-                    } // threeDrives and headShoulders have their own labels
+                    } else if (drawing.type === 'headShoulders') {
+                        labels = HEAD_SHOULDERS_LABELS;
+                    } else if (drawing.type === 'threeDrives') {
+                        labels = ['', '', '', '', '', '', '']; // no point labels (ratio badges instead)
+                    }
                     drawPatternWave(ctx, patternDrawing, pixelPoints, dpr, showControlPoints, labels);
                 }
             } else if (drawing.type === 'longPosition') {
@@ -768,14 +905,22 @@ export class PaneWidget implements Disposable {
                     const positionDrawing = drawing as LongPositionDrawing;
                     positionDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    drawLongPosition(ctx, positionDrawing, pixelPoints, dpr, showControlPoints, priceToPixel);
+                    drawLongPosition(ctx, positionDrawing, pixelPoints, dpr, showControlPoints, priceToPixel, {
+                        symbol: this._model.symbol,
+                        data: this._model.serieses[0]?.data ?? [],
+                        hovered: hoveredDrawingId === drawing.id,
+                    });
                 }
             } else if (drawing.type === 'shortPosition') {
                 if (pixelPoints.length >= 2) {
                     const positionDrawing = drawing as ShortPositionDrawing;
                     positionDrawing.setPixelPoints(pixelPoints.map(p => ({ x: p.x / dpr, y: p.y / dpr })));
                     const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
-                    drawShortPosition(ctx, positionDrawing, pixelPoints, dpr, showControlPoints, priceToPixel);
+                    drawShortPosition(ctx, positionDrawing, pixelPoints, dpr, showControlPoints, priceToPixel, {
+                        symbol: this._model.symbol,
+                        data: this._model.serieses[0]?.data ?? [],
+                        hovered: hoveredDrawingId === drawing.id,
+                    });
                 }
             } else if (drawing.type === 'priceRange') {
                 if (pixelPoints.length >= 2) {

@@ -26,6 +26,17 @@ import {
     checkboxRow
 } from './drawing-settings-config';
 
+import {
+    AxisLabelProvider,
+    DrawingAxisLabels,
+    applyTextFields,
+    textFieldsToJSON,
+    drawLabeledHorizontalLine,
+    singlePriceAxisLabels,
+    lineStyleFromDash,
+    dashFromLineStyle
+} from './line-tool-common';
+
 export interface HorizontalLineOptions {
     color?: string;
     lineWidth?: number;
@@ -36,7 +47,7 @@ export interface HorizontalLineOptions {
 /**
  * Horizontal Line - A line that spans the entire chart width at a specific price
  */
-export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider {
+export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider, AxisLabelProvider {
     readonly id: string;
     readonly type: DrawingType = 'horizontalLine';
 
@@ -59,6 +70,10 @@ export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider {
             color: options.color || '#2962ff',
             lineWidth: options.lineWidth || 1,
             lineDash: options.lineDash || [],
+            // TradingView varsayilani: metin 12px, yatayda orta, dikeyde cizgi uzerinde (orta)
+            fontSize: 12,
+            textHAlign: 'center',
+            textVAlign: 'middle',
         };
         this.showPrice = options.showPrice !== false;
     }
@@ -82,7 +97,7 @@ export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider {
                     {
                         title: 'Labels',
                         rows: [
-                            checkboxRow('showPrice', 'Show Price'),
+                            checkboxRow('showPrice', 'Price label'),
                         ]
                     }
                 ]),
@@ -103,10 +118,7 @@ export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider {
         switch (key) {
             case 'color': return this.style.color;
             case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 5) return 'dashed';
-                return 'dotted';
+            case 'lineStyle': return lineStyleFromDash(this.style.lineDash);
             case 'showPrice': return this.showPrice;
             default: return undefined;
         }
@@ -120,15 +132,20 @@ export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider {
             case 'lineWidth':
                 this.style.lineWidth = value;
                 break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [5, 5];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
+            case 'lineStyle': {
+                const dash = dashFromLineStyle(value);
+                if (dash) this.style.lineDash = dash;
                 break;
+            }
             case 'showPrice':
                 this.showPrice = value;
                 break;
         }
+    }
+
+    /** Fiyat ekseninde cizgi renginde etiket (showPrice) */
+    getAxisLabels(): DrawingAxisLabels {
+        return singlePriceAxisLabels(this.showPrice, this.points, this.style.color);
     }
 
     // =========================================================================
@@ -171,39 +188,10 @@ export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider {
 
         this._pixelY = y;
 
-        ctx.save();
-        ctx.strokeStyle = this.style.color;
-        ctx.lineWidth = this.style.lineWidth * dpr;
-        if (this.style.lineDash && this.style.lineDash.length > 0) {
-            ctx.setLineDash(this.style.lineDash.map(d => d * dpr));
-        }
-
-        // Draw line across entire canvas width (in DPR-scaled coordinates)
+        // Tum genislik boyunca cizgi + (varsa) hizali metin; fiyat etiketi eksende cizilir
         const yScaled = y * dpr;
-        ctx.beginPath();
-        ctx.moveTo(0, yScaled);
-        ctx.lineTo(canvasWidth * dpr, yScaled);
-        ctx.stroke();
-
-        // Draw price label on the right side
-        if (this.showPrice) {
-            const priceText = this.points[0].price.toFixed(2);
-            ctx.font = `${11 * dpr}px Arial`;
-            const textMetrics = ctx.measureText(priceText);
-            const padding = 4 * dpr;
-            const labelWidth = textMetrics.width + padding * 2;
-            const labelHeight = 16 * dpr;
-
-            // Background
-            ctx.fillStyle = this.style.color;
-            ctx.fillRect(canvasWidth * dpr - labelWidth - 5 * dpr, yScaled - labelHeight / 2, labelWidth, labelHeight);
-
-            // Text
-            ctx.fillStyle = '#ffffff';
-            ctx.textAlign = 'right';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(priceText, canvasWidth * dpr - 5 * dpr - padding, yScaled);
-        }
+        ctx.save();
+        drawLabeledHorizontalLine(ctx, this.style, yScaled, 0, canvasWidth * dpr, dpr, 'middle');
 
         // Selection handles
         if (this.state === 'selected' || this.state === 'editing') {
@@ -257,6 +245,7 @@ export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider {
             visible: this.visible,
             locked: this.locked,
             showPrices: this.showPrice,
+            ...textFieldsToJSON(this.style),
         };
     }
 
@@ -272,6 +261,7 @@ export class HorizontalLineDrawing implements Drawing, DrawingSettingsProvider {
         drawing.state = data.state;
         drawing.visible = data.visible;
         drawing.locked = data.locked;
+        applyTextFields(drawing.style, data);
         return drawing;
     }
 }

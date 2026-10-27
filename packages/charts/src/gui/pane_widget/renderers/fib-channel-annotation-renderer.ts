@@ -14,9 +14,13 @@ import { ArrowMarkerDrawing } from '../../../drawings/arrow-marker-drawing';
 import { ArrowIconDrawing } from '../../../drawings/arrow-icon-drawing';
 import { ArrowDrawing } from '../../../drawings/arrow-drawing';
 import { hexToRgba } from './utils';
-import { FibCommonSettings, lineDashFor } from '../../../drawings/fib-common';
+import { cssFont } from '../../../drawings/text-common';
+import { drawArrowHead } from '../../../drawings/line-tool-common';
+import { shapeFillCss } from '../../../drawings/shape-common';
+import { colorWithAlpha } from '../../../drawings/open-shape-common';
+import { FibCommonSettings, lineDashFor, sortedByLevel } from '../../../drawings/fib-common';
 
-type FibLevelRow = { level: number; color: string; price: number; y: number };
+type FibLevelRow = { level: number; color: string; text?: string; price: number; y: number };
 
 /** Fiyat buyuklugune gore ondalik: forex 5, metal/endeks 2. */
 function formatFibPrice(price: number): string {
@@ -75,10 +79,11 @@ function drawHorizontalFibLevels(
 
     if (fib.fillBackground) {
         const bgOpacity = drawing.backgroundOpacity ?? 0.1;
-        for (let i = 0; i < levelData.length - 1; i++) {
-            const y1 = levelData[i].y;
-            const y2 = levelData[i + 1].y;
-            ctx.fillStyle = hexToRgba(levelData[i + 1].color, bgOpacity);
+        const sorted = sortedByLevel(levelData);
+        for (let i = 0; i < sorted.length - 1; i++) {
+            const y1 = sorted[i].y;
+            const y2 = sorted[i + 1].y;
+            ctx.fillStyle = hexToRgba(sorted[i + 1].color, bgOpacity);
             ctx.fillRect(left, Math.min(y1, y2), right - left, Math.abs(y2 - y1));
         }
     }
@@ -98,6 +103,7 @@ function drawHorizontalFibLevels(
     for (const level of levelData) {
         const text = fib.labelText(level.level, level.price, formatFibPrice);
         fib.drawLabel(ctx, text, level.color, left, level.y, right, level.y, dpr);
+        fib.drawLevelText(ctx, level.text, level.color, left, level.y, right, level.y, dpr);
     }
 }
 
@@ -156,9 +162,10 @@ export function drawFibChannel(
 
     if (fib.fillBackground) {
         const bgOpacity = drawing.backgroundOpacity ?? 0.05;
-        for (let i = 0; i < levelLines.length - 1; i++) {
-            const l1 = levelLines[i];
-            const l2 = levelLines[i + 1];
+        const sortedLines = sortedByLevel(levelLines);
+        for (let i = 0; i < sortedLines.length - 1; i++) {
+            const l1 = sortedLines[i];
+            const l2 = sortedLines[i + 1];
             ctx.fillStyle = hexToRgba(l2.color, bgOpacity);
             ctx.beginPath();
             ctx.moveTo(l1.startX * dpr, l1.startY * dpr);
@@ -182,7 +189,11 @@ export function drawFibChannel(
     ctx.setLineDash([]);
 
     for (const line of levelLines) {
-        const text = fib.labelText(line.level, null);
+        const price = fib.labelHAlign === 'right' ? line.endPrice
+            : fib.labelHAlign === 'center' && line.startPrice !== undefined && line.endPrice !== undefined
+                ? (line.startPrice + line.endPrice) / 2
+                : line.startPrice;
+        const text = fib.labelText(line.level, price != null ? price : null, formatFibPrice);
         fib.drawLabel(ctx, text, line.color, line.startX * dpr, line.startY * dpr, line.endX * dpr, line.endY * dpr, dpr);
     }
 
@@ -562,32 +573,66 @@ export function drawBrush(
     if (filteredPoints.length < 2) return;
 
     // Draw the brush path
-    ctx.strokeStyle = hexToRgba(style.color, opacity);
-    ctx.lineWidth = style.lineWidth * dpr;
+    const strokeCss = colorWithAlpha(style.color, opacity);
+    ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
 
-    ctx.beginPath();
-    ctx.moveTo(filteredPoints[0].x, filteredPoints[0].y);
+    const tracePath = () => {
+        ctx.beginPath();
+        ctx.moveTo(filteredPoints[0].x, filteredPoints[0].y);
 
-    // Use quadratic curves for smoother drawing
-    if (drawing.smooth && filteredPoints.length > 2) {
-        for (let i = 1; i < filteredPoints.length - 1; i++) {
-            const xc = (filteredPoints[i].x + filteredPoints[i + 1].x) / 2;
-            const yc = (filteredPoints[i].y + filteredPoints[i + 1].y) / 2;
-            ctx.quadraticCurveTo(filteredPoints[i].x, filteredPoints[i].y, xc, yc);
+        // Use quadratic curves for smoother drawing
+        if (drawing.smooth && filteredPoints.length > 2) {
+            for (let i = 1; i < filteredPoints.length - 1; i++) {
+                const xc = (filteredPoints[i].x + filteredPoints[i + 1].x) / 2;
+                const yc = (filteredPoints[i].y + filteredPoints[i + 1].y) / 2;
+                ctx.quadraticCurveTo(filteredPoints[i].x, filteredPoints[i].y, xc, yc);
+            }
+            const lastPoint = filteredPoints[filteredPoints.length - 1];
+            ctx.lineTo(lastPoint.x, lastPoint.y);
+        } else {
+            for (let i = 1; i < filteredPoints.length; i++) {
+                ctx.lineTo(filteredPoints[i].x, filteredPoints[i].y);
+            }
         }
-        const lastPoint = filteredPoints[filteredPoints.length - 1];
-        ctx.lineTo(lastPoint.x, lastPoint.y);
-    } else {
-        for (let i = 1; i < filteredPoints.length; i++) {
-            ctx.lineTo(filteredPoints[i].x, filteredPoints[i].y);
+    };
+
+    // Brush background: fill the (implicitly closed) outline of the stroke
+    if (drawing.type === 'brush' && filteredPoints.length >= 3) {
+        const fillCss = shapeFillCss(style);
+        if (fillCss) {
+            tracePath();
+            ctx.closePath();
+            ctx.save();
+            ctx.fillStyle = fillCss;
+            ctx.fill();
+            ctx.restore();
         }
     }
 
+    ctx.strokeStyle = strokeCss;
+    ctx.lineWidth = style.lineWidth * dpr;
+    ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
+    tracePath();
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // Arrow heads at stroke start / end (brush only); direction from a point a few pixels away
+    const props = (drawing as any).lineProps;
+    if (props && drawing.type === 'brush') {
+        const minLen = (6 + style.lineWidth * 2) * dpr;
+        const first = filteredPoints[0];
+        const last = filteredPoints[filteredPoints.length - 1];
+        const far = (from: { x: number; y: number }, list: { x: number; y: number }[]) =>
+            list.find(p => Math.hypot(p.x - from.x, p.y - from.y) >= minLen) ?? list[list.length - 1];
+        if (props.leftEnd === 'arrow') {
+            drawArrowHead(ctx, first, far(first, filteredPoints), strokeCss, style.lineWidth, dpr);
+        }
+        if (props.rightEnd === 'arrow') {
+            drawArrowHead(ctx, last, far(last, [...filteredPoints].reverse()), strokeCss, style.lineWidth, dpr);
+        }
+    }
 
     // Draw control points when selected
     if (isSelected && pixelPoints.length >= 2) {
@@ -604,6 +649,7 @@ export function drawBrush(
             ctx.fillStyle = style.color;
         }
     }
+    ctx.restore();
 }
 
 /**
@@ -648,6 +694,31 @@ export function drawArrowMarker(
 
     ctx.restore();
 
+    // Metin etiketi: okun kuyrugunda, okun tersi yonde
+    if (drawing.text) {
+        const gap = (6 + size / 2) * dpr;
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        ctx.save();
+        ctx.font = cssFont(drawing.fontSize * dpr, drawing.bold, drawing.italic);
+        ctx.fillStyle = drawing.textColor;
+        const lines = drawing.text.split('\n');
+        const lineH = drawing.fontSize * 1.2 * dpr;
+        const h = lines.length * lineH;
+        const ax = p1.x - cosA * gap;
+        const ay = p1.y - sinA * gap;
+        const w = Math.max(...lines.map(l => ctx.measureText(l).width));
+        let left: number;
+        let top: number;
+        if (cosA > 0.4) { left = ax - w; top = ay - h / 2; }
+        else if (cosA < -0.4) { left = ax; top = ay - h / 2; }
+        else { left = ax - w / 2; top = sinA > 0 ? ay - h : ay; }
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        lines.forEach((line, i) => ctx.fillText(line, left, top + lineH / 2 + i * lineH));
+        ctx.restore();
+    }
+
     // Draw selection markers
     if (isSelected) {
         ctx.fillStyle = style.color;
@@ -665,7 +736,7 @@ export function drawArrowMarker(
 }
 
 /**
- * Draws arrow icon (up/down arrow)
+ * Draws arrow icon (up/down/left/right block arrow + optional text label)
  */
 export function drawArrowIcon(
     ctx: CanvasRenderingContext2D,
@@ -677,36 +748,61 @@ export function drawArrowIcon(
     const { style, size, type } = drawing;
     const s = size * dpr;
     const halfSize = s / 2;
+    // Cizim noktasi (piksel, dpr olcekli) -> okun kutu merkezi
+    const c = drawing.getArrowCenter({ x: p.x / dpr, y: p.y / dpr });
+    const cx = c.x * dpr;
+    const cy = c.y * dpr;
 
+    // Yukari ok cokgeni (merkeze gore); diger yonler 90 derecelik donusle elde edilir
+    const up: [number, number][] = [
+        [0, -halfSize], [-halfSize, 0], [-halfSize / 2, 0], [-halfSize / 2, halfSize],
+        [halfSize / 2, halfSize], [halfSize / 2, 0], [halfSize, 0],
+    ];
+    const quarter = type === 'arrowMarkedRight' ? 1 : type === 'arrowMarkedDown' ? 2 : type === 'arrowMarkedLeft' ? 3 : 0;
+    const angle = quarter * Math.PI / 2;
+    const cos = Math.round(Math.cos(angle));
+    const sin = Math.round(Math.sin(angle));
+
+    ctx.save();
     ctx.fillStyle = style.color;
     ctx.beginPath();
-
-    if (type === 'arrowMarkedUp') {
-        ctx.moveTo(p.x, p.y - halfSize);
-        ctx.lineTo(p.x - halfSize, p.y);
-        ctx.lineTo(p.x - halfSize / 2, p.y);
-        ctx.lineTo(p.x - halfSize / 2, p.y + halfSize);
-        ctx.lineTo(p.x + halfSize / 2, p.y + halfSize);
-        ctx.lineTo(p.x + halfSize / 2, p.y);
-        ctx.lineTo(p.x + halfSize, p.y);
-    } else {
-        ctx.moveTo(p.x, p.y + halfSize);
-        ctx.lineTo(p.x - halfSize, p.y);
-        ctx.lineTo(p.x - halfSize / 2, p.y);
-        ctx.lineTo(p.x - halfSize / 2, p.y - halfSize);
-        ctx.lineTo(p.x + halfSize / 2, p.y - halfSize);
-        ctx.lineTo(p.x + halfSize / 2, p.y);
-        ctx.lineTo(p.x + halfSize, p.y);
-    }
-
+    up.forEach(([px, py], i) => {
+        const x = cx + px * cos - py * sin;
+        const y = cy + px * sin + py * cos;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
     ctx.closePath();
     ctx.fill();
+
+    // Metin etiketi: okun arkasinda (yukari ok: altinda, asagi ok: ustunde, sol ok: sagda, sag ok: solda)
+    drawing.setLabelRect(null);
+    if (drawing.showLabel && drawing.text) {
+        const gap = 4 * dpr;
+        ctx.font = cssFont(drawing.fontSize * dpr, drawing.bold, drawing.italic);
+        ctx.fillStyle = drawing.textColor;
+        const lines = drawing.text.split('\n');
+        const lineH = drawing.fontSize * 1.2 * dpr;
+        const w = Math.max(...lines.map(l => ctx.measureText(l).width));
+        const h = lines.length * lineH;
+        let lx: number;
+        let ly: number;
+        let align: CanvasTextAlign = 'center';
+        if (type === 'arrowMarkedUp') { lx = cx; ly = cy + halfSize + gap; }
+        else if (type === 'arrowMarkedDown') { lx = cx; ly = cy - halfSize - gap - h; }
+        else if (type === 'arrowMarkedLeft') { lx = cx + halfSize + gap; ly = cy - h / 2; align = 'left'; }
+        else { lx = cx - halfSize - gap; ly = cy - h / 2; align = 'right'; }
+        ctx.textAlign = align;
+        ctx.textBaseline = 'middle';
+        lines.forEach((line, i) => ctx.fillText(line, lx, ly + lineH / 2 + i * lineH));
+        const left = align === 'center' ? lx - w / 2 : align === 'left' ? lx : lx - w;
+        drawing.setLabelRect({ x: left / dpr, y: ly / dpr, width: w / dpr, height: h / dpr });
+    }
 
     if (isSelected) {
         ctx.strokeStyle = style.color;
         ctx.setLineDash([2 * dpr, 2 * dpr]);
         ctx.lineWidth = 1 * dpr;
-        ctx.strokeRect(p.x - halfSize - 2 * dpr, p.y - halfSize - 2 * dpr, s + 4 * dpr, s + 4 * dpr);
+        ctx.strokeRect(cx - halfSize - 2 * dpr, cy - halfSize - 2 * dpr, s + 4 * dpr, s + 4 * dpr);
         ctx.setLineDash([]);
 
         ctx.fillStyle = '#fff';
@@ -714,6 +810,7 @@ export function drawArrowIcon(
         ctx.arc(p.x, p.y, 2 * dpr, 0, Math.PI * 2);
         ctx.fill();
     }
+    ctx.restore();
 }
 
 /**

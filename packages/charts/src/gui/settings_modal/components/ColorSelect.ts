@@ -3,6 +3,8 @@
  * Color swatch with popup palette picker
  */
 
+import { getPopoverHost, registerOpenPopover, unregisterOpenPopover, copyThemeVars } from './popover';
+
 // Color palette constants
 const GRAYSCALE = ['#ffffff', '#e0e0e0', '#bdbdbd', '#9e9e9e', '#757575', '#424242', '#212121', '#000000'];
 
@@ -22,15 +24,15 @@ const styles = {
         border: 1px solid var(--border-color);
     `,
     popup: `
-        position: absolute;
-        top: 100%;
-        right: 0;
-        margin-top: 8px;
+        position: fixed;
+        top: 0;
+        left: 0;
+        visibility: hidden;
         background: var(--modal-bg);
         border-radius: 8px;
         padding: 12px;
         box-shadow: var(--shadow);
-        z-index: 10000;
+        z-index: 10001;
         min-width: 280px;
     `,
 };
@@ -47,6 +49,7 @@ export function createColorSelect(
 
     let currentColor = initialColor;
     let popup: HTMLElement | null = null;
+    let observer: MutationObserver | null = null;
 
     // Main swatch
     const swatch = document.createElement('div');
@@ -58,13 +61,57 @@ export function createColorSelect(
             popup.remove();
             popup = null;
         }
-        document.removeEventListener('click', handleClickOutside);
+        document.removeEventListener('mousedown', handleOutside, true);
+        document.removeEventListener('keydown', handleKeydown, true);
+        document.removeEventListener('fullscreenchange', hidePopup);
+        unregisterOpenPopover(hidePopup);
+        window.removeEventListener('resize', hidePopup);
+        window.removeEventListener('scroll', handleScroll, true);
+        observer?.disconnect();
+        observer = null;
     };
 
-    const handleClickOutside = (e: MouseEvent) => {
-        if (!wrapper.contains(e.target as Node)) {
+    // Yakalama (capture) fazinda dinlenir: pencere tiklamalari stopPropagation ile yuttugu icin
+    // kabarcik fazindaki 'click' icerideki tiklamalarda hic tetiklenmezdi.
+    const handleOutside = (e: MouseEvent) => {
+        const target = e.target as Node;
+        if (!wrapper.contains(target) && !(popup && popup.contains(target))) {
             hidePopup();
         }
+    };
+
+    // Ilk Esc yalniz popup'i kapatir (pencere / grafik ayni Esc'i gormez)
+    const handleKeydown = (e: KeyboardEvent) => {
+        if (e.key !== 'Escape') return;
+        e.stopPropagation();
+        e.preventDefault();
+        hidePopup();
+    };
+
+    // Kaydirma popup icinde olursa kapatma (yalniz disaridaki kaydirmalar)
+    const handleScroll = (e: Event) => {
+        if (popup && e.target instanceof Node && popup.contains(e.target)) return;
+        hidePopup();
+    };
+
+    // Popup, dialogun kirpan (overflow) kabinin disinda: body'ye (tam ekranda fullscreenElement'e) eklenir ve konumu viewport'a gore hesaplanir:
+    // asagida yer yoksa yukari acilir, yatayda ekrana sigdirilir.
+    const positionPopup = (el: HTMLElement) => {
+        const r = swatch.getBoundingClientRect();
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const gap = 8;
+        let top = r.bottom + gap;
+        if (top + h > vh - gap) {
+            const above = r.top - gap - h;
+            top = above >= gap ? above : Math.max(gap, vh - gap - h);
+        }
+        const left = Math.max(gap, Math.min(r.right - w, vw - w - gap));
+        el.style.top = `${top}px`;
+        el.style.left = `${left}px`;
+        el.style.visibility = 'visible';
     };
 
     // Click to show palette
@@ -145,8 +192,23 @@ export function createColorSelect(
         customRow.appendChild(addWrapper);
         popup.appendChild(customRow);
 
-        wrapper.appendChild(popup);
-        setTimeout(() => document.addEventListener('click', handleClickOutside), 10);
+        // Tema degiskenleri (--modal-bg vb.) pencere elemanindan kopyalanir (popup body'de);
+        // tanimsizsa :root / varsayilan kullanilir (popup seffaf kalmaz)
+        copyThemeVars(popup, wrapper, ['--modal-bg', '--text-primary', '--text-secondary', '--border-color', '--hover-bg', '--shadow', '--input-bg']);
+        // Baska bir popover (renk / cizgi) aciksa kapatilir
+        registerOpenPopover(hidePopup);
+        getPopoverHost().appendChild(popup);
+        positionPopup(popup);
+        window.addEventListener('resize', hidePopup);
+        window.addEventListener('scroll', handleScroll, true);
+        // Pencere (swatch) DOM'dan kalkarsa popup da kapanir
+        observer = new MutationObserver(() => { if (!wrapper.isConnected) hidePopup(); });
+        observer.observe(document.body, { childList: true, subtree: true });
+        // Popup'i acan tiklama zaten tamamlandi (mousedown onceden oldu); dinleyici hemen eklenir
+        document.addEventListener('mousedown', handleOutside, true);
+        document.addEventListener('keydown', handleKeydown, true);
+        // Tam ekrana girip cikinca popup yanlis kapta kalir: kapat
+        document.addEventListener('fullscreenchange', hidePopup);
     };
 
     wrapper.appendChild(swatch);

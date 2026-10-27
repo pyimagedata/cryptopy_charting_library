@@ -17,10 +17,16 @@ import {
     DrawingSettingsProvider,
     DrawingSettingsConfig,
     AttributeBarItem,
-    createStyleTab,
     createVisibilityTab,
+    createCoordinatesTab,
     colorRow,
+    checkboxRow,
+    textareaRow,
+    selectRow,
+    groupRow,
 } from './drawing-settings-config';
+
+import { TV_COLORS, fontSizeOptions } from './text-common';
 
 export interface ArrowMarkerOptions {
     color?: string;
@@ -43,15 +49,24 @@ export class ArrowMarkerDrawing implements Drawing, DrawingSettingsProvider {
     // Arrow specific options
     size: number = 24; // Thickness
 
+    // Text label (drawn at the tail of the arrow)
+    text: string = '';
+    textColor: string;
+    fontSize: number = 16;
+    bold: boolean = true;
+    italic: boolean = false;
+
     // Cached pixel coordinates
     private _pixelPoints: { x: number; y: number }[] = [];
 
     constructor(options: ArrowMarkerOptions = {}) {
         this.id = generateDrawingId();
+        const color = options.color || TV_COLORS.blue600;
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#f23645', // Default red from image
+            color,
         };
+        this.textColor = color;
         this.size = options.size || 24;
     }
 
@@ -62,23 +77,45 @@ export class ArrowMarkerDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Arrow Marker',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            {
-                                type: 'slider',
-                                key: 'size',
-                                label: 'Thickness',
-                                min: 4,
-                                max: 100,
-                                step: 1,
-                                defaultValue: 24
-                            },
-                        ]
-                    }
-                ]),
+                {
+                    id: 'style',
+                    label: 'Style',
+                    sections: [
+                        {
+                            title: 'Arrow Marker',
+                            rows: [
+                                colorRow('color', 'Background'),
+                                {
+                                    type: 'slider',
+                                    key: 'size',
+                                    label: 'Thickness',
+                                    min: 4,
+                                    max: 100,
+                                    step: 1,
+                                    defaultValue: 24
+                                },
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'textContent',
+                    label: 'Text',
+                    sections: [
+                        {
+                            rows: [
+                                groupRow([
+                                    colorRow('textColor', ''),
+                                    selectRow('fontSize', '', fontSizeOptions()),
+                                    checkboxRow('bold', 'B'),
+                                    checkboxRow('italic', 'I'),
+                                ]),
+                                textareaRow('text'),
+                            ]
+                        }
+                    ]
+                },
+                createCoordinatesTab([]),
                 createVisibilityTab()
             ]
         };
@@ -86,7 +123,9 @@ export class ArrowMarkerDrawing implements Drawing, DrawingSettingsProvider {
 
     getAttributeBarItems(): AttributeBarItem[] {
         return [
-            { type: 'color', key: 'color', tooltip: 'Color' },
+            { type: 'color', key: 'color', tooltip: 'Background Color' },
+            { type: 'color', key: 'textColor', tooltip: 'Text Color' },
+            { type: 'number', key: 'fontSize', tooltip: 'Font Size' },
         ];
     }
 
@@ -94,6 +133,11 @@ export class ArrowMarkerDrawing implements Drawing, DrawingSettingsProvider {
         switch (key) {
             case 'color': return this.style.color;
             case 'size': return this.size;
+            case 'text': return this.text;
+            case 'textColor': return this.textColor;
+            case 'fontSize': return String(this.fontSize);
+            case 'bold': return this.bold;
+            case 'italic': return this.italic;
             case 'visible': return this.visible;
             default: return undefined;
         }
@@ -107,6 +151,11 @@ export class ArrowMarkerDrawing implements Drawing, DrawingSettingsProvider {
             case 'size':
                 this.size = value;
                 break;
+            case 'text': this.text = String(value ?? ''); break;
+            case 'textColor': this.textColor = value; break;
+            case 'fontSize': { const n = parseInt(value); if (n > 0) this.fontSize = n; break; }
+            case 'bold': this.bold = !!value; break;
+            case 'italic': this.italic = !!value; break;
             case 'visible':
                 this.visible = value;
                 break;
@@ -222,6 +271,11 @@ export class ArrowMarkerDrawing implements Drawing, DrawingSettingsProvider {
             locked: this.locked,
             // Custom properties
             size: this.size,
+            text: this.text,
+            textColor: this.textColor,
+            fontSize: this.fontSize,
+            fontWeight: this.bold ? 'bold' : 'normal',
+            fontStyle: this.italic ? 'italic' : 'normal',
         };
     }
 
@@ -236,6 +290,13 @@ export class ArrowMarkerDrawing implements Drawing, DrawingSettingsProvider {
         drawing.state = data.state as DrawingState;
         drawing.visible = data.visible;
         drawing.locked = data.locked;
+
+        // Eski kayitlarda metin alanlari yok: bos etiket (gorunum degismez)
+        if (typeof data.text === 'string') drawing.text = data.text;
+        if (data.textColor) drawing.textColor = data.textColor;
+        if (data.fontSize) drawing.fontSize = data.fontSize;
+        if (data.fontWeight) drawing.bold = data.fontWeight === 'bold';
+        drawing.italic = data.fontStyle === 'italic';
 
         return drawing;
     }

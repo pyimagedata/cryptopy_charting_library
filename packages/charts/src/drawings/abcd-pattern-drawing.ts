@@ -25,10 +25,17 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
 } from './drawing-settings-config';
+
+import {
+    createPatternStyle,
+    applySerializedPattern,
+    getPatternSetting,
+    setPatternSetting,
+    patternStyleSections,
+    patternAttributeBarItems,
+} from './pattern-common';
+
 
 export interface ABCDPatternOptions {
     color?: string;
@@ -60,13 +67,7 @@ export class ABCDPatternDrawing implements Drawing, DrawingSettingsProvider {
 
     constructor(options: ABCDPatternOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#009688', // Teal green like TradingView
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-            fillColor: undefined, // No fill for ABCD
-        };
+        this.style = createPatternStyle('abcd', DEFAULT_DRAWING_STYLE, options);
     }
 
     // =========================================================================
@@ -76,59 +77,24 @@ export class ABCDPatternDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    }
-                ]),
+                createStyleTab(patternStyleSections(false)),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return patternAttributeBarItems(false);
     }
 
     getSettingValue(key: string): any {
-        switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'visible': return this.visible;
-            default: return undefined;
-        }
+        if (key === 'visible') return this.visible;
+        return getPatternSetting(this.style, key);
     }
 
     setSettingValue(key: string, value: any): void {
-        switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
-        }
+        if (key === 'visible') this.visible = value;
+        else setPatternSetting(this.style, key, value);
     }
 
     // =========================================================================
@@ -309,18 +275,8 @@ export class ABCDPatternDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     static fromJSON(data: SerializedDrawing): ABCDPatternDrawing {
-        const drawing = new ABCDPatternDrawing({
-            color: data.style.color,
-            lineWidth: data.style.lineWidth,
-            lineDash: data.style.lineDash
-        });
-
-        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
-        drawing.points = [...data.points];
-        drawing.state = data.state as DrawingState;
-        drawing.visible = data.visible;
-        drawing.locked = data.locked;
-
+        const drawing = new ABCDPatternDrawing();
+        applySerializedPattern(drawing, data);
         return drawing;
     }
 }

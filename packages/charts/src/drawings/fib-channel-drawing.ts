@@ -33,6 +33,7 @@ export interface FibChannelLevel {
     label: string;
     color: string;
     enabled: boolean;
+    text?: string;
 }
 
 /** Standard Fibonacci channel levels */
@@ -66,8 +67,8 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
     visible: boolean = true;
     locked: boolean = false;
 
-    // Channel specific options (kanalda seviyeler egik: fiyat etiketi ve log olcek yok)
-    readonly fib = new FibCommonSettings({ prices: false, logScale: false });
+    // Channel specific options (kanalda seviyeler egik: log olcek, trend cizgisi, ters cevirme ve seviye metni yok)
+    readonly fib = new FibCommonSettings({ prices: true, logScale: false, trendLine: false, reverse: false, levelText: false });
     opacity: number = 1;
     reversed: boolean = false;
     backgroundOpacity: number = 0.2;
@@ -88,13 +89,15 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
         startY: number;
         endX: number;
         endY: number;
+        startPrice?: number;
+        endPrice?: number;
     }[] = [];
 
     constructor(options: FibChannelOptions = {}) {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#00bcd4', // Cyan for channel
+            color: options.color || '#808080', // TradingView varsayilani (trend cizgisi grisi)
             lineWidth: options.lineWidth || 1,
             lineDash: [],
         };
@@ -238,7 +241,8 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
      */
     calculateLevelLines(
         pixelPoints: { x: number; y: number }[],
-        canvasWidth: number
+        canvasWidth: number,
+        yToPrice?: (y: number) => number | undefined
     ): void {
         if (pixelPoints.length < 3) {
             this._levelLines = [];
@@ -292,13 +296,15 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
                 startX: lineStartX,
                 startY,
                 endX: lineEndX,
-                endY
+                endY,
+                startPrice: yToPrice ? yToPrice(startY) : undefined,
+                endPrice: yToPrice ? yToPrice(endY) : undefined,
             };
         });
     }
 
     /** Get calculated level lines for rendering */
-    getLevelLines(): { level: number; label: string; color: string; startX: number; startY: number; endX: number; endY: number }[] {
+    getLevelLines(): { level: number; label: string; color: string; startX: number; startY: number; endX: number; endY: number; startPrice?: number; endPrice?: number }[] {
         return this._levelLines;
     }
 
@@ -413,12 +419,16 @@ export class FibChannelDrawing implements Drawing, DrawingSettingsProvider {
             extendLeft: data.extendLeft,
             extendRight: data.extendRight,
             backgroundOpacity: data.backgroundOpacity,
-            reversed: data.reversed,
+            reversed: false, // kanalda Reverse secenegi yok: eski kayitlardaki deger yok sayilir
             levels: levelsFromJSON(data.levels),
         });
         drawing.style = { ...drawing.style, ...data.style };
-        if (data.opacity !== undefined) drawing.opacity = data.opacity;
+        drawing.opacity = 1; // modalda artik duzenlenmiyor: eski kayitlardaki saydamlik yok sayilir
         drawing.fib.applyJSON(data.fib);
+        // Eski kanallarda fiyat etiketi yoktu (ayar da gorunmuyordu): "showText" alani
+        // yoksa kayit eskidir, gorunumu korumak icin fiyatlar kapali kalir.
+        if (!data.fib || data.fib.showText === undefined) drawing.fib.showPrices = false;
+        if (!data.fib) drawing.fib.trendLineVisible = true;
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
 

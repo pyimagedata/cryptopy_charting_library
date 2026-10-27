@@ -24,16 +24,26 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
 } from './drawing-settings-config';
+
+import {
+    createPatternStyle,
+    applySerializedPattern,
+    getPatternSetting,
+    setPatternSetting,
+    patternStyleSections,
+    patternAttributeBarItems,
+    xabcdRatios,
+    XABCDRatios,
+} from './pattern-common';
+
 
 export interface XABCDPatternOptions {
     color?: string;
     lineWidth?: number;
     lineDash?: number[];
     fillColor?: string;
+    fillOpacity?: number;
 }
 
 // Point labels for XABCD pattern
@@ -58,15 +68,9 @@ export class XABCDPatternDrawing implements Drawing, DrawingSettingsProvider {
     // Cached pixel coordinates
     private _pixelPoints: { x: number; y: number }[] = [];
 
-    constructor(options: XABCDPatternOptions = {}) {
+    constructor(options: XABCDPatternOptions = {}, kind: 'xabcd' | 'cypher' = 'xabcd') {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2962ff',
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-            fillColor: options.fillColor || 'rgba(41, 98, 255, 0.1)',
-        };
+        this.style = createPatternStyle(kind, DEFAULT_DRAWING_STYLE, options);
     }
 
     // =========================================================================
@@ -76,70 +80,24 @@ export class XABCDPatternDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Background',
-                        rows: [
-                            colorRow('fillColor', 'Fill Color'),
-                        ]
-                    }
-                ]),
+                createStyleTab(patternStyleSections(true)),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'color', key: 'fillColor', tooltip: 'Fill Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return patternAttributeBarItems(true);
     }
 
     getSettingValue(key: string): any {
-        switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'fillColor': return this.style.fillColor;
-            case 'visible': return this.visible;
-            default: return undefined;
-        }
+        if (key === 'visible') return this.visible;
+        return getPatternSetting(this.style, key);
     }
 
     setSettingValue(key: string, value: any): void {
-        switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'fillColor':
-                this.style.fillColor = value;
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
-        }
+        if (key === 'visible') this.visible = value;
+        else setPatternSetting(this.style, key, value);
     }
 
     // =========================================================================
@@ -186,6 +144,11 @@ export class XABCDPatternDrawing implements Drawing, DrawingSettingsProvider {
     /** Confirm the preview point (called on click) */
     confirmPreviewPoint(): void {
         this._previewPointIndex = -1;
+    }
+
+    /** XABCD ratios (AB/XA, BC/AB, CD/BC, AD/XA); null for missing points */
+    getXABCDRatios(): XABCDRatios {
+        return xabcdRatios(this.points);
     }
 
     /** Get the label for a point index */
@@ -280,19 +243,8 @@ export class XABCDPatternDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     static fromJSON(data: SerializedDrawing): XABCDPatternDrawing {
-        const drawing = new XABCDPatternDrawing({
-            color: data.style.color,
-            lineWidth: data.style.lineWidth,
-            lineDash: data.style.lineDash,
-            fillColor: data.style.fillColor
-        });
-
-        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
-        drawing.points = [...data.points];
-        drawing.state = data.state as DrawingState;
-        drawing.visible = data.visible;
-        drawing.locked = data.locked;
-
+        const drawing = new XABCDPatternDrawing();
+        applySerializedPattern(drawing, data);
         return drawing;
     }
 }

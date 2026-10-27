@@ -24,10 +24,16 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
 } from './drawing-settings-config';
+
+import {
+    createShapeStyle,
+    restoreShapeStyle,
+    getShapeSetting,
+    setShapeSetting,
+    shapeStyleSections,
+    shapeAttributeBarItems,
+} from './shape-common';
 
 export interface ArcOptions {
     color?: string;
@@ -58,14 +64,7 @@ export class ArcDrawing implements Drawing, DrawingSettingsProvider {
 
     constructor(options: ArcOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2962ff',
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-            fillColor: options.fillColor || 'rgba(41, 98, 255, 0.2)',
-            fillOpacity: options.fillOpacity || 0.2,
-        };
+        this.style = createShapeStyle('arc', DEFAULT_DRAWING_STYLE, options);
     }
 
     // =========================================================================
@@ -75,70 +74,24 @@ export class ArcDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Background',
-                        rows: [
-                            colorRow('fillColor', 'Fill Color'),
-                        ]
-                    }
-                ]),
+                createStyleTab(shapeStyleSections()),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'color', key: 'fillColor', tooltip: 'Fill Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return shapeAttributeBarItems();
     }
 
     getSettingValue(key: string): any {
-        switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'fillColor': return this.style.fillColor;
-            case 'visible': return this.visible;
-            default: return undefined;
-        }
+        if (key === 'visible') return this.visible;
+        return getShapeSetting(this.style, key);
     }
 
     setSettingValue(key: string, value: any): void {
-        switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'fillColor':
-                this.style.fillColor = value;
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
-        }
+        if (key === 'visible') this.visible = value;
+        else setShapeSetting(this.style, key, value);
     }
 
     // =========================================================================
@@ -231,7 +184,6 @@ export class ArcDrawing implements Drawing, DrawingSettingsProvider {
         const radius = Math.sqrt((ax - ux) ** 2 + (ay - uy) ** 2);
         const startAngle = Math.atan2(ay - uy, ax - ux);
         const endAngle = Math.atan2(by - uy, bx - ux);
-        const controlAngle = Math.atan2(cy - uy, cx - ux);
 
         // Determine direction based on control point position
         const crossProduct = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
@@ -339,12 +291,8 @@ export class ArcDrawing implements Drawing, DrawingSettingsProvider {
     }
 
     static fromJSON(data: SerializedDrawing): ArcDrawing {
-        const drawing = new ArcDrawing({
-            color: data.style.color,
-            lineWidth: data.style.lineWidth,
-            lineDash: data.style.lineDash,
-            fillColor: data.style.fillColor
-        });
+        const drawing = new ArcDrawing();
+        restoreShapeStyle(drawing.style, data.style);
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
         drawing.points = [...data.points];

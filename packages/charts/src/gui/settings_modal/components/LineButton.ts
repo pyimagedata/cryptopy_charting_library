@@ -5,6 +5,7 @@
  */
 
 import { t } from '../../../helpers/translations';
+import { getPopoverHost, registerOpenPopover, unregisterOpenPopover, copyThemeVars } from './popover';
 
 export type LineButtonStyle = 'solid' | 'dashed' | 'dotted';
 
@@ -20,8 +21,12 @@ export function linePreviewSvg(width: number, style: LineButtonStyle, length = 2
 }
 
 let openMenu: HTMLElement | null = null;
+let cleanupMenu: (() => void) | null = null;
 
 export function closeLineButtonMenu(): void {
+    const c = cleanupMenu;
+    cleanupMenu = null;
+    c?.();
     openMenu?.remove();
     openMenu = null;
 }
@@ -61,12 +66,7 @@ export function createLineButton(
         const r = btn.getBoundingClientRect();
         menu.style.cssText = `position:fixed;top:${r.bottom + 4}px;left:${Math.max(8, r.right - 120)}px;z-index:10001;background:var(--modal-bg);
             border:1px solid var(--border-color);border-radius:6px;box-shadow:var(--shadow);padding:6px;display:flex;flex-direction:column;gap:2px;min-width:110px;`;
-        if (host) {
-            const cs = getComputedStyle(host);
-            for (const v of ['--modal-bg', '--text-primary', '--border-color', '--hover-bg', '--shadow', '--input-bg']) {
-                menu.style.setProperty(v, cs.getPropertyValue(v));
-            }
-        }
+        copyThemeVars(menu, host ?? btn, ['--modal-bg', '--text-primary', '--border-color', '--hover-bg', '--shadow', '--input-bg']);
         const item = (html: string, active: boolean, onClick: () => void) => {
             const it = document.createElement('button');
             it.type = 'button';
@@ -89,15 +89,30 @@ export function createLineButton(
         (['solid', 'dashed', 'dotted'] as LineButtonStyle[]).forEach((s) => item(linePreviewSvg(2, s, 40), s === style, () => {
             style = s; onStyle(s); paint(); closeLineButtonMenu();
         }));
-        document.body.appendChild(menu);
+        // Baska bir popover (renk / cizgi) aciksa kapatilir
+        registerOpenPopover(closeLineButtonMenu);
+        // Tam ekranda fullscreenElement'e eklenir (aksi halde top-layer'in arkasinda kalir)
+        getPopoverHost().appendChild(menu);
         openMenu = menu;
         const off = (ev: MouseEvent) => {
-            if (!menu.contains(ev.target as Node) && !btn.contains(ev.target as Node)) {
-                closeLineButtonMenu();
-                document.removeEventListener('mousedown', off, true);
-            }
+            if (!menu.contains(ev.target as Node) && !btn.contains(ev.target as Node)) closeLineButtonMenu();
+        };
+        // Ilk Esc yalniz menuyu kapatir
+        const onKey = (ev: KeyboardEvent) => {
+            if (ev.key !== 'Escape') return;
+            ev.stopPropagation();
+            ev.preventDefault();
+            closeLineButtonMenu();
         };
         document.addEventListener('mousedown', off, true);
+        document.addEventListener('keydown', onKey, true);
+        document.addEventListener('fullscreenchange', closeLineButtonMenu);
+        cleanupMenu = () => {
+            document.removeEventListener('mousedown', off, true);
+            document.removeEventListener('keydown', onKey, true);
+            document.removeEventListener('fullscreenchange', closeLineButtonMenu);
+            unregisterOpenPopover(closeLineButtonMenu);
+        };
     };
     return btn;
 }

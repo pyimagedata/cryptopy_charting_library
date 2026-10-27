@@ -150,6 +150,12 @@ export class TimeAxisWidget implements Disposable {
             this._ctx.fillText(label, x, 8);
         }
 
+        // Cizimlerin zaman etiketleri (dikey cizgi vb.): imlec etiketinin ALTINDA kalsin diye once
+        for (const label of this._drawingLabels) {
+            if (label.x < 0 || label.x > width) continue;
+            this._drawLabel(label.x, this._formatCrosshairTime(label.time), label.color);
+        }
+
         // Draw crosshair label
         if (this._crosshairX !== null) {
             const index = this._timeScale.coordinateToIndex(this._crosshairX as any);
@@ -163,6 +169,12 @@ export class TimeAxisWidget implements Disposable {
     }
 
     private _crosshairX: number | null = null;
+    private _drawingLabels: { time: number; x: number; color: string }[] = [];
+
+    /** Cizimlerin zaman etiketleri: time (ms) metni, x (CSS px) konumu belirler; her cizimde yeniden verilir */
+    setDrawingLabels(labels: { time: number; x: number; color: string }[]): void {
+        this._drawingLabels = labels;
+    }
 
     setCrosshair(x: number, visible: boolean): void {
         this._crosshairX = visible ? x : null;

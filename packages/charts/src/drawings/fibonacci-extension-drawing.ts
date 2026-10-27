@@ -37,6 +37,7 @@ export interface FibExtLevel {
     label: string;
     color: string;
     enabled: boolean;
+    text?: string;
 }
 
 /** Standard Fibonacci extension levels */
@@ -84,7 +85,7 @@ export class FibExtensionDrawing implements Drawing, DrawingSettingsProvider {
     private _pixelPoints: { x: number; y: number }[] = [];
 
     // Pre-calculated level data for rendering
-    private _levelData: { level: number; label: string; color: string; price: number; y: number }[] = [];
+    private _levelData: { level: number; label: string; color: string; text?: string; price: number; y: number }[] = [];
 
     // Non-scaled Y for hit testing
     private _levelYNonScaled: number[] = [];
@@ -93,7 +94,7 @@ export class FibExtensionDrawing implements Drawing, DrawingSettingsProvider {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#9c27b0',  // Purple for extension
+            color: options.color || '#808080', // TradingView varsayilani (trend cizgisi grisi)
             lineWidth: options.lineWidth || 1,
             lineDash: [],
         };
@@ -252,9 +253,9 @@ calculateLevels(
         const useLog = this.fib.logScale && isLogScale;
 
         const enabledLevels = this.levels.filter(l => l.enabled);
-        this._levelData = enabledLevels.map(({ level, label, color }) => {
+        this._levelData = enabledLevels.map(({ level, label, color, text }) => {
             const price = fibExtensionPrice(a, b, c, this.reversed ? -level : level, useLog);
-            return { level, label, color, price, y: priceToYScaled(price) };
+            return { level, label, color, text, price, y: priceToYScaled(price) };
         });
         this._levelYNonScaled = priceToYNonScaled
             ? this._levelData.map(ld => priceToYNonScaled(ld.price))
@@ -262,7 +263,7 @@ calculateLevels(
     }
 
     /** Get calculated level data */
-    getLevelData(): { level: number; label: string; color: string; price: number; y: number }[] {
+    getLevelData(): { level: number; label: string; color: string; text?: string; price: number; y: number }[] {
         return this._levelData;
     }
 
@@ -390,7 +391,7 @@ calculateLevels(
             backgroundOpacity: data.backgroundOpacity,
             reversed: data.reversed,
             levels: levelsFromJSON(data.levels),
-            opacityValue: data.opacity,
+            opacityValue: 1, // modalda artik duzenlenmiyor: eski kayitlardaki saydamlik yok sayilir
         });
         drawing.style = { ...drawing.style, ...data.style };
         drawing.fib.applyJSON(data.fib);

@@ -28,7 +28,8 @@ const V_ALIGN_OPTIONS = [
  */
 export function createTextSection(
     drawing: Drawing,
-    onChanged: () => void
+    onChanged: () => void,
+    showAlignment: boolean = true
 ): HTMLElement {
     return createSection(t('Text'), (content) => {
         // Text Color
@@ -156,6 +157,7 @@ export function createTextSection(
         content.appendChild(textArea);
 
         // Alignment row
+        if (!showAlignment) return;
         const alignRow = document.createElement('div');
         alignRow.style.cssText = `
             display: flex;

@@ -24,10 +24,16 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
 } from './drawing-settings-config';
+
+import {
+    createShapeStyle,
+    restoreShapeStyle,
+    getShapeSetting,
+    setShapeSetting,
+    shapeStyleSections,
+    shapeAttributeBarItems,
+} from './shape-common';
 
 export interface RotatedRectangleOptions {
     color?: string;
@@ -57,14 +63,7 @@ export class RotatedRectangleDrawing implements Drawing, DrawingSettingsProvider
 
     constructor(options: RotatedRectangleOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2962ff',
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-            fillColor: options.fillColor || 'rgba(41, 98, 255, 0.2)',
-            fillOpacity: options.fillOpacity || 0.2,
-        };
+        this.style = createShapeStyle('rotatedRectangle', DEFAULT_DRAWING_STYLE, options);
     }
 
     // =========================================================================
@@ -74,70 +73,24 @@ export class RotatedRectangleDrawing implements Drawing, DrawingSettingsProvider
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Border',
-                        rows: [
-                            colorRow('color', 'Border Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Background',
-                        rows: [
-                            colorRow('fillColor', 'Background Color'),
-                        ]
-                    }
-                ]),
+                createStyleTab(shapeStyleSections()),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Border Color' },
-            { type: 'color', key: 'fillColor', tooltip: 'Background Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Border Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Border Style' },
-        ];
+        return shapeAttributeBarItems();
     }
 
     getSettingValue(key: string): any {
-        switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'fillColor': return this.style.fillColor;
-            case 'visible': return this.visible;
-            default: return undefined;
-        }
+        if (key === 'visible') return this.visible;
+        return getShapeSetting(this.style, key);
     }
 
     setSettingValue(key: string, value: any): void {
-        switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'fillColor':
-                this.style.fillColor = value;
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
-        }
+        if (key === 'visible') this.visible = value;
+        else setShapeSetting(this.style, key, value);
     }
 
     // =========================================================================
@@ -330,12 +283,8 @@ export class RotatedRectangleDrawing implements Drawing, DrawingSettingsProvider
     }
 
     static fromJSON(data: SerializedDrawing): RotatedRectangleDrawing {
-        const drawing = new RotatedRectangleDrawing({
-            color: data.style.color,
-            lineWidth: data.style.lineWidth,
-            lineDash: data.style.lineDash,
-            fillColor: data.style.fillColor
-        });
+        const drawing = new RotatedRectangleDrawing();
+        restoreShapeStyle(drawing.style, data.style);
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
         drawing.points = [...data.points];

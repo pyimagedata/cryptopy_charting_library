@@ -11,11 +11,7 @@ import {
     lineWidthRow,
 } from '../gui/indicator_settings';
 
-interface VolumeProfileBin {
-    low: number;
-    high: number;
-    volume: number;
-}
+import { VolumeProfileBin, computeVolumeProfile } from './volume-profile-math';
 
 interface VolumeProfileState {
     startIndex: number;
@@ -131,45 +127,13 @@ export class FixedRangeVolumeProfileIndicator extends OverlayIndicator {
         const endIndex = sourceData.length - 1;
         const rangeBars = Math.max(20, Math.floor(this._optionsEx.rangeBars));
         const startIndex = Math.max(0, endIndex - rangeBars + 1);
-        const window = sourceData.slice(startIndex, endIndex + 1);
-        const lowest = Math.min(...window.map((bar) => bar.low));
-        const highest = Math.max(...window.map((bar) => bar.high));
         const rows = Math.max(8, Math.floor(this._optionsEx.rows));
-        const priceRange = highest - lowest;
-
-        if (!Number.isFinite(lowest) || !Number.isFinite(highest) || priceRange <= 0) {
+        const result = computeVolumeProfile(sourceData, startIndex, endIndex, rows, this._optionsEx.valueAreaPercent / 100);
+        if (!result) {
             return;
         }
 
-        const step = priceRange / rows;
-        const bins: VolumeProfileBin[] = Array.from({ length: rows }, (_, idx) => ({
-            low: lowest + idx * step,
-            high: lowest + (idx + 1) * step,
-            volume: 0,
-        }));
-
-        let totalVolume = 0;
-        for (let i = startIndex; i <= endIndex; i++) {
-            const bar = sourceData[i];
-            const volume = Math.max(0, bar.volume || 0);
-            totalVolume += volume;
-
-            const high = clamp(bar.high, lowest, highest);
-            const low = clamp(bar.low, lowest, highest);
-            const startBin = clampInt(Math.floor((low - lowest) / step), 0, rows - 1);
-            const endBin = clampInt(Math.floor(((high - lowest) / step) - 1e-8), 0, rows - 1);
-            const touched = Math.max(1, endBin - startBin + 1);
-            const allocated = volume / touched;
-
-            for (let binIndex = startBin; binIndex <= endBin; binIndex++) {
-                bins[binIndex].volume += allocated;
-            }
-        }
-
-        const maxVolume = bins.reduce((acc, bin) => Math.max(acc, bin.volume), 0);
-        const pocIndex = bins.reduce((best, bin, idx) => bin.volume > bins[best].volume ? idx : best, 0);
-        const { vahIndex, valIndex } = computeValueArea(bins, pocIndex, this._optionsEx.valueAreaPercent / 100);
-
+        const { lowest, highest, bins, maxVolume, totalVolume, pocIndex, vahIndex, valIndex } = result;
         this._profile = {
             startIndex,
             endIndex,
@@ -312,28 +276,6 @@ export class FixedRangeVolumeProfileIndicator extends OverlayIndicator {
     }
 }
 
-function computeValueArea(bins: VolumeProfileBin[], pocIndex: number, percent: number): { vahIndex: number; valIndex: number } {
-    const targetVolume = bins.reduce((sum, bin) => sum + bin.volume, 0) * percent;
-    let cumulative = bins[pocIndex]?.volume || 0;
-    let low = pocIndex;
-    let high = pocIndex;
-
-    while (cumulative < targetVolume && (low > 0 || high < bins.length - 1)) {
-        const nextLow = low > 0 ? bins[low - 1].volume : -1;
-        const nextHigh = high < bins.length - 1 ? bins[high + 1].volume : -1;
-
-        if (nextHigh >= nextLow) {
-            high = Math.min(bins.length - 1, high + 1);
-            cumulative += bins[high].volume;
-        } else {
-            low = Math.max(0, low - 1);
-            cumulative += bins[low].volume;
-        }
-    }
-
-    return { vahIndex: high, valIndex: low };
-}
-
 function drawHorizontalLevel(
     ctx: CanvasRenderingContext2D,
     timeScale: any,
@@ -363,14 +305,6 @@ function drawHorizontalLevel(
 
 function average(a: number, b: number): number {
     return (a + b) / 2;
-}
-
-function clamp(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
-}
-
-function clampInt(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
 }
 
 function withAlpha(color: string, alpha: number): string {

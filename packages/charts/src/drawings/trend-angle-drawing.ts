@@ -1,6 +1,6 @@
 /**
  * Trend Angle Drawing Implementation
- * A TrendLine that displays the angle with an arc visualization
+ * Trend Line ailesinin bir uyesi: aci yayi ve aci metni ile birlikte cizilir.
  */
 
 import {
@@ -11,18 +11,18 @@ import {
 import {
     DrawingSettingsConfig,
     createStyleTab,
-    createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow
+    createVisibilityTab
 } from './drawing-settings-config';
 
+import { buildLineStyleSections } from './line-tool-common';
 import { TrendLineDrawing } from './trend-line-drawing';
 
 export interface TrendAngleOptions {
     color?: string;
     lineWidth?: number;
     lineDash?: number[];
+    extendLeft?: boolean;
+    extendRight?: boolean;
 }
 
 /**
@@ -37,9 +37,11 @@ export class TrendAngleDrawing extends TrendLineDrawing {
     constructor(options: TrendAngleOptions = {}) {
         super({
             ...options,
-            extendLeft: false,
-            extendRight: false
+            extendLeft: options.extendLeft ?? false,
+            extendRight: options.extendRight ?? false
         });
+        // TradingView varsayilani: metin boyutu 12
+        this.style.fontSize = 12;
     }
 
     // =========================================================================
@@ -69,33 +71,20 @@ export class TrendAngleDrawing extends TrendLineDrawing {
     }
 
     // =========================================================================
-    // Override Settings - simpler config without extend options
+    // Settings: cizgi, uzatma, orta nokta, fiyat etiketleri, istatistik alt kumesi (uc sekli yok)
     // =========================================================================
+
+    protected getToolTitle(): string {
+        return 'Trend Angle';
+    }
 
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Trend Angle',
-                        rows: [
-                            colorRow('color', 'Line Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    }
-                ]),
+                createStyleTab(buildLineStyleSections(this.getToolTitle(), true, { ends: false, fullStats: false })),
                 createVisibilityTab()
             ]
         };
-    }
-
-    // Block extend changes - trend angle doesn't extend
-    setSettingValue(key: string, value: any): void {
-        if (key === 'extendLeft' || key === 'extendRight') {
-            return;
-        }
-        super.setSettingValue(key, value);
     }
 
     // =========================================================================
@@ -115,15 +104,9 @@ export class TrendAngleDrawing extends TrendLineDrawing {
             color: data.style.color,
             lineWidth: data.style.lineWidth,
             lineDash: data.style.lineDash,
+            extendLeft: data.extendLeft,
+            extendRight: data.extendRight,
         });
-
-        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
-
-        drawing.points = [...data.points];
-        drawing.state = data.state;
-        drawing.visible = data.visible;
-        drawing.locked = data.locked;
-
-        return drawing;
+        return TrendLineDrawing.applySerialized(drawing, data);
     }
 }

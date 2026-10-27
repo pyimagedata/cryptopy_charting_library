@@ -4,11 +4,26 @@
  */
 
 import { TextDrawing } from '../../../drawings/text-drawing';
-import { CalloutDrawing } from '../../../drawings/callout-drawing';
+import {
+    CalloutDrawing, CALLOUT_RADIUS, CALLOUT_MARGIN, CALLOUT_MIN_WRAP_WIDTH,
+    buildCalloutGeometry, calloutTextSize, calloutWrapHandleX,
+} from '../../../drawings/callout-drawing';
 import { PriceLabelDrawing } from '../../../drawings/price-label-drawing';
 import { FlagMarkedDrawing } from '../../../drawings/flag-marked-drawing';
 import { StickerDrawing } from '../../../drawings/sticker-drawing';
-import { fillWithOpacity } from './utils';
+import { cssFont, wrapText, textBoxBackgroundCss, withAlpha } from '../../../drawings/text-common';
+import { parseColor } from '../../../drawings/shape-common';
+
+/** Metni ayarlara gore satirlara boler (kelime kaydirma aciksa wrapWidth px'e sigdirir); ctx.font ayarli olmali. */
+function layoutLines(ctx: CanvasRenderingContext2D, text: string, wrap: boolean, wrapWidth: number, dpr: number): string[] {
+    const measure = (s: string) => ctx.measureText(s).width;
+    return wrap ? wrapText(text, wrapWidth * dpr, measure) : String(text ?? '').split('\n');
+}
+
+/** Kenarlik cizilebilir mi (saydam / cozulemeyen renk degil) */
+function isDrawableColor(c: string): boolean {
+    return !!c && c !== 'transparent' && parseColor(c) !== null;
+}
 
 /**
  * Draw a Text label
@@ -20,38 +35,32 @@ export function drawText(
     dpr: number,
     isSelected: boolean
 ): void {
-    const { text, fontSize, bold, italic, style, backgroundColor, borderColor, borderWidth, backgroundVisible, borderVisible } = drawing;
+    const { text, style, box } = drawing;
 
     ctx.save();
 
-    // Set font
-    const fontWeight = bold ? 'bold' : 'normal';
-    const fontStyle = italic ? 'italic' : 'normal';
-    ctx.font = `${fontStyle} ${fontWeight} ${fontSize * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    ctx.font = cssFont(box.fontSize * dpr, box.bold, box.italic);
 
-    // Support multiline text
-    const lines = text.split('\n');
-    const lineHeight = fontSize * 1.2 * dpr;
+    // Support multiline text (+ word wrap)
+    const lines = layoutLines(ctx, text, box.wrap, box.wrapWidth, dpr);
+    const lineHeight = box.fontSize * 1.2 * dpr;
 
-    // Measure total dimensions
     let maxLineWidth = 0;
     lines.forEach(line => {
-        const metrics = ctx.measureText(line);
-        maxLineWidth = Math.max(maxLineWidth, metrics.width);
+        maxLineWidth = Math.max(maxLineWidth, ctx.measureText(line).width);
     });
 
-    const textWidth = maxLineWidth;
     const textHeight = lines.length * lineHeight;
     const padding = 6 * dpr;
 
-    const boxWidth = textWidth + padding * 2;
+    const boxWidth = maxLineWidth + padding * 2;
     const boxHeight = textHeight + padding * 2;
 
-    // Position (center on the point by default)
-    const x = pixelPoint.x - boxWidth / 2;
-    const y = pixelPoint.y - boxHeight / 2;
+    // Yeni duzen: nokta kutunun sol ustu; eski kayit: nokta kutunun ortasi
+    const x = box.legacy ? pixelPoint.x - boxWidth / 2 : pixelPoint.x;
+    const y = box.legacy ? pixelPoint.y - boxHeight / 2 : pixelPoint.y;
 
-    // Cache bounds for hit testing
+    // Cache bounds for hit testing (and inline editor placement)
     drawing.setCachedBounds({
         x: x / dpr,
         y: y / dpr,
@@ -59,8 +68,13 @@ export function drawText(
         height: boxHeight / dpr
     });
 
+    // Satir ici editor acikken kutuyu ve metni editor cizer
+    if (drawing.editing) { ctx.restore(); return; }
+
     // 1. Draw Background and Border
-    if (backgroundVisible || borderVisible) {
+    const drawBg = box.bgVisible && box.bgOpacity > 0;
+    const drawBorder = box.borderVisible && isDrawableColor(box.borderColor) && box.borderWidth > 0;
+    if (drawBg || drawBorder) {
         ctx.beginPath();
         if (typeof (ctx as any).roundRect === 'function') {
             (ctx as any).roundRect(x, y, boxWidth, boxHeight, 4 * dpr);
@@ -68,25 +82,28 @@ export function drawText(
             ctx.rect(x, y, boxWidth, boxHeight);
         }
 
-        if (backgroundVisible && backgroundColor !== 'transparent') {
-            fillWithOpacity(ctx, backgroundColor);
+        if (drawBg) {
+            ctx.fillStyle = textBoxBackgroundCss(box);
+            ctx.fill();
         }
 
-        if (borderVisible && borderColor !== 'transparent' && borderWidth > 0) {
-            ctx.strokeStyle = borderColor;
-            ctx.lineWidth = borderWidth * dpr;
+        if (drawBorder) {
+            ctx.strokeStyle = box.borderColor;
+            ctx.lineWidth = box.borderWidth * dpr;
             ctx.stroke();
         }
     }
 
     // 2. Draw Text lines
     ctx.fillStyle = style.color;
-    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    const centered = box.legacy;
+    ctx.textAlign = centered ? 'center' : 'left';
+    const textX = centered ? x + boxWidth / 2 : x + padding;
 
-    const startY = pixelPoint.y - textHeight / 2 + lineHeight / 2;
+    const startY = y + padding + lineHeight / 2;
     lines.forEach((line, i) => {
-        ctx.fillText(line, pixelPoint.x, startY + i * lineHeight);
+        ctx.fillText(line, textX, startY + i * lineHeight);
     });
 
     // 3. Draw selection
@@ -99,7 +116,7 @@ export function drawText(
 }
 
 /**
- * Draw a Callout
+ * Draw a Callout (TradingView geometri: bkz. buildCalloutGeometry)
  */
 export function drawCallout(
     ctx: CanvasRenderingContext2D,
@@ -117,148 +134,76 @@ export function drawCallout(
         ? pixelPoints[1]
         : { x: anchor.x + 80 * dpr, y: anchor.y - 60 * dpr };
 
-    const { text, fontSize, bold, italic, style, backgroundColor, borderColor, borderWidth } = drawing;
+    const { style, box } = drawing;
+    // Editor acikken kutu, textarea'daki canli metne gore boyutlanir
+    const text = drawing.editing && drawing.editText !== null ? drawing.editText : drawing.text;
+    const { fontSize, borderColor, borderWidth } = box;
 
     ctx.save();
 
-    // Set font
-    const fontWeight = bold ? 'bold' : 'normal';
-    const fontStyle = italic ? 'italic' : 'normal';
-    ctx.font = `${fontStyle} ${fontWeight} ${fontSize * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    ctx.font = cssFont(fontSize * dpr, box.bold, box.italic);
 
-    // Support multiline text
-    const lines = text.split('\n');
-    const lineHeight = fontSize * 1.2 * dpr;
-
-    // Measure total dimensions
+    // Satirlar (+ kelime kaydirma); satir yuksekligi = yazi boyutu
+    const wrapWidth = Math.max(CALLOUT_MIN_WRAP_WIDTH, box.wrapWidth);
+    const lines = layoutLines(ctx, text, box.wrap, wrapWidth, dpr);
     let maxLineWidth = 0;
-    lines.forEach(line => {
-        const metrics = ctx.measureText(line);
-        maxLineWidth = Math.max(maxLineWidth, metrics.width);
-    });
+    lines.forEach(line => { maxLineWidth = Math.max(maxLineWidth, ctx.measureText(line).width); });
+    const size = calloutTextSize(maxLineWidth, lines.length, fontSize, box.wrap, wrapWidth, dpr);
+    const geo = buildCalloutGeometry(anchor, boxCenter, size.textWidth, size.textHeight, dpr);
 
-    const textWidth = Math.max(maxLineWidth, 50 * dpr);
-    const textHeight = lines.length * lineHeight;
-    const paddingH = 16 * dpr;
-    const paddingV = 12 * dpr;
-
-    const w = textWidth + paddingH * 2;
-    const h = textHeight + paddingV * 2;
-    const r = 8 * dpr;  // corner radius
-
-    // Box bounds (top-left corner)
-    const x = boxCenter.x - w / 2;
-    const y = boxCenter.y - h / 2;
-
-    // Cache bounds
+    // Cache bounds (css px)
     drawing.setCachedBounds({
-        x: x / dpr,
-        y: y / dpr,
-        width: w / dpr,
-        height: h / dpr
+        x: geo.left / dpr,
+        y: geo.top / dpr,
+        width: geo.width / dpr,
+        height: geo.height / dpr
     });
+    const handles = [{ x: anchor.x / dpr, y: anchor.y / dpr }];
+    if (box.wrap) handles.push({ x: calloutWrapHandleX(boxCenter.x, wrapWidth, dpr) / dpr, y: boxCenter.y / dpr });
+    drawing.setHandlePoints(handles);
 
-    // Determine which side is nearest to anchor (relative to box)
-    const deltaX = anchor.x - boxCenter.x;
-    const deltaY = anchor.y - boxCenter.y;
-
-    // Calculate nearest side
-    let nearestSide: 'left' | 'right' | 'top' | 'bottom';
-
-    // Check if anchor is outside the box
-    const isOutside = Math.abs(deltaX) > w / 2 || Math.abs(deltaY) > h / 2;
-
-    if (Math.abs(deltaX) * h > Math.abs(deltaY) * w) {
-        nearestSide = deltaX < 0 ? 'left' : 'right';
-    } else {
-        nearestSide = deltaY < 0 ? 'top' : 'bottom';
-    }
-
-    // Pointer base half-width
-    const pointerHalf = 10 * dpr;
-
+    ctx.lineCap = 'round';
     ctx.beginPath();
-
-    // Start from top-left corner (after radius)
-    ctx.moveTo(x + r, y);
-
-    // TOP EDGE
-    if (nearestSide === 'top' && isOutside && pixelPoints.length > 1) {
-        const px = Math.max(x + r + pointerHalf, Math.min(x + w - r - pointerHalf, anchor.x));
-        ctx.lineTo(px + pointerHalf, y);
-        ctx.lineTo(anchor.x, anchor.y);
-        ctx.lineTo(px - pointerHalf, y);
+    for (const c of geo.cmds) {
+        const px = (v: number) => geo.left + v;
+        const py = (v: number) => geo.top + v;
+        if (c.op === 'M') ctx.moveTo(px(c.x), py(c.y));
+        else if (c.op === 'L') ctx.lineTo(px(c.x), py(c.y));
+        else ctx.arcTo(px(c.x1), py(c.y1), px(c.x2), py(c.y2), c.r);
     }
-    ctx.lineTo(x + w - r, y);
-
-    // Top-right corner
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-
-    // RIGHT EDGE
-    if (nearestSide === 'right' && isOutside && pixelPoints.length > 1) {
-        const py = Math.max(y + r + pointerHalf, Math.min(y + h - r - pointerHalf, anchor.y));
-        ctx.lineTo(x + w, py - pointerHalf);
-        ctx.lineTo(anchor.x, anchor.y);
-        ctx.lineTo(x + w, py + pointerHalf);
-    }
-    ctx.lineTo(x + w, y + h - r);
-
-    // Bottom-right corner
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-
-    // BOTTOM EDGE
-    if (nearestSide === 'bottom' && isOutside && pixelPoints.length > 1) {
-        const px = Math.max(x + r + pointerHalf, Math.min(x + w - r - pointerHalf, anchor.x));
-        ctx.lineTo(px + pointerHalf, y + h);
-        ctx.lineTo(anchor.x, anchor.y);
-        ctx.lineTo(px - pointerHalf, y + h);
-    }
-    ctx.lineTo(x + r, y + h);
-
-    // Bottom-left corner
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-
-    // LEFT EDGE
-    if (nearestSide === 'left' && isOutside && pixelPoints.length > 1) {
-        const py = Math.max(y + r + pointerHalf, Math.min(y + h - r - pointerHalf, anchor.y));
-        ctx.lineTo(x, py + pointerHalf);
-        ctx.lineTo(anchor.x, anchor.y);
-        ctx.lineTo(x, py - pointerHalf);
-    }
-    ctx.lineTo(x, y + r);
-
-    // Top-left corner
-    ctx.quadraticCurveTo(x, y, x + r, y);
-
     ctx.closePath();
 
-    // Fill
-    if (backgroundColor !== 'transparent') {
-        fillWithOpacity(ctx, backgroundColor);
-    }
-
-    // Stroke
-    if (borderColor !== 'transparent' && borderWidth > 0) {
+    // TV: once kenarlik, sonra dolgu
+    if (box.borderVisible && isDrawableColor(borderColor) && borderWidth > 0) {
         ctx.strokeStyle = borderColor;
         ctx.lineWidth = borderWidth * dpr;
         ctx.stroke();
     }
+    if (box.bgVisible && box.bgOpacity > 0) {
+        ctx.fillStyle = textBoxBackgroundCss(box);
+        ctx.fill();
+    }
 
-    // Draw Text lines
+    // Metin: sol ust ic bosluk (radius + margin), satir yuksekligi = yazi boyutu
+    // (editor acikken metni textarea gosterir)
+    const inset = (CALLOUT_RADIUS + CALLOUT_MARGIN) * dpr;
+    const centered = box.legacy;
     ctx.fillStyle = style.color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = centered ? 'center' : 'left';
+    const textX = centered ? geo.left + geo.width / 2 : geo.left + inset;
+    let textY = geo.top + inset + fontSize * dpr;
+    for (const line of lines) {
+        if (!drawing.editing) ctx.fillText(line, textX, textY);
+        textY += fontSize * dpr;
+    }
 
-    const startY = boxCenter.y - textHeight / 2 + lineHeight / 2;
-    lines.forEach((line, i) => {
-        ctx.fillText(line, boxCenter.x, startY + i * lineHeight);
-    });
-
-    // Draw selection (only control points, no dashed box)
+    // Selection: sabit tutamaci (+ kelime kaydirma aciksa sag kenar tutamaci)
     if (isSelected) {
-        drawControlPoint(ctx, anchor.x, anchor.y, borderColor || style.color, dpr);
-        if (pixelPoints.length > 1) {
-            drawControlPoint(ctx, boxCenter.x, boxCenter.y, borderColor || style.color, dpr);
+        const cpColor = isDrawableColor(borderColor) ? borderColor : style.color;
+        drawControlPoint(ctx, anchor.x, anchor.y, cpColor, dpr);
+        if (box.wrap && pixelPoints.length > 1) {
+            drawControlPoint(ctx, handles[1].x * dpr, handles[1].y * dpr, cpColor, dpr);
         }
     }
 
@@ -274,15 +219,15 @@ export function drawPriceLabel(
     pixelPoint: { x: number; y: number },
     price: number,
     dpr: number,
-    isSelected: boolean
+    isSelected: boolean,
+    precision: number = 2
 ): void {
-    const { fontSize, style, backgroundColor, bold } = drawing;
+    const { fontSize, style, backgroundColor, backgroundOpacity, borderColor, bold } = drawing;
 
     ctx.save();
 
-    const text = price.toFixed(2);
-    const fontWeight = bold ? 'bold' : 'normal';
-    ctx.font = `${fontWeight} ${fontSize * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    const text = price.toFixed(Math.max(0, Math.min(10, precision)));
+    ctx.font = cssFont(fontSize * dpr, bold, false);
 
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;
@@ -305,32 +250,31 @@ export function drawPriceLabel(
         height: boxHeight / dpr
     });
 
-    // Pointer base points (from bottom-left corner of box)
+    // Tek yol: yuvarlak kutu + sol alt kosede imlece uzanan isaretci (ust uste binen dolgu koyulasmaz)
     const pointerOffset = 10 * dpr;
-    const p1 = { x: x, y: y + boxHeight - pointerOffset };  // Up from bottom-left on left edge
-    const p2 = { x: x + pointerOffset, y: y + boxHeight };  // Right from bottom-left on bottom edge
-
-    // Draw pointer triangle (filled)
-    ctx.beginPath();
-    ctx.moveTo(pixelPoint.x, pixelPoint.y);
-    ctx.lineTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
-    ctx.closePath();
-    fillWithOpacity(ctx, backgroundColor);
-
-    // Draw rounded rectangle box
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
     ctx.lineTo(x + boxWidth - radius, y);
     ctx.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + radius);
     ctx.lineTo(x + boxWidth, y + boxHeight - radius);
     ctx.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - radius, y + boxHeight);
-    ctx.lineTo(x + radius, y + boxHeight);
-    ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - radius);
+    ctx.lineTo(x + pointerOffset, y + boxHeight);
+    ctx.lineTo(pixelPoint.x, pixelPoint.y);
+    ctx.lineTo(x, y + boxHeight - pointerOffset);
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
-    fillWithOpacity(ctx, backgroundColor);
+
+    if (backgroundOpacity > 0) {
+        ctx.fillStyle = withAlpha(backgroundColor, backgroundOpacity);
+        ctx.fill();
+    }
+    if (isDrawableColor(borderColor)) {
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 1 * dpr;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+    }
 
     // Text
     ctx.fillStyle = style.color;

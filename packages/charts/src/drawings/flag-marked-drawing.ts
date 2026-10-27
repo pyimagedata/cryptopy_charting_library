@@ -46,7 +46,7 @@ export class FlagMarkedDrawing implements Drawing, DrawingSettingsProvider {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#ef5350',
+            color: options.color || '#2962FF',
         };
         if (options.text) this._text = options.text;
     }

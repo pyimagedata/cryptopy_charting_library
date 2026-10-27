@@ -28,6 +28,8 @@ export abstract class BaseSettingsModal {
     protected _contentContainer: HTMLElement | null = null;
     protected _activeTabId: string = 'style';
     protected _theme: 'dark' | 'light' = 'dark';
+    /** Grafigin mevcut zaman dilimi (gorunurluk sekmesindeki hazir ayarlar icin) */
+    protected _timeframe: string = '';
 
     // Events
     readonly closed = new Delegate<void>();
@@ -44,6 +46,10 @@ export abstract class BaseSettingsModal {
 
     constructor(container: HTMLElement) {
         this._container = container;
+    }
+
+    setTimeframe(timeframe: string): void {
+        this._timeframe = timeframe;
     }
 
     /** Set theme and update variables */
@@ -95,12 +101,17 @@ export abstract class BaseSettingsModal {
         // Override in subclasses if needed
     }
 
+    /** Tab selected when the modal opens (override to opt in; default 'style') */
+    protected getInitialTabId(): string {
+        return 'style';
+    }
+
     /** Show the modal for a drawing */
     show(drawing: Drawing): void {
         this._currentDrawing = drawing;
         this.initializeForDrawing(drawing);
+        this._activeTabId = this.getInitialTabId();
         this._createElement();
-        this._activeTabId = 'style';
         this._renderActiveTab();
     }
 

@@ -22,17 +22,27 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
-    sliderRow
 } from './drawing-settings-config';
+
+import { LineToolProps, createLineProps, serializeLineProps, deserializeLineProps } from './line-tool-common';
+import { restoreShapeStyle } from './shape-common';
+import {
+    TV_CYAN,
+    createOpenStyle,
+    openLineSection,
+    backgroundSection,
+    openAttributeBarItems,
+    getOpenSetting,
+    setOpenSetting,
+} from './open-shape-common';
 
 export interface BrushOptions {
     color?: string;
     lineWidth?: number;
     opacity?: number;
     smooth?: boolean;
+    fillColor?: string;
+    fillOpacity?: number;
 }
 
 /**
@@ -52,17 +62,19 @@ export class BrushDrawing implements Drawing, DrawingSettingsProvider {
     opacity: number = 1.0;
     smooth: boolean = true;
 
+    /** Sol/sag uc sekli (stroke basi / sonu) */
+    lineProps: LineToolProps = createLineProps();
+
     // Cached pixel coordinates
     private _pixelPoints: { x: number; y: number }[] = [];
 
     constructor(options: BrushOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2962ff',
-            lineWidth: options.lineWidth || 2,
-            lineDash: [],
-        };
+        this.style = createOpenStyle(DEFAULT_DRAWING_STYLE, {
+            color: TV_CYAN,
+            lineWidth: 2,
+            fill: { color: TV_CYAN, opacity: 0.2, enabled: false },
+        }, options);
         this.opacity = options.opacity ?? 1.0;
         this.smooth = options.smooth !== false;
     }
@@ -74,69 +86,30 @@ export class BrushDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Line Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    },
-                    {
-                        title: 'Opacity',
-                        rows: [
-                            sliderRow('opacity', 'Line Opacity', 10, 100, '%'),
-                        ]
-                    }
-                ]),
+                createStyleTab([openLineSection({ style: false, ends: true }), backgroundSection()]),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return openAttributeBarItems({ fill: true, style: false });
     }
 
     getSettingValue(key: string): any {
         switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'opacity': return Math.round(this.opacity * 100);
             case 'visible': return this.visible;
-            default: return undefined;
+            case 'opacity': return Math.round(this.opacity * 100);
         }
+        return getOpenSetting(this.style, this.lineProps, key);
     }
 
     setSettingValue(key: string, value: any): void {
         switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'opacity':
-                this.opacity = value / 100;
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
+            case 'visible': this.visible = value; return;
+            case 'opacity': this.opacity = value / 100; return;
         }
+        setOpenSetting(this.style, this.lineProps, key, value);
     }
 
     /** Add a point to the brush path */
@@ -272,6 +245,7 @@ export class BrushDrawing implements Drawing, DrawingSettingsProvider {
             visible: this.visible,
             locked: this.locked,
             opacity: this.opacity,
+            lineProps: serializeLineProps(this.lineProps),
         };
     }
 
@@ -283,6 +257,8 @@ export class BrushDrawing implements Drawing, DrawingSettingsProvider {
             opacity: data.opacity,
         });
 
+        restoreShapeStyle(drawing.style, data.style);
+        drawing.lineProps = deserializeLineProps(data.lineProps);
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
 
         drawing.points = [...data.points];

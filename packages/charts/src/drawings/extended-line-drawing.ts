@@ -8,15 +8,6 @@ import {
     SerializedDrawing
 } from './drawing';
 
-import {
-    DrawingSettingsConfig,
-    createStyleTab,
-    createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow
-} from './drawing-settings-config';
-
 import { TrendLineDrawing } from './trend-line-drawing';
 
 export interface ExtendedLineOptions {
@@ -39,26 +30,13 @@ export class ExtendedLineDrawing extends TrendLineDrawing {
         });
     }
 
-    // =========================================================================
-    // Override Settings - hide extend options since they're always true
-    // =========================================================================
+    // Always extended both ways: no Extend section in settings
+    protected getToolTitle(): string {
+        return 'Extended Line';
+    }
 
-    getSettingsConfig(): DrawingSettingsConfig {
-        return {
-            tabs: [
-                createStyleTab([
-                    {
-                        title: 'Extended Line',
-                        rows: [
-                            colorRow('color', 'Line Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    }
-                ]),
-                createVisibilityTab()
-            ]
-        };
+    protected allowExtendSettings(): boolean {
+        return false;
     }
 
     // Block extend changes - always both directions
@@ -87,14 +65,6 @@ export class ExtendedLineDrawing extends TrendLineDrawing {
             lineWidth: data.style.lineWidth,
             lineDash: data.style.lineDash,
         });
-
-        Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
-
-        drawing.points = [...data.points];
-        drawing.state = data.state;
-        drawing.visible = data.visible;
-        drawing.locked = data.locked;
-
-        return drawing;
+        return TrendLineDrawing.applySerialized(drawing, data);
     }
 }

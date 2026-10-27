@@ -14,16 +14,25 @@ import { OffsetPriceScale } from '../model/offset-price-scale';
 import { coordinate } from '../model/coordinate';
 import { SpotPriceSource } from '../model/spot-price-source';
 import { TimeAxisWidget } from './time-axis-widget';
-import { ContextMenu, ICONS } from './context_menu';
+import { ContextMenu, ContextMenuItem, ICONS } from './context_menu';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
+import { ObjectTreePanel } from './object_tree/object_tree_panel';
+import { indicatorRowSignature } from './object_tree/object_tree_model';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator } from '../indicators';
+import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator, SMTDivergenceIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
 import { IndicatorSettingsModal } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
-import { DrawingManager, DrawingMode } from '../drawings';
+import { DrawingManager, DrawingMode, Drawing } from '../drawings';
+import { TableDrawing } from '../drawings/note-drawings';
+import { INLINE_TEXT_TYPES } from '../drawings/text-common';
+import { hasAxisLabels, hasPriceScaleConsumer, estimatePricePrecision } from '../drawings/line-tool-common';
+import { InteractionTools, ToolEnv, collectIndicatorPrices, CURSOR_KINDS, MODE_TOOLS } from './chart_widget/interaction-tools';
+import { hasBarDataConsumer } from '../drawings/volume-tools-common';
 import { FloatingAttributeBar } from './attribute_bar';
+import { getPopoverHost } from './settings_modal/components/popover';
+import { TextEditorOverlay } from './text-editor-overlay';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartSettingsModal } from './chart-settings-modal';
 import { ChartStateManager } from '../state';
@@ -112,6 +121,9 @@ function writeSpotMode(enabled: boolean): void {
     }
 }
 
+/** Klavye kisayollarini alacak aktif grafik (cok grafikli sayfada tek grafik tepki verir) */
+let _keyboardActiveChart: ChartWidget | null = null;
+
 export class ChartWidget implements Disposable {
     private readonly _container: HTMLElement;
     private readonly _model: ChartModel;
@@ -120,12 +132,16 @@ export class ChartWidget implements Disposable {
     // Layout elements
     private _chartRow: HTMLElement | null = null;
     private _watchlistPanel: WatchlistPanel | null = null;
+    private _objectTreePanel: ObjectTreePanel | null = null;
     private _timeAxisRow: HTMLElement | null = null;
     private _indicatorContainer: HTMLElement | null = null;
 
     // Widgets
     private _toolbarWidget: ToolbarWidget | null = null;
     private _drawingToolbarWidget: DrawingToolbarWidget | null = null;
+    /** Eraser / Measure / Zoom In modes and Dot / Demonstration cursors (not drawings) */
+    private readonly _interactionTools = new InteractionTools();
+    private _toolEnvCache: { key: string; times: number[]; precision: number } | null = null;
     private _symbolSearch: SymbolSearch | null = null;
     private _paneWidget: PaneWidget | null = null;
     private _priceAxisWidget: PriceAxisWidget | null = null;
@@ -137,7 +153,9 @@ export class ChartWidget implements Disposable {
     private _spotButtonState = '';
     private _timeAxisWidget: TimeAxisWidget | null = null;
     private _floatingAttributeBar: FloatingAttributeBar | null = null;
+    private _textEditor: TextEditorOverlay | null = null;
     private _drawingSettingsModal: BaseSettingsModal | null = null;
+    private readonly _boundKeyDown: (e: KeyboardEvent) => void = (e) => this._onKeyDown(e);
 
     // Drawing state
     private readonly _drawingManager: DrawingManager;
@@ -175,6 +193,7 @@ export class ChartWidget implements Disposable {
 
     // Context menu
     private _contextMenu: ContextMenu | null = null;
+    private _drawingContextMenu: ContextMenu | null = null;
     private _mainLegendContainer: HTMLElement | null = null;
     private _brandingLogo: HTMLElement | null = null;
     private _gainMetricsPanel: HTMLElement | null = null;
@@ -276,13 +295,53 @@ export class ChartWidget implements Disposable {
         this._indicatorManager = new IndicatorManager();
         this._indicatorManager.onPaneAdded = this._onIndicatorPaneAdded.bind(this);
         this._indicatorManager.onPaneRemoved = this._onIndicatorPaneRemoved.bind(this);
-        this._indicatorManager.onIndicatorAdded = () => this._updateMainLegend();
-        this._indicatorManager.onIndicatorRemoved = () => this._updateMainLegend();
+        this._indicatorManager.onIndicatorAdded = () => { this._updateMainLegend(); this._objectTreePanel?.refresh(); };
+        this._indicatorManager.onIndicatorRemoved = () => { this._updateMainLegend(); this._objectTreePanel?.refresh(); };
 
         // Initialize drawing manager
         this._drawingManager = new DrawingManager();
+        this._drawingManager.setTimeframe(initialTimeframe);
         this._drawingManager.setScales(this._model.timeScale, this._model.rightPriceScale);
-        this._drawingManager.drawingsChanged.subscribe(() => this._scheduleDraw());
+        // Magnet "Snap to indicators": overlay indicator values at the bar are extra snap candidates
+        this._drawingManager.setIndicatorPriceProvider((time) =>
+            collectIndicatorPrices(this._indicatorManager.overlayIndicators as any, time));
+        this._drawingManager.modeChanged.subscribe(() => {
+            this._interactionTools.syncHost(this._drawingManager.mode !== 'none');
+            this._scheduleDraw();
+        });
+        this._drawingManager.drawingsChanged.subscribe(() => {
+            this._scheduleDraw();
+            // Gizleme manager tarafinda kapanabilir (cizim baslayinca): toolbar Hide butonunu senkronla
+            const tb = this._drawingToolbarWidget;
+            if (tb && tb.isVisibilityHidden !== this._drawingManager.drawingsHidden) {
+                tb.isVisibilityHidden = this._drawingManager.drawingsHidden;
+            }
+        });
+        // Satir ici metin editoru (Text/Callout): dinleyici varligi, yeni cizimin gecmis kaydini editor kapanana kadar erteler
+        this._drawingManager.textEditRequested.subscribe(({ drawing, isNew }) => {
+            // Tarayicinin mousedown odak islemi bittikten sonra ac (aksi halde textarea odagi kaybeder)
+            setTimeout(() => {
+                if (!this._element || !this._drawingManager.drawings.includes(drawing)) {
+                    this._drawingManager.clearPendingText(drawing.id);
+                    return;
+                }
+                if (!this._textEditor) {
+                    this._textEditor = new TextEditorOverlay(
+                        this._element,
+                        (d) => this._getTextEditorCanvas(d),
+                        this._drawingManager,
+                        () => this._scheduleDraw()
+                    );
+                }
+                this._textEditor.open(drawing, isNew);
+            }, 0);
+        });
+        this._drawingManager.setPaneExistsResolver((paneId) => this._indicatorPanes.has(paneId));
+        // Undo/redo cizim nesnelerini yeniden kurar: acik modal / attribute bar kopuk nesneyi duzenlemesin
+        this._drawingManager.historyRestored.subscribe(() => {
+            this._drawingSettingsModal?.hide();
+            this._floatingAttributeBar?.hide();
+        });
 
         // Initialize chart state manager for per-symbol persistence
         this._chartStateManager = new ChartStateManager(this._drawingManager, this._indicatorManager);
@@ -375,6 +434,8 @@ export class ChartWidget implements Disposable {
             if (m) {
                 const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16) / 255);
                 this._currentTheme = (0.2126 * r + 0.7152 * g + 0.0722 * b) < 0.5 ? 'dark' : 'light';
+                // Nesne agaci paneli yerlesim sirasinda varsayilan 'light' ile olusmustu
+                this._objectTreePanel?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
             }
         }
     }
@@ -803,6 +864,7 @@ export class ChartWidget implements Disposable {
         }
 
         this._watchlistPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
+        this._objectTreePanel?.setTheme(theme === 'light' ? 'light' : 'dark');
 
         // Update drawing settings modal if open
         if (this._drawingSettingsModal) {
@@ -822,6 +884,10 @@ export class ChartWidget implements Disposable {
         if (this._floatingAttributeBar) {
             this._floatingAttributeBar.setTheme(theme);
         }
+
+        // Context menus (chart / drawing right-click and bar "More" menu)
+        this._contextMenu?.setTheme(theme === 'light' ? 'light' : 'dark');
+        this._drawingContextMenu?.setTheme(theme === 'light' ? 'light' : 'dark');
 
         // Update add text tooltip
         if (this._addTextTooltipHelper) {
@@ -1260,13 +1326,33 @@ export class ChartWidget implements Disposable {
             this._floatingAttributeBar?.hide();
         });
         this._floatingAttributeBar.colorChanged.subscribe((_color) => {
+            this._commitSettingsHistory(this._drawingManager.selectedDrawing);
             this._scheduleDraw();  // Refresh to show new color
         });
         this._floatingAttributeBar.lineWidthChanged.subscribe((_width) => {
+            this._commitSettingsHistory(this._drawingManager.selectedDrawing);
+            this._scheduleDraw();
+        });
+        this._floatingAttributeBar.fontSizeChanged.subscribe((_size) => {
+            this._commitSettingsHistory(this._drawingManager.selectedDrawing);
             this._scheduleDraw();
         });
         this._floatingAttributeBar.lineStyleChanged.subscribe((_style) => {
+            this._commitSettingsHistory(this._drawingManager.selectedDrawing);
             this._scheduleDraw();
+        });
+        this._floatingAttributeBar.lockClicked.subscribe(() => {
+            const sel = this._drawingManager.selectedDrawing;
+            if (!sel) return;
+            this._drawingManager.setDrawingLocked(sel.id, !sel.locked);
+            this._floatingAttributeBar?.syncLockState();
+            this._scheduleDraw();
+        });
+        // Lock can also change from the context menu / object tree: keep the bar's lock button in sync
+        this._drawingManager.drawingsChanged.subscribe(() => this._floatingAttributeBar?.syncLockState());
+        this._floatingAttributeBar.moreClicked.subscribe((rect) => {
+            const sel = this._drawingManager.selectedDrawing;
+            if (sel) this._showBarMoreMenu(sel, rect);
         });
         this._floatingAttributeBar.settingsClicked.subscribe(() => {
             const selectedDrawing = this._drawingManager.selectedDrawing;
@@ -1275,9 +1361,10 @@ export class ChartWidget implements Disposable {
                 if (this._drawingSettingsModal) {
                     this._drawingSettingsModal.hide();
                 }
-                this._drawingSettingsModal = createSettingsModal(this._element, selectedDrawing);
+                this._drawingSettingsModal = this._createDrawingSettingsModal(selectedDrawing);
                 this._drawingSettingsModal.setTheme(this._currentTheme);
                 this._drawingSettingsModal.settingsChanged.subscribe(() => {
+                    this._commitSettingsHistory(selectedDrawing);
                     this._scheduleDraw();
                 });
                 this._drawingSettingsModal.show(selectedDrawing);
@@ -1306,7 +1393,10 @@ export class ChartWidget implements Disposable {
         }
 
         // Izleme listesi acikken grafik onun genisligi kadar daralir.
-        const watchlistWidth = this._watchlistPanel?.visible ? this._watchlistPanel.width : 0;
+        // Nesne agaci paneli de ayni sag kenari kullanir (ikisi ayni anda acik olmaz).
+        const watchlistWidth = this._watchlistPanel?.visible
+            ? this._watchlistPanel.width
+            : this._objectTreePanel?.visible ? this._objectTreePanel.width : 0;
         const usableWidth = this._width - watchlistWidth;
         this._technicalRatingBadge?.setRightOffset(watchlistWidth);
         const paneWidth = usableWidth - priceAxisWidth - drawingToolbarWidth;
@@ -1420,6 +1510,12 @@ export class ChartWidget implements Disposable {
     private _onTimeframeChange(timeframe: string): void {
         console.log('📊 Timeframe changed to:', timeframe);
         this._model.setTimeframe(timeframe);
+        // Cizimlerin "zaman dilimlerinde gorunurluk" filtresi
+        this._drawingManager.setTimeframe(timeframe);
+        this._drawingSettingsModal?.setTimeframe(timeframe);
+        this._objectTreePanel?.resetDeleteConfirm();
+        this._objectTreePanel?.refresh();
+        this._scheduleDraw();
         this._timeframeChanged.fire(timeframe);
 
         // Update technical rating badge
@@ -1437,6 +1533,10 @@ export class ChartWidget implements Disposable {
 
         this._toolbarWidget.watchlistToggled.subscribe((enabled) => panel.setVisible(enabled));
         panel.visibilityChanged.subscribe((visible) => {
+            // Izleme listesi acilinca agac gecici kapanir (tercih yazilmaz); liste kapaninca agac,
+            // kullanici onu onceden acik biraktiysa (wasOpen) yeniden acilir.
+            if (visible) this._objectTreePanel?.setVisible(false, { persist: false });
+            else if (ObjectTreePanel.wasOpen()) this._objectTreePanel?.setVisible(true);
             this._toolbarWidget?.setWatchlistActive(visible);
             this._updateLayout();
             this._scheduleDraw();
@@ -1461,12 +1561,46 @@ export class ChartWidget implements Disposable {
         if (WatchlistPanel.wasOpen()) panel.setVisible(true);
     }
 
+    /** Nesne agaci: sag kenarda yerlesir (izleme listesiyle ayni anda acik olmaz). */
+    private _createObjectTree(): void {
+        if (!this._element || !this._toolbarWidget) return;
+        this._objectTreePanel?.destroy();
+        const panel = new ObjectTreePanel(this._element, this._toolbarWidget.height, {
+            drawings: this._drawingManager,
+            indicators: this._indicatorManager,
+            openDrawingSettings: (d) => this._openDrawingSettings(d),
+            openIndicatorSettings: (ind) => this._openIndicatorSettings(ind),
+            toggleIndicator: (ind) => { ind.setVisible(!ind.visible); this._scheduleDraw(); },
+            removeIndicator: (ind) => { this._indicatorManager.removeIndicator(ind.id); this._scheduleDraw(); },
+            showDrawingMenu: (d, x, y) => this._showDrawingContextMenu(d, x, y),
+            requestDraw: () => this._scheduleDraw(),
+        });
+        this._objectTreePanel = panel;
+        panel.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+        panel.visibilityChanged.subscribe((visible) => {
+            if (visible) this._watchlistPanel?.setVisible(false);
+            this._drawingToolbarWidget?.setObjectTreeActive(visible);
+            this._updateLayout();
+            this._scheduleDraw();
+        });
+        if (ObjectTreePanel.wasOpen() && !this._watchlistPanel?.visible) panel.setVisible(true);
+        this._drawingToolbarWidget?.setObjectTreeActive(panel.visible);
+    }
+
+    /** Nesne agacini ac/kapat (toolbar dugmesi ve baglam menusu) */
+    toggleObjectTree(): void {
+        this._objectTreePanel?.toggle();
+    }
+
     private _onSymbolChange(symbol: SymbolInfo): void {
+        this._textEditor?.close(true);
         this._watchlistPanel?.setActiveSymbol(symbol.symbol);
         console.log('🔍 Symbol changed to:', symbol.symbol, '@ Exchange:', symbol.exchange);
 
         // Update state manager - this saves current symbol's drawings and loads new symbol's drawings
         this._chartStateManager?.setSymbol(symbol.symbol);
+        this._objectTreePanel?.resetDeleteConfirm();
+        this._objectTreePanel?.refresh();
 
         this._model.setSymbol(symbol.symbol);
         if (symbol.exchange) {
@@ -1547,6 +1681,14 @@ export class ChartWidget implements Disposable {
     // --- Private: Event Listeners ---
 
     private _setupEventListeners(): void {
+        if (this._element) {
+            this._interactionTools.attach({
+                container: this._element,
+                getPaneCanvas: () => this._paneWidget?.canvas ?? null,
+                getEnv: () => this._getToolEnv(),
+                getForeground: () => String(this._model.options.layout.textColor || '#d1d4dc'),
+            });
+        }
         // Imlec senkronu icin: fare bu grafigin (herhangi bir parcasinin) uzerinde mi?
         this._element?.addEventListener('mouseenter', () => {
             this._pointerInside = true;
@@ -1573,7 +1715,12 @@ export class ChartWidget implements Disposable {
         }
 
         // Keyboard shortcuts for drawings (Delete/Backspace to delete selected)
-        document.addEventListener('keydown', this._onKeyDown.bind(this));
+        document.addEventListener('keydown', this._boundKeyDown);
+
+        // Aktif grafik: son tiklanan / uzerine gelinen grafik (ilk olusturulan varsayilan)
+        if (_keyboardActiveChart === null) _keyboardActiveChart = this;
+        this._element?.addEventListener('pointerdown', () => { _keyboardActiveChart = this; }, true);
+        this._element?.addEventListener('mouseenter', () => { _keyboardActiveChart = this; });
 
         const priceAxisElement = this._priceAxisWidget?.element;
         if (priceAxisElement) {
@@ -1597,6 +1744,14 @@ export class ChartWidget implements Disposable {
             this._createContextMenu();
 
             this._element.addEventListener('contextmenu', (e) => {
+                const hitDrawing = this._getDrawingForContextMenu(e.clientX, e.clientY, e.target);
+                if (hitDrawing) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this._showDrawingContextMenu(hitDrawing, e.clientX, e.clientY);
+                    return false;
+                }
+
                 const contextPoint = this._getMainPaneEmptyContextPoint(e.clientX, e.clientY, e.target);
                 if (!contextPoint) {
                     return;
@@ -1605,8 +1760,7 @@ export class ChartWidget implements Disposable {
                 e.preventDefault();
                 e.stopPropagation();
 
-                this._contextMenu?.setCurrentPrice(contextPoint.price);
-                this._contextMenu?.show(e.clientX, e.clientY);
+                this._showChartContextMenu(e.clientX, e.clientY, contextPoint.price);
                 return false;
             }, true);
         }
@@ -1621,9 +1775,11 @@ export class ChartWidget implements Disposable {
             if (document.fullscreenElement === this._element) {
                 // Entering fullscreen - move context menu to chart element
                 this._contextMenu?.setContainer(this._element!);
+                this._drawingContextMenu?.setContainer(this._element!);
             } else if (!document.fullscreenElement) {
                 // Exiting fullscreen - move context menu back to body
                 this._contextMenu?.setContainer(document.body);
+                this._drawingContextMenu?.setContainer(document.body);
             }
         });
     }
@@ -1635,6 +1791,8 @@ export class ChartWidget implements Disposable {
 
     private _onMouseDown(e: MouseEvent): void {
         this._closeOpenMenus();
+        // Sag tik: yalnizca baglam menusu (contextmenu olayi) ilgilenir; cizim/kaydirma baslatilmaz
+        if (e.button === 2 && this._drawingManager.mode === 'none') return;
         // Cizim surerken (ilk nokta konmus) tiklama baska bir panelde olsa da cizimin
         // basladigi panelin olcegi kullanilir; yoksa nokta ör. RSI degeriyle (0-100) kaydedilirdi.
         const pane = this._drawingManager.activeDrawing !== null
@@ -1647,6 +1805,7 @@ export class ChartWidget implements Disposable {
 
     private _closeOpenMenus(): void {
         this._contextMenu?.hide();
+        this._drawingContextMenu?.hide();
         this._drawingToolbarWidget?.closeFlyout();
     }
 
@@ -1744,6 +1903,11 @@ export class ChartWidget implements Disposable {
             getBarData: () => {
                 const series = this._model.serieses[0];
                 if (!series) return [];
+                // OHLC bar data is used as is (no per-mousemove copy of every bar)
+                const first: any = series.data[0];
+                if (first && first.open !== undefined && first.high !== undefined && first.low !== undefined && first.close !== undefined) {
+                    return series.data as any;
+                }
                 return series.data.map((d: any) => ({
                     time: d.time,
                     open: d.open ?? d.value ?? 0,
@@ -1752,8 +1916,56 @@ export class ChartWidget implements Disposable {
                     close: d.close ?? d.value ?? 0
                 }));
             },
-            scheduleDraw: () => this._scheduleDraw()
+            scheduleDraw: () => this._scheduleDraw(),
+            isActiveForKeyboard: () => _keyboardActiveChart === null || _keyboardActiveChart === this,
+            selectTool: (tool: string) => this._selectToolByShortcut(tool),
+            tools: this._interactionTools,
+            getToolEnv: () => this._getToolEnv(),
         };
+    }
+
+    /** Klavye kisayolu ile arac secimi: toolbar tiklamasiyla ayni yol (vurgu da guncellenir) */
+    private _selectToolByShortcut(tool: string): void {
+        if (this._drawingToolbarWidget) {
+            this._drawingToolbarWidget.setActiveTool(tool);
+        } else {
+            // cursors / interaction tools are not drawing modes
+            this._interactionTools.setTool(tool);
+            this._drawingManager.setMode(
+                CURSOR_KINDS.includes(tool) || MODE_TOOLS.includes(tool) ? 'none' : tool as DrawingMode
+            );
+            this._interactionTools.syncHost(this._drawingManager.mode !== 'none');
+            this._scheduleDraw();
+        }
+    }
+
+    /** Main pane scale + data access for the interaction tools (bar times / precision cached per data) */
+    private _getToolEnv(): ToolEnv | null {
+        const series = this._model.serieses[0];
+        const data = series?.data as readonly any[] | undefined;
+        if (!data || data.length === 0) return null;
+        const key = `${data.length}|${data[0].time}|${data[data.length - 1].time}`;
+        if (!this._toolEnvCache || this._toolEnvCache.key !== key) {
+            const tail = data.slice(-200).map((d: any) => Number(d.close ?? d.value ?? 0));
+            this._toolEnvCache = {
+                key,
+                times: data.map((d: any) => Number(d.time)),
+                precision: estimatePricePrecision(tail, 2),
+            };
+        }
+        return {
+            timeScale: this._model.timeScale as any,
+            priceScale: this._model.rightPriceScale as any,
+            times: this._toolEnvCache.times,
+            symbol: this._model.symbol,
+            precision: this._toolEnvCache.precision,
+        };
+    }
+
+    /** Crosshair as rendered: dot / demonstration cursors replace the crosshair lines */
+    private _visibleCrosshair() {
+        if (this._interactionTools.hideCrosshair(this._drawingManager.mode !== 'none')) return null;
+        return this._model.crosshairPosition;
     }
 
     /** Apply state updates from event handlers */
@@ -1768,7 +1980,17 @@ export class ChartWidget implements Disposable {
         if (state.dragStartY !== undefined) this._dragStartY = state.dragStartY;
     }
 
-    private _onMouseLeave(): void {
+    private _onMouseLeave(e?: MouseEvent): void {
+        // "+ Add Text" balonunun uzerine gecmek canvas'tan cikmak sayilmaz (istatistik kutusu yanip sonmesin);
+        // ama grafik elemanindan tamamen cikilirsa (relatedTarget grafigin disinda) hover her durumda temizlenir.
+        const related = e?.relatedTarget as Node | null | undefined;
+        const leftChart = !related ||
+            (!this._container.contains(related) && !(related as Element).closest?.('.add-text-tooltip'));
+        if (this._drawingManager.hoveredDrawingId !== null &&
+            (leftChart || this._drawingManager.hoveredDrawingId !== this._hoveredDrawingForText)) {
+            this._drawingManager.updateHoveredDrawing(-1e9, -1e9, null);
+            this._scheduleDraw();
+        }
         handleMouseLeaveEvent(this._getEventContextForPane(this._interactionPaneId, this._interactionPaneCanvas));
     }
 
@@ -1806,12 +2028,20 @@ export class ChartWidget implements Disposable {
         const paneRect = this._paneWidget?.canvas?.getBoundingClientRect();
         if (!paneRect) return;
 
-        // Skip hit testing for "Add Text" if in drawing mode
-        if (this._drawingManager.mode !== 'none') {
+        // Hover: cizgi istatistik kutusu yalnizca uzerine gelinince gorunebilsin
+        if (this._drawingManager.updateHoveredDrawing(e.clientX - paneRect.left, e.clientY - paneRect.top, null)) {
+            this._scheduleDraw();
+        }
+
+        // Skip hit testing for "Add Text" if in drawing mode or an interaction tool (eraser etc.)
+        // is active (the tooltip would also swallow the eraser's click on the line midpoint)
+        if (this._drawingManager.mode !== 'none' || this._interactionTools.mode !== 'none') {
             if (this._drawingManager.hoveredForAddText !== null) {
                 this._drawingManager.hoveredForAddText = null;
                 this._scheduleDraw();
             }
+            this._hideAddTextTooltip();
+            this._hoveredDrawingForText = null;
             return;
         }
 
@@ -1819,9 +2049,9 @@ export class ChartWidget implements Disposable {
         const y = e.clientY - paneRect.top;
 
         // Check if hovering over a line drawing midpoint
-        const drawings = this._drawingManager.drawings;
+        const drawings = this._drawingManager.displayableDrawings;
         const lineTypes = ['trendLine', 'ray', 'extendedLine', 'horizontalLine', 'verticalLine',
-            'parallelChannel', 'trendAngle', 'horizontalRay', 'infoLine'];
+            'parallelChannel', 'trendAngle', 'horizontalRay', 'infoLine', 'arrow'];
 
         let foundMidpoint = false;
         let midX = 0, midY = 0;
@@ -1885,9 +2115,10 @@ export class ChartWidget implements Disposable {
                         if (this._drawingSettingsModal) {
                             this._drawingSettingsModal.hide();
                         }
-                        this._drawingSettingsModal = createSettingsModal(this._element, d);
+                        this._drawingSettingsModal = this._createDrawingSettingsModal(d);
                         this._drawingSettingsModal.setTheme(this._currentTheme);
                         this._drawingSettingsModal.settingsChanged.subscribe(() => {
+                            this._commitSettingsHistory(d);
                             this._scheduleDraw();
                         });
                         if (!d.style.text) {
@@ -1946,7 +2177,7 @@ export class ChartWidget implements Disposable {
     }
 
     private _hitTestDrawingAt(x: number, y: number, paneId: string | null): boolean {
-        const drawings = this._drawingManager.drawings;
+        const drawings = this._drawingManager.displayableDrawings;
 
         this._drawingManager.setScales(
             this._model.timeScale,
@@ -2035,8 +2266,7 @@ export class ChartWidget implements Disposable {
             this._touchLongPressTriggered = true;
 
             this._finishTouchInteraction(this._mouseEventFromTouch('mouseup', touch));
-            this._contextMenu?.setCurrentPrice(contextPoint.price);
-            this._contextMenu?.show(touch.clientX, touch.clientY);
+            this._showChartContextMenu(touch.clientX, touch.clientY, contextPoint.price);
 
             const suppressNextClick = (event: MouseEvent) => {
                 event.preventDefault();
@@ -2275,6 +2505,24 @@ export class ChartWidget implements Disposable {
         const x = e.clientX - paneRect.left;
         const y = e.clientY - paneRect.top;
 
+        // Path/polyline olusturulurken cift tiklama cizimi bitirir (TradingView)
+        const creating = this._drawingManager.activeDrawing;
+        if (creating && creating.type === 'path') {
+            this._drawingManager.finishPathDrawing(true);
+            this._scheduleDraw();
+            return;
+        }
+        if (creating && creating.type === 'polyline') {
+            this._drawingManager.finishPolylineDrawing(true);
+            this._scheduleDraw();
+            return;
+        }
+        if (creating && creating.type === 'ghostFeed') {
+            this._drawingManager.finishGhostFeedDrawing(true);
+            this._scheduleDraw();
+            return;
+        }
+
         // Check if double-clicked on an overlay indicator line
         const hitIndicator = this._hitTestOverlayIndicator(x, y);
         if (hitIndicator) {
@@ -2285,14 +2533,31 @@ export class ChartWidget implements Disposable {
         // Check if double-clicked on a drawing
         const hitDrawing = this._drawingManager.selectDrawingAt(x, y);
         if (hitDrawing) {
+            // Text/Callout/Note/Price Note/Signpost/Comment: cift tiklama satir ici editoru acar (ayarlar modal'i degil)
+            if (INLINE_TEXT_TYPES.has(hitDrawing.type) && hitDrawing.type !== 'table') {
+                this._drawingManager.requestTextEdit(hitDrawing);
+                return;
+            }
+            // Table: tiklanan hucre editorle duzenlenir; dis kenar (~4px) veya hucre disi ayarlar modal'ini acar
+            if (hitDrawing.type === 'table') {
+                const table = hitDrawing as TableDrawing;
+                const cell = table.cellAt(x, y);
+                const tb = table.getBounds();
+                const onBorder = !!tb && (x - tb.x < 4 || tb.x + tb.width - x < 4 || y - tb.y < 4 || tb.y + tb.height - y < 4);
+                if (cell && !onBorder && table.beginCellEdit(cell.row, cell.col)) {
+                    this._drawingManager.requestTextEdit(hitDrawing);
+                    return;
+                }
+            }
             // Open settings modal for this drawing
             if (this._element) {
                 if (this._drawingSettingsModal) {
                     this._drawingSettingsModal.hide();
                 }
-                this._drawingSettingsModal = createSettingsModal(this._element, hitDrawing);
+                this._drawingSettingsModal = this._createDrawingSettingsModal(hitDrawing);
                 this._drawingSettingsModal.setTheme(this._currentTheme);
                 this._drawingSettingsModal.settingsChanged.subscribe(() => {
+                    this._commitSettingsHistory(hitDrawing);
                     this._scheduleDraw();
                 });
                 this._drawingSettingsModal.show(hitDrawing);
@@ -2407,13 +2672,18 @@ export class ChartWidget implements Disposable {
     private _draw(): void {
         this._drawScheduled = false;
 
-        const crosshair = this._model.crosshairPosition;
+        const crosshair = this._visibleCrosshair();
         let mainPaneLocalY: number | null = null;
 
         if (crosshair && crosshair.visible && this._paneWidget?.element && this._lastMouseY !== 0) {
             const rect = this._paneWidget.element.getBoundingClientRect();
             if (this._lastMouseY >= rect.top && this._lastMouseY <= rect.bottom) {
                 mainPaneLocalY = this._lastMouseY - rect.top;
+                // Cizim araci aktifken model y'si magnet ile yapismis olabilir: cizgi/etiket onu izler
+                if (this._drawingManager.mode !== 'none' && this._drawingManager.activePaneId === null
+                    && isFinite(crosshair.y)) {
+                    mainPaneLocalY = crosshair.y;
+                }
             }
         }
 
@@ -2437,6 +2707,37 @@ export class ChartWidget implements Disposable {
 
         this._updateLastPriceLabel();
         this._applySpotAxis(crosshair?.visible ? crosshair.x : null, mainPaneLocalY);
+        // Trend Line ailesi "Price labels": uc noktalarin fiyatlari eksende.
+        // Eksen genisligi etiketlere gore hesaplandigi icin updateWidth()'ten ONCE verilir.
+        // Spot modunda eksen kaydirilmis olcegi gosterir: etiket fiyati eksen birimine cevrilir
+        // (fiyat - offset); eksen y'si ana olcekteki fiyatla ayni, metin eksenin gosterdigi deger olur.
+        const axisScale = this._spotScale ?? this._model.rightPriceScale;
+        const spotOffset = this._spotScale ? this._spotScale.offset : 0;
+        const axisLabels: { price: number; text: string; color: string }[] = [];
+        const timeLabels: { time: number; x: number; color: string }[] = [];
+        for (const d of this._drawingManager.getDrawingsForPane(null)) {
+            if (!d.visible || !hasAxisLabels(d)) continue;
+            if (hasBarDataConsumer(d)) d.setBarData(this._model.serieses[0]?.data ?? []);
+            if (hasPriceScaleConsumer(d)) {
+                const rps = this._model.rightPriceScale;
+                d.setPriceScale(
+                    (price) => { const y = rps.priceToCoordinate(price) as number; return Number.isFinite(y) ? y : null; },
+                    (y) => { const p = rps.coordinateToPrice(y as any) as number; return Number.isFinite(p) ? p : null; },
+                );
+            }
+            const labels = d.getAxisLabels();
+            for (const l of labels.prices) {
+                const axisPrice = l.price - spotOffset;
+                axisLabels.push({ price: axisPrice, text: axisScale.formatPrice(axisPrice), color: l.color });
+            }
+            // Zaman etiketleri (dikey/kesisim cizgi): x, cizimlerle ayni zaman->piksel donusumunden
+            for (const l of labels.times) {
+                const x = this._drawingManager.timeToPixel(l.time);
+                if (x !== null) timeLabels.push({ time: l.time, x, color: l.color });
+            }
+        }
+        this._timeAxisWidget?.setDrawingLabels(timeLabels);
+        this._priceAxisWidget?.setDrawingLabels(axisLabels);
         if (this._priceAxisWidget?.updateWidth()) {
             this._updateLayout();
         }
@@ -2457,7 +2758,8 @@ export class ChartWidget implements Disposable {
             // olcegi fare hangi paneldeyse ona gecer (RSI'ye girince 0-100) ve
             // ana paneldeki Fib/trend cizgileri ekran disina kayip kayboluyordu.
             (price) => this._model.rightPriceScale.priceToCoordinate(price),
-            this._drawingManager.hoveredForAddText
+            this._drawingManager.hoveredForAddText,
+            this._drawingManager.hoveredDrawingId
         );
 
         this._priceAxisWidget?.render();
@@ -2469,6 +2771,9 @@ export class ChartWidget implements Disposable {
 
         // Update main legend with overlay indicators only when needed
         // Removed call from here to prevent flickering on every draw
+
+        // Measure box / zoom rectangle follow the scales: repaint the overlay with the chart
+        this._interactionTools.requestRender();
     }
 
     private _updateGainMetricsPanel(): void {
@@ -2893,7 +3198,7 @@ export class ChartWidget implements Disposable {
     }
 
     private _renderIndicatorPanes(): void {
-        const crosshair = this._model.crosshairPosition;
+        const crosshair = this._visibleCrosshair();
 
         const mainSeries = this._model.serieses[0];
 
@@ -3119,6 +3424,9 @@ export class ChartWidget implements Disposable {
             case 'judas-swing':
                 this.addOverlayIndicator(new JudasSwingIndicator({}));
                 break;
+            case 'smt-divergence':
+                this.addOverlayIndicator(new SMTDivergenceIndicator({}));
+                break;
 
             default:
                 console.warn(`Unknown indicator: ${indicatorId}`);
@@ -3174,15 +3482,36 @@ export class ChartWidget implements Disposable {
         }
 
         this._wiredIndicators.add(indicator);
+        const rowSig = () => indicatorRowSignature(indicator.name || indicator.options?.name || 'Indicator', indicator.visible);
+        let lastRowSig = rowSig();
         indicator.dataChanged.subscribe(() => {
             this._updateMainLegend();
+            // Canli tick'te agac yalnizca satir durumu (ad/gorunurluk) degistiyse yenilenir
+            const sig = rowSig();
+            if (sig !== lastRowSig) {
+                lastRowSig = sig;
+                this._objectTreePanel?.refresh();
+            }
             this._scheduleDraw();
         });
+    }
+
+    /** Text editoru icin cizimin bulundugu pane'in canvas'i (gosterge pane'i veya ana pane) */
+    private _getTextEditorCanvas(d: Drawing): HTMLCanvasElement | null {
+        const paneId = d.paneId;
+        if (paneId && this._indicatorPanes.has(paneId)) return this._indicatorPanes.get(paneId)?.canvas ?? null;
+        return this._paneWidget?.canvas ?? null;
     }
 
     // --- Cleanup ---
 
     dispose(): void {
+        if (_keyboardActiveChart === this) _keyboardActiveChart = null;
+        document.removeEventListener('keydown', this._boundKeyDown);
+        // Yarim kalan yeni Text (bos) model yok edilmeden kaldirilir; yazilmis metin kaydedilir
+        this._textEditor?.close(true);
+        this._textEditor?.dispose();
+        this._textEditor = null;
         this._resizeObserver?.disconnect();
         this._resizeObserver = null;
         this._model.destroy();
@@ -3199,8 +3528,11 @@ export class ChartWidget implements Disposable {
 
         this._watchlistPanel?.destroy();
         this._watchlistPanel = null;
+        this._objectTreePanel?.destroy();
+        this._objectTreePanel = null;
         this._toolbarWidget?.dispose();
         this._drawingToolbarWidget?.dispose();
+        this._interactionTools.dispose();
         this._symbolSearch?.dispose();
         this._indicatorSearchModal?.dispose();
         this._chartSettingsModal?.dispose();
@@ -3209,6 +3541,7 @@ export class ChartWidget implements Disposable {
         this._spotSource.destroy();
         this._timeAxisWidget?.dispose();
         this._contextMenu?.dispose();
+        this._drawingContextMenu?.dispose();
 
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);
@@ -3221,8 +3554,32 @@ export class ChartWidget implements Disposable {
     }
 
     private _createContextMenu(): void {
+        this._drawingContextMenu?.dispose();
+        this._drawingContextMenu = new ContextMenu({ items: [], theme: this._currentTheme === 'light' ? 'light' : 'dark' });
+        if (document.fullscreenElement === this._element && this._element) {
+            this._drawingContextMenu.setContainer(this._element);
+        }
         this._contextMenu = new ContextMenu({
-            items: [
+            items: this._buildChartMenuItems(),
+            theme: this._currentTheme === 'light' ? 'light' : 'dark'
+        });
+    }
+
+    private static _modKey(): string {
+        return /Mac|iPhone|iPad/.test(navigator.platform) ? '\u2318' : 'Ctrl+';
+    }
+
+    /** Bos alan (grafik) baglam menusu ogeleri; Paste/Undo/Redo durumu her acilista yenilenir */
+    private _buildChartMenuItems(): ContextMenuItem[] {
+        const mod = ChartWidget._modKey();
+        const dm = this._drawingManager;
+        const hiddenCount = dm.hiddenDrawingCount;
+        const showHiddenItems: ContextMenuItem[] = hiddenCount > 0 ? [{
+            id: 'show-hidden',
+            label: `${t('Show hidden drawings')} (${hiddenCount})`,
+            action: () => { dm.showHiddenDrawings(); this._scheduleDraw(); }
+        }] : [];
+        return [
                 {
                     id: 'reset',
                     label: t('Reset chart view'),
@@ -3236,6 +3593,29 @@ export class ChartWidget implements Disposable {
                     label: t('Copy price'),
                     icon: ICONS.copy,
                     action: () => this._onContextCopyPrice()
+                },
+                { id: 'sep-edit', label: '', separator: true },
+                ...showHiddenItems,
+                {
+                    id: 'paste',
+                    label: t('Paste'),
+                    shortcut: `${mod}V`,
+                    disabled: !dm.hasClipboard,
+                    action: () => { dm.pasteFromClipboard(); this._scheduleDraw(); }
+                },
+                {
+                    id: 'undo',
+                    label: t('Undo'),
+                    shortcut: `${mod}Z`,
+                    disabled: !dm.canUndo,
+                    action: () => { dm.undo(); this._scheduleDraw(); }
+                },
+                {
+                    id: 'redo',
+                    label: t('Redo'),
+                    shortcut: `${mod}Y`,
+                    disabled: !dm.canRedo,
+                    action: () => { dm.redo(); this._scheduleDraw(); }
                 },
                 { id: 'sep2', label: '', separator: true },
                 {
@@ -3251,6 +3631,11 @@ export class ChartWidget implements Disposable {
                     icon: ICONS.fullscreen,
                     action: () => this._onContextFullscreen()
                 },
+                ...(this._objectTreePanel ? [{
+                    id: 'object-tree',
+                    label: t('Object tree'),
+                    action: () => this.toggleObjectTree()
+                }] : []),
                 { id: 'sep3', label: '', separator: true },
                 {
                     id: 'settings',
@@ -3258,8 +3643,159 @@ export class ChartWidget implements Disposable {
                     icon: ICONS.settings,
                     action: () => this._onContextSettings()
                 }
-            ]
+        ];
+    }
+
+    private _showChartContextMenu(clientX: number, clientY: number, price: number): void {
+        this._drawingContextMenu?.hide();
+        this._drawingManager.setActivePaneId(null);
+        this._contextMenu?.setItems(this._buildChartMenuItems());
+        this._contextMenu?.setCurrentPrice(price);
+        this._contextMenu?.show(clientX, clientY);
+    }
+
+    /** Sag tiklanan noktadaki cizimi (sol tik ile ayni hit-test) secer ve dondurur */
+    private _getDrawingForContextMenu(clientX: number, clientY: number, target: EventTarget | null): Drawing | null {
+        if (this._drawingManager.mode !== 'none' || !(target instanceof Node)) {
+            return null;
+        }
+
+        const mainCanvas = this._paneWidget?.canvas ?? null;
+        const candidates: Array<{ paneId: string | null; canvas: HTMLCanvasElement | null; element: HTMLElement | null; priceScale: PriceScale }> = [
+            { paneId: null, canvas: mainCanvas, element: this._paneWidget?.element ?? null, priceScale: this._model.rightPriceScale },
+        ];
+        for (const [indicatorId, pane] of this._indicatorPanes.entries()) {
+            candidates.push({ paneId: indicatorId, canvas: pane.canvas, element: pane.element ?? null, priceScale: pane.priceScale });
+        }
+
+        for (const c of candidates) {
+            if (!c.canvas || !(target === c.canvas || c.element?.contains(target))) continue;
+            const rect = c.canvas.getBoundingClientRect();
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+            if (x < 0 || x > rect.width || y < 0 || y > rect.height) return null;
+            this._setInteractionPane(c.paneId, c.canvas, c.priceScale);
+            return this._drawingManager.selectDrawingAt(x, y, c.paneId);
+        }
+        return null;
+    }
+
+    /** Ayar degisikligini tek cizim kimligiyle birlestirilebilir gecmis kaydi olarak ekler */
+    private _commitSettingsHistory(drawing: Drawing | null): void {
+        if (!drawing) return;
+        this._drawingManager.commitSettingsChange(drawing.id);
+    }
+
+    /** Cizim ayar modali; mevcut zaman dilimi (gorunurluk hazir ayarlari icin) modala iletilir */
+    private _createDrawingSettingsModal(drawing: Drawing) {
+        const modal = createSettingsModal(this._element!, drawing);
+        modal.setTimeframe(this._model.timeframe);
+        return modal;
+    }
+
+    private _openDrawingSettings(drawing: Drawing): void {
+        if (!this._element) return;
+        if (this._drawingSettingsModal) {
+            this._drawingSettingsModal.hide();
+        }
+        this._drawingSettingsModal = this._createDrawingSettingsModal(drawing);
+        this._drawingSettingsModal.setTheme(this._currentTheme);
+        this._drawingSettingsModal.settingsChanged.subscribe(() => {
+            this._commitSettingsHistory(drawing);
+            this._scheduleDraw();
         });
+        this._drawingSettingsModal.show(drawing);
+    }
+
+    private _showDrawingContextMenu(drawing: Drawing, clientX: number, clientY: number): void {
+        if (!this._drawingContextMenu) return;
+        const dm = this._drawingManager;
+        const mod = ChartWidget._modKey();
+        const id = drawing.id;
+        const redraw = () => this._scheduleDraw();
+
+        this._contextMenu?.hide();
+        this._drawingContextMenu.setItems([
+            { id: 'settings', label: t('Settings...'), icon: ICONS.settings, action: () => this._openDrawingSettings(drawing) },
+            { id: 'sep1', label: '', separator: true },
+            { id: 'clone', label: t('Clone'), shortcut: `${mod}drag`, action: () => { dm.duplicateDrawing(id); redraw(); } },
+            { id: 'copy', label: t('Copy'), icon: ICONS.copy, shortcut: `${mod}C`, action: () => { dm.copySelected(); } },
+            { id: 'paste', label: t('Paste'), shortcut: `${mod}V`, disabled: !dm.hasClipboard, action: () => { dm.pasteFromClipboard(); redraw(); } },
+            { id: 'sep2', label: '', separator: true },
+            { id: 'front', label: t('Bring to front'), action: () => { dm.bringToFront(id); redraw(); } },
+            { id: 'back', label: t('Send to back'), action: () => { dm.sendToBack(id); redraw(); } },
+            { id: 'sep3', label: '', separator: true },
+            {
+                id: 'intervals',
+                label: t('Visibility on intervals'),
+                submenu: true,
+                children: ([
+                    ['all', 'All intervals'],
+                    ['current', 'Current interval only'],
+                    ['above', 'Current interval and above'],
+                    ['below', 'Current interval and below'],
+                ] as const).map(([preset, label]) => ({
+                    id: `intervals-${preset}`,
+                    label: t(label),
+                    action: () => { dm.applyIntervalsPreset(id, preset); redraw(); },
+                })),
+            },
+            {
+                id: 'lock',
+                label: drawing.locked ? t('Unlock') : t('Lock'),
+                action: () => { dm.setDrawingLocked(id, !drawing.locked); redraw(); }
+            },
+            { id: 'hide', label: t('Hide'), action: () => { dm.setDrawingVisible(id, false); redraw(); } },
+            { id: 'delete', label: t('Delete'), shortcut: 'Del', action: () => { dm.deleteDrawing(id); redraw(); } },
+            { id: 'sep4', label: '', separator: true },
+            { id: 'undo', label: t('Undo'), shortcut: `${mod}Z`, disabled: !dm.canUndo, action: () => { dm.undo(); redraw(); } },
+            { id: 'redo', label: t('Redo'), shortcut: `${mod}Y`, disabled: !dm.canRedo, action: () => { dm.redo(); redraw(); } },
+        ]);
+        this._drawingContextMenu.show(clientX, clientY);
+    }
+
+    /** Attribute bar "..." menu: Clone / Copy / Visual order / Visibility on intervals, anchored below the button */
+    private _showBarMoreMenu(drawing: Drawing, anchor: DOMRect): void {
+        const menu = this._drawingContextMenu;
+        if (!menu) return;
+        if (menu.isVisible()) { menu.hide(); return; }
+        const dm = this._drawingManager;
+        const mod = ChartWidget._modKey();
+        const id = drawing.id;
+        const redraw = () => this._scheduleDraw();
+
+        this._contextMenu?.hide();
+        menu.setItems([
+            { id: 'clone', label: t('Clone'), shortcut: `${mod}Drag`, action: () => { dm.duplicateDrawing(id); redraw(); } },
+            { id: 'copy', label: t('Copy'), icon: ICONS.copy, shortcut: `${mod}C`, action: () => { dm.copySelected(); } },
+            { id: 'sep1', label: '', separator: true },
+            {
+                id: 'order',
+                label: t('Visual order'),
+                submenu: true,
+                children: [
+                    { id: 'front', label: t('Bring to front'), action: () => { dm.bringToFront(id); redraw(); } },
+                    { id: 'back', label: t('Send to back'), action: () => { dm.sendToBack(id); redraw(); } },
+                ],
+            },
+            {
+                id: 'intervals',
+                label: t('Visibility on intervals'),
+                submenu: true,
+                children: ([
+                    ['all', 'All intervals'],
+                    ['current', 'Current interval only'],
+                    ['above', 'Current interval and above'],
+                    ['below', 'Current interval and below'],
+                ] as const).map(([preset, label]) => ({
+                    id: `intervals-${preset}`,
+                    label: t(label),
+                    action: () => { dm.applyIntervalsPreset(id, preset); redraw(); },
+                })),
+            },
+        ]);
+        menu.setContainer(getPopoverHost());
+        menu.showAnchored(anchor);
     }
 
     private _onLanguageChange(lang: string): void {
@@ -3318,6 +3854,7 @@ export class ChartWidget implements Disposable {
         });
 
         this._createWatchlist();
+        this._createObjectTree();
         this._initSpotToggle();
 
         // Listen for language changes
@@ -3388,6 +3925,14 @@ export class ChartWidget implements Disposable {
         }
 
         this._drawingToolbarWidget = new DrawingToolbarWidget(this._element!);
+        // First subscriber: interaction tools / cursors (must run before the drawing-mode mapping
+        // so that its mode reset does not override an Eraser / Measure / Zoom In selection)
+        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
+            if (this._interactionTools.setTool(tool)) {
+                this._interactionTools.syncHost(this._drawingManager.mode !== 'none');
+                this._scheduleDraw();
+            }
+        });
         this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
             // Map toolbar tool names to drawing modes
             const toolToMode: Record<string, DrawingMode> = {
@@ -3404,6 +3949,8 @@ export class ChartWidget implements Disposable {
                 'arrowMarker': 'arrowMarker',
                 'arrowMarkedUp': 'arrowMarkedUp',
                 'arrowMarkedDown': 'arrowMarkedDown',
+                'arrowMarkedLeft': 'arrowMarkedLeft',
+                'arrowMarkedRight': 'arrowMarkedRight',
                 'rectangle': 'rectangle',
                 'rotatedRectangle': 'rotatedRectangle',
                 'ellipse': 'ellipse',
@@ -3413,7 +3960,12 @@ export class ChartWidget implements Disposable {
                 'circle': 'circle',
                 'polyline': 'polyline',
                 'curve': 'curve',
+                'doubleCurve': 'doubleCurve',
+                'cyclicLines': 'cyclicLines',
+                'timeCycles': 'timeCycles',
+                'sineLine': 'sineLine',
                 'xabcdPattern': 'xabcdPattern',
+                'cypherPattern': 'cypherPattern',
                 'fibRetracement': 'fibRetracement',
                 'fibExtension': 'fibExtension',
                 'fibChannel': 'fibChannel',
@@ -3424,8 +3976,12 @@ export class ChartWidget implements Disposable {
                 'horizontalRay': 'horizontalRay',
                 'crossLine': 'crossLine',
                 'xabcd': 'xabcdPattern',
+                'cypher': 'cypherPattern',
                 'elliotImpulse': 'elliotImpulse',
                 'elliotCorrection': 'elliotCorrection',
+                'elliotTriangle': 'elliotTriangle',
+                'elliotDoubleCombo': 'elliotDoubleCombo',
+                'elliotTripleCombo': 'elliotTripleCombo',
                 'threeDrives': 'threeDrives',
                 'headShoulders': 'headShoulders',
                 'abcd': 'abcd',
@@ -3435,9 +3991,40 @@ export class ChartWidget implements Disposable {
                 'priceRange': 'priceRange',
                 'dateRange': 'dateRange',
                 'datePriceRange': 'datePriceRange',
+                'anchoredVwap': 'anchoredVwap',
+                'fixedRangeVolumeProfile': 'fixedRangeVolumeProfile',
+                'anchoredVolumeProfile': 'anchoredVolumeProfile',
+                'pitchfork': 'pitchfork',
+                'schiffPitchfork': 'schiffPitchfork',
+                'modifiedSchiffPitchfork': 'modifiedSchiffPitchfork',
+                'insidePitchfork': 'insidePitchfork',
+                'pitchfan': 'pitchfan',
+                'fibTimeZone': 'fibTimeZone',
+                'trendBasedFibTime': 'trendBasedFibTime',
+                'fibSpeedResistanceFan': 'fibSpeedResistanceFan',
+                'fibSpeedResistanceArcs': 'fibSpeedResistanceArcs',
+                'fibCircles': 'fibCircles',
+                'fibSpiral': 'fibSpiral',
+                'fibWedge': 'fibWedge',
+                'gannBox': 'gannBox',
+                'gannSquareFixed': 'gannSquareFixed',
+                'gannSquare': 'gannSquare',
+                'gannFan': 'gannFan',
+                'disjointChannel': 'disjointChannel',
+                'flatTopBottom': 'flatTopBottom',
+                'projection': 'projection',
+                'positionForecast': 'positionForecast',
+                'barsPattern': 'barsPattern',
+                'ghostFeed': 'ghostFeed',
                 'text': 'text',
                 'callout': 'callout',
                 'priceLabel': 'priceLabel',
+                'note': 'note',
+                'priceNote': 'priceNote',
+                'pin': 'pin',
+                'signpost': 'signpost',
+                'comment': 'comment',
+                'table': 'table',
                 'flagMarked': 'flagMarked',
                 'sticker': 'sticker',
             };
@@ -3455,6 +4042,18 @@ export class ChartWidget implements Disposable {
             this._drawingManager.setMode(mode || 'none');
         });
 
+        this._drawingManager.keepDrawing = this._drawingToolbarWidget.keepDrawing;
+        this._drawingToolbarWidget.keepDrawingToggled.subscribe((keep) => {
+            this._drawingManager.keepDrawing = keep;
+        });
+
+        this._drawingManager.snapToIndicators = this._drawingToolbarWidget.snapToIndicators;
+        this._drawingToolbarWidget.snapToIndicatorsToggled.subscribe((on) => {
+            this._drawingManager.snapToIndicators = on;
+        });
+
+        this._drawingToolbarWidget.objectTreeToggled.subscribe(() => this.toggleObjectTree());
+        this._drawingToolbarWidget.setObjectTreeActive(this._objectTreePanel?.visible ?? false);
         this._drawingToolbarWidget.deleteAllClicked.subscribe(() => {
             this._drawingManager.deleteAll();
         });
@@ -3463,36 +4062,21 @@ export class ChartWidget implements Disposable {
             this._scheduleDraw();
         });
         this._drawingToolbarWidget.visibilityToggled.subscribe((isHidden) => {
-            this._drawingManager.drawings.forEach(d => d.visible = !isHidden);
+            // Gorunum bayragi: cizimlerin kendi visible durumu ve gecmis etkilenmez
+            this._drawingManager.drawingsHidden = isHidden;
             this._scheduleDraw();
         });
-        this._drawingToolbarWidget.magnetToggled.subscribe((_isOn) => {
-            // Magnet is handled via toolChanged
-        });
-
-        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
-            if (tool === 'weakMagnet') {
-                if (this._drawingManager.magnetMode === 'weak') {
-                    this._drawingManager.magnetMode = 'none';
-                    this._drawingToolbarWidget!.magnetMode = 'none';
-                } else {
-                    this._drawingManager.magnetMode = 'weak';
-                    this._drawingToolbarWidget!.magnetMode = 'weak';
-                }
-            } else if (tool === 'strongMagnet') {
-                if (this._drawingManager.magnetMode === 'strong') {
-                    this._drawingManager.magnetMode = 'none';
-                    this._drawingToolbarWidget!.magnetMode = 'none';
-                } else {
-                    this._drawingManager.magnetMode = 'strong';
-                    this._drawingToolbarWidget!.magnetMode = 'strong';
-                }
-            }
+        // Toolbar owns the (persisted) magnet mode; weak/strong never change the active tool
+        this._drawingManager.magnetMode = this._drawingToolbarWidget.magnetMode;
+        this._drawingToolbarWidget.magnetToggled.subscribe(() => {
+            this._drawingManager.magnetMode = this._drawingToolbarWidget!.magnetMode;
         });
 
         this._drawingManager.modeChanged.subscribe((mode) => {
-            if (mode === 'none') {
-                this._drawingToolbarWidget?.setActiveTool('crosshair');
+            // Back to the last chosen cursor (crosshair / arrow / dot / demonstration);
+            // an active Eraser / Measure / Zoom In stays selected
+            if (mode === 'none' && this._interactionTools.mode === 'none') {
+                this._drawingToolbarWidget?.setActiveTool(this._interactionTools.lastCursor);
             }
         });
     }

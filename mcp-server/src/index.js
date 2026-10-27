@@ -187,18 +187,53 @@ server.registerTool(
             'most common cases with clearer point semantics — prefer those when they fit. Use draw_shape for ' +
             'everything else: Fibonacci tools, channels, position markers, single-point annotations, etc.\n\n' +
             'Point count by type (most common):\n' +
-            '- 1 point: "horizontalLine", "verticalLine", "text", "priceLabel", "sticker" — {barIndex, price} is ' +
+            '- 1 point: "horizontalLine", "verticalLine", "text", "priceLabel", "sticker", "arrowMarkedUp", "arrowMarkedDown", "arrowMarkedLeft", "arrowMarkedRight" — {barIndex, price} is ' +
             'the anchor (horizontalLine/verticalLine only use one of barIndex/price depending on axis, but pass both).\n' +
             '- 2 points: "trendLine", "rectangle", "ray", "horizontalRay", "extendedLine", "circle", "arrow", ' +
             '"longPosition", "shortPosition" (longPosition/shortPosition: both points at the entry price, spanning ' +
             'the entry time range — use profitPercent/stopPercent/quantity for the target/stop zone sizing).\n' +
             '- 3 points: "parallelChannel" (two points define the base line, third sets channel width), ' +
-            '"fibExtension", "triangle", "ellipse".\n' +
+            '"fibExtension", "triangle", "ellipse", "pitchfork"/"schiffPitchfork"/"modifiedSchiffPitchfork"/"insidePitchfork" ' +
+            '(P1 = handle/origin, P2 and P3 = the two swing points; median runs from P1 through the midpoint of P2-P3, parallel levels through P2/P3) and ' +
+            '"pitchfan" (P1, P2, P3; fan lines from P1 through points on P2-P3) and ' +
+            '"trendBasedFibTime" (P1, P2, P3; vertical lines at P3 + coeff * (P2 - P1) in bars).\n' +
             '- 2+ points: "fibRetracement" (swing high to swing low, or vice versa), "fibChannel".\n' +
+            '- Fib time/fan tools (2 points): "fibTimeZone" (vertical lines at P1 + n * (P2 - P1) in bars, n = 0,1,2,3,5,8,13,21,34,55,89) and ' +
+            '"fibSpeedResistanceFan" (P1 = origin, P2 = opposite corner of the box; fan rays from P1 through the 0/0.25/0.382/0.5/0.618/0.75/1 grid points).\n' +
+            '- Fib circular tools (drawn in pixel space, so they stay round on screen and are NOT price/time scaled; radius comes from the on-screen P1-P2 distance): ' +
+            '"fibSpeedResistanceArcs" (2 points: P1 = centre, P2; arcs of radius level * |P1P2| on the P2 side, half circles unless fullCircles), ' +
+            '"fibCircles" (2 points: P1-P2 = diameter of the 1.0 circle; concentric circles, radius level * |P1P2| / 2), ' +
+            '"fibSpiral" (2 points: P1 = centre, P2 = start radius/angle; golden logarithmic spiral, radius grows by phi per quarter turn) and ' +
+            '"fibWedge" (3 points: P1 = apex, P2 and P3 = the two wedge edges; arcs of radius level * |P1P2| between the rays). Levels 0.236..4.618.\n' +
+            '- Gann tools (2 points, pixel-space geometry): "gannBox" (P1/P2 = opposite corners; price and time levels 0,0.25,0.382,0.5,0.618,0.75,1 as lines + bands, optional angle fans, reverse flips the origin to P2), ' +
+            '"gannFan" (P1 = origin, P2 defines the 1x1 line; 9 rays with price/time slopes 1/8,1/4,1/3,1/2,1/1,2/1,3/1,4/1,8/1 extending to the pane edge), ' +
+            '"gannSquareFixed" (P1 = origin, P2 sets the size; a true on-screen square of 5x5 cells with grid 0..5, fan lines from the origin and quarter arcs at 1..5 cells) and ' +
+            '"gannSquare" (same, but width/height follow P1->P2 freely; optional scaleLock/scaleRatio = price per bar; labels show price diff, bars, ratio). ' +
+            'Settings via ext/settings: hlevels/vlevels (box), fanLevels, gridLevels, arcLevels, showLabels, fillBackground, reverse, fansVisible.\n' +
+            '- Channel/projection tools (3 points, pixel-space geometry): "disjointChannel" (line A = P1->P2; line B starts at P3 with the mirrored slope (-slope A) and the same bar span; filled between the lines), ' +
+            '"flatTopBottom" (line A = P1->P2; line B is horizontal at the price of P3 over the same time range; filled between) and ' +
+            '"projection" (P1 = centre, P2 = start of the arc (radius |P1P2|), P3 sets the sweep angle: the sector between rays P1->P2 and P1->P3 (short angle); level arcs at coeff * |P1P2| (default coeff 1), ' +
+            'sector rings filled alternately blue/purple; trend lines P1-P2 and P1-P3). Settings via ext/settings: extendLeft/extendRight, showPriceLabels, labelVisible/text (channels); levels, showCoeffs, fillBackground (projection).\n' +
+            '- Forecast tools: "positionForecast" (2 points: P1 = source price/time, P2 = target; blue arrow + label with price change, %, ticks, bars and time span; the box turns green with a check mark when real bars reached P2.price (high/low crossing) at or before P2.time, red with a cross when P2.time passed without reaching it, blue while pending; settings: color, lineWidth, textColor, backgroundColor, successColor, failureColor), ' +
+            '"barsPattern" (3 points: P1/P2 select a range of existing bars, P3 = where the copy is drawn: its time is the start and its price anchors the first copied bar close; settings: mode hlBars|openClose|line|ohlc, mirrored (flip vertically around the anchor), flipped (reverse time order), transparency, color) and ' +
+            '"ghostFeed" (2+ points like a polyline, finish with double-click/Enter: synthetic candles between consecutive points, candlesPerSegment (default 20) per segment, variance 0-100 (default 50); deterministic, seeded by ext.seed (defaults to the drawing id); settings: upColor, downColor, borderUpColor, borderDownColor, wickColor, drawWick, drawBorder, transparency).\n' +
+            '- Cycle tools (2 points, pixel-space geometry): "cyclicLines" (P1 and P2 define one period; vertical full-height lines at P1 + n*period for n >= 0 in the P1->P2 direction, nothing before P1; default #80CCDB, width 2), ' +
+            '"timeCycles" (P1/P2 = one cycle; repeating half-ellipse arcs above P1.price, each one period wide; arc height = |P2.y - P1.y| in pixels, or half the period if P2 is at the same price; filled by default #6AA84F transparency 50; colour #159980) and ' +
+            '"sineLine" (P1 = peak/trough, P2 = next opposite extreme = half period; sine through both, amplitude |dy|/2, period 2*|dx|, drawn across the whole pane; colour #159980). Settings: color, lineWidth, lineStyle, fillColor/fillEnabled/fillTransparency (timeCycles).\n' +
+            '- "doubleCurve" (3 points: P1 and P3 = ends, P2 = a point on the curve at t=0.5; cubic bezier with derived S-shaped controls C1 = P1 + 4D/3 + n, C2 = P3 + 4D/3 - n where D = P2 - mid(P1,P3), n = chord normal * 0.25; purple #673AB7; settings: color, lineWidth, lineStyle, fill (off by default), extendLeft/extendRight along end tangents, leftEnd/rightEnd).\n' +
+            '- Note/annotation tools: "note" (1 point: anchor dot + a note box up-right joined by a thin line; text via text; dark #1A1A1A box, text #DBDBDB, 14px; settings: color (text), markerColor, backgroundColor, backgroundTransparency, backgroundVisible, borderVisible, borderColor, fontSize, bold, italic), ' +
+            '"priceNote" (2 points: P1 = price point, P2 = where the text sits; blue #2962FF line P1-P2, text at P2 (horzLabelsAlign left|center|right, vertLabelsAlign top|middle|bottom; default center/bottom), and a price chip for P1.price on the price axis in chipColor; settings: color (line), lineWidth, textColor, chipColor, fontSize), ' +
+            '"pin" (1 point: map-pin icon at the anchor with optional text above; settings: color, text, textColor, fontSize), ' +
+            '"signpost" (1 point: vertical post from the anchor to a rounded plate with text and optional emoji; settings: color (plate #2962FF), textColor, fontSize 12, showImage, emoji, placement above|below), ' +
+            '"comment" (2 points: P1 = bubble tail tip, P2 = bubble centre; #2962FF at 30% transparency, white text 14px) and ' +
+            '"table" (1 point: top-left corner; settings: rows/cols 1-10 (default 2x2), colWidth, rowHeight, hAlign via horzAlign, color (text), backgroundColor, borderColor, fontSize 12; cells are edited by double-click and serialized as ext.cells, a rows x cols array of strings). ' +
+            'Note/priceNote/signpost/comment are removed if their text ends up empty.\n' +
             '- variable (2+): "polyline", "curve", "brush", "path" — use draw_polyline instead for plain polylines.\n' +
-            '- pattern-specific point counts: "xabcd"/"xabcdPattern"/"cypher" (5 points: X,A,B,C,D), "abcd" (4 ' +
-            'points), "elliotImpulse" (6 points), "elliotCorrection"/"threeDrives" (4 points), "headShoulders" ' +
+            '- pattern-specific point counts: "xabcd"/"xabcdPattern" (5 points: X,A,B,C,D), "cypher"/"cypherPattern" (5 points: X,A,B,C,D), "abcd" (4 ' +
+            'points), "elliotImpulse" (6 points), "elliotCorrection" (4 points), "elliotTriangle" (6 points), "elliotDoubleCombo" (4 points), "elliotTripleCombo" (6 points), "threeDrives" (7 points), "headShoulders" ' +
             '(7 points), "trianglePattern" (3-4 points).\n' +
+            '- volume-based (use the main series volume): "anchoredVwap" (1 point: the anchor bar; VWAP runs to the latest bar, optional std-dev bands), ' +
+            '"anchoredVolumeProfile" (1 point: the anchor bar; profile runs to the latest bar), "fixedRangeVolumeProfile" (2 points: start bar and end bar).\n' +
             'If unsure of a type\'s exact point semantics, start with 2-3 reasonable points and check the result ' +
             'with list_drawings; adjust and redraw (clear_drawing first) if it looks wrong in a screenshot.',
         inputSchema: {

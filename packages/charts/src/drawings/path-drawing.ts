@@ -24,10 +24,19 @@ import {
     AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
-    colorRow,
-    lineWidthRow,
-    lineStyleRow,
 } from './drawing-settings-config';
+
+import { LineToolProps, createLineProps, serializeLineProps, deserializeLineProps } from './line-tool-common';
+import { restoreShapeStyle } from './shape-common';
+import {
+    TV_BLUE,
+    PATH_LINE_PROPS,
+    createOpenStyle,
+    openLineSection,
+    openAttributeBarItems,
+    getOpenSetting,
+    setOpenSetting,
+} from './open-shape-common';
 
 export interface PathOptions {
     color?: string;
@@ -48,6 +57,9 @@ export class PathDrawing implements Drawing, DrawingSettingsProvider {
     visible: boolean = true;
     locked: boolean = false;
 
+    /** Sol/sag uc sekli (Path varsayilani: sag uc ok) */
+    lineProps: LineToolProps = createLineProps(undefined, PATH_LINE_PROPS);
+
     // Preview point tracking
     private _previewPointIndex: number = -1;
 
@@ -56,12 +68,7 @@ export class PathDrawing implements Drawing, DrawingSettingsProvider {
 
     constructor(options: PathOptions = {}) {
         this.id = generateDrawingId();
-        this.style = {
-            ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2962ff',
-            lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || [],
-        };
+        this.style = createOpenStyle(DEFAULT_DRAWING_STYLE, { color: TV_BLUE, lineWidth: 2 }, options);
     }
 
     // =========================================================================
@@ -71,59 +78,24 @@ export class PathDrawing implements Drawing, DrawingSettingsProvider {
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
-                createStyleTab([
-                    {
-                        title: 'Line',
-                        rows: [
-                            colorRow('color', 'Color'),
-                            lineWidthRow('lineWidth'),
-                            lineStyleRow('lineStyle'),
-                        ]
-                    }
-                ]),
+                createStyleTab([openLineSection({ ends: true })]),
                 createVisibilityTab()
             ]
         };
     }
 
     getAttributeBarItems(): AttributeBarItem[] {
-        return [
-            { type: 'color', key: 'color', tooltip: 'Line Color' },
-            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
-            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
-        ];
+        return openAttributeBarItems({ fill: false, style: true });
     }
 
     getSettingValue(key: string): any {
-        switch (key) {
-            case 'color': return this.style.color;
-            case 'lineWidth': return this.style.lineWidth;
-            case 'lineStyle':
-                if (!this.style.lineDash || this.style.lineDash.length === 0) return 'solid';
-                if (this.style.lineDash[0] === 6) return 'dashed';
-                return 'dotted';
-            case 'visible': return this.visible;
-            default: return undefined;
-        }
+        if (key === 'visible') return this.visible;
+        return getOpenSetting(this.style, this.lineProps, key);
     }
 
     setSettingValue(key: string, value: any): void {
-        switch (key) {
-            case 'color':
-                this.style.color = value;
-                break;
-            case 'lineWidth':
-                this.style.lineWidth = value;
-                break;
-            case 'lineStyle':
-                if (value === 'solid') this.style.lineDash = [];
-                else if (value === 'dashed') this.style.lineDash = [6, 4];
-                else if (value === 'dotted') this.style.lineDash = [2, 2];
-                break;
-            case 'visible':
-                this.visible = value;
-                break;
-        }
+        if (key === 'visible') this.visible = value;
+        else setOpenSetting(this.style, this.lineProps, key, value);
     }
 
     // =========================================================================
@@ -264,6 +236,7 @@ export class PathDrawing implements Drawing, DrawingSettingsProvider {
             state: this.state === 'selected' ? 'complete' : this.state,
             visible: this.visible,
             locked: this.locked,
+            lineProps: serializeLineProps(this.lineProps),
         };
     }
 
@@ -275,6 +248,8 @@ export class PathDrawing implements Drawing, DrawingSettingsProvider {
         });
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
+        restoreShapeStyle(drawing.style, data.style);
+        drawing.lineProps = deserializeLineProps(data.lineProps, PATH_LINE_PROPS);
         drawing.points = [...data.points];
         drawing.state = data.state as DrawingState;
         drawing.visible = data.visible;

@@ -1,9 +1,16 @@
 /**
  * Line Drawing Renderer
- * Renders line-based drawings: TrendLine, TrendAngle, HorizontalRay, CrossLine, InfoLine
+ * Renders line-based drawings: TrendLine family (incl. InfoLine, Arrow), TrendAngle, HorizontalRay, CrossLine
  */
 
-import { InfoLineDrawing } from '../../../drawings/info-line-drawing';
+import type { DrawingStyle } from '../../../drawings/drawing';
+import { LineToolProps, drawLineToolDecorations, drawLabeledHorizontalLine } from '../../../drawings/line-tool-common';
+
+/** Trend Line ailesi icin ek cizimler: uc sekilleri, orta nokta, istatistik kutusu */
+export interface LineToolDecor {
+    props: LineToolProps;
+    statsLines: string[];
+}
 
 /**
  * Draws a trend line with optional text and extensions
@@ -16,7 +23,8 @@ export function drawTrendLine(
     extendLeft: boolean = false,
     extendRight: boolean = false,
     canvasWidth: number = 0,
-    isHoveredForAddText: boolean = false
+    isHoveredForAddText: boolean = false,
+    decor?: LineToolDecor
 ): void {
     if (points.length < 2) return;
 
@@ -178,6 +186,13 @@ export function drawTrendLine(
         ctx.stroke();
     }
 
+    if (decor) {
+        drawLineToolDecorations(
+            ctx, p1, p2, style.color, style.lineWidth, decor.props, decor.statsLines,
+            dpr, ctx.canvas.width, ctx.canvas.height
+        );
+    }
+
     // Draw control points if selected
     if (isSelected) {
         ctx.fillStyle = style.color;
@@ -196,15 +211,25 @@ export function drawTrendLine(
     }
 }
 
+/** Trend Angle icin Trend Line ortak ozellikleri (uzatma, metin, istatistik kutusu) */
+export interface TrendAngleExtras {
+    extendLeft?: boolean;
+    extendRight?: boolean;
+    canvasWidth?: number;
+    isHoveredForAddText?: boolean;
+    decor?: LineToolDecor;
+}
+
 /**
- * Draws a trend angle with arc and degree label
+ * Draws a trend angle: the trend line (with text/extensions/stats) plus arc and degree label
  */
 export function drawTrendAngle(
     ctx: CanvasRenderingContext2D,
     points: { x: number; y: number }[],
-    style: { color: string; lineWidth: number; lineDash?: number[] },
+    style: { color: string; lineWidth: number; lineDash?: number[]; text?: string; textColor?: string; fontSize?: number; fontWeight?: 'normal' | 'bold'; fontStyle?: 'normal' | 'italic'; textHAlign?: 'left' | 'center' | 'right'; textVAlign?: 'top' | 'middle' | 'bottom' },
     dpr: number,
-    isSelected: boolean
+    isSelected: boolean,
+    extras: TrendAngleExtras = {}
 ): void {
     if (points.length < 2) return;
 
@@ -217,14 +242,12 @@ export function drawTrendAngle(
     const angleRad = Math.atan2(-dy, dx);
     const angleDeg = angleRad * (180 / Math.PI);
 
-    // Draw the main trend line
-    ctx.beginPath();
-    ctx.strokeStyle = style.color;
-    ctx.lineWidth = (style.lineWidth || 2) * dpr;
-    ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
-    ctx.stroke();
+    // Main trend line (text, extension, middle point, stats)
+    drawTrendLine(
+        ctx, points, style, false,
+        !!extras.extendLeft, !!extras.extendRight, extras.canvasWidth ?? 0,
+        !!extras.isHoveredForAddText, extras.decor
+    );
 
     // Draw dashed arc from horizontal to the trend line
     const arcRadius = 30 * dpr;
@@ -256,6 +279,7 @@ export function drawTrendAngle(
     ctx.font = `${12 * dpr}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     ctx.fillStyle = style.color;
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
     ctx.fillText(`${angleDeg.toFixed(2)}°`, labelX, labelY);
 
     // Draw control points
@@ -282,18 +306,13 @@ export function drawTrendAngle(
 export function drawHorizontalRay(
     ctx: CanvasRenderingContext2D,
     point: { x: number; y: number },
-    style: { color: string; lineWidth: number; lineDash?: number[] },
+    style: DrawingStyle,
     dpr: number,
     isSelected: boolean,
     canvasWidth: number
 ): void {
-    ctx.beginPath();
-    ctx.strokeStyle = style.color;
-    ctx.lineWidth = (style.lineWidth || 2) * dpr;
-    ctx.setLineDash((style.lineDash || []).map(d => d * dpr));
-    ctx.moveTo(point.x, point.y);
-    ctx.lineTo(canvasWidth, point.y);
-    ctx.stroke();
+    // Metin (varsa) cizgi boyunca hizalanir; Horizontal Ray varsayilani: cizginin ustunde
+    drawLabeledHorizontalLine(ctx, { ...style, lineWidth: style.lineWidth || 2 }, point.y, point.x, canvasWidth, dpr, 'top');
     ctx.setLineDash([]);
 
     if (isSelected) {
@@ -352,132 +371,4 @@ export function drawCrossLine(
         ctx.arc(x, y, 3 * dpr, 0, Math.PI * 2);
         ctx.fill();
     }
-}
-
-/**
- * Draws an info line with measurement tooltip
- */
-export function drawInfoLine(
-    ctx: CanvasRenderingContext2D,
-    points: { x: number; y: number }[],
-    drawing: InfoLineDrawing,
-    dpr: number,
-    _isSelected: boolean
-): void {
-    if (points.length < 2) return;
-
-    const style = drawing.style;
-
-    // Draw the line
-    ctx.beginPath();
-    ctx.strokeStyle = style.color;
-    ctx.lineWidth = style.lineWidth * dpr;
-    ctx.setLineDash([]);
-    ctx.moveTo(points[0].x, points[0].y);
-    ctx.lineTo(points[1].x, points[1].y);
-    ctx.stroke();
-
-    // Draw control points
-    ctx.fillStyle = style.color;
-    for (const point of points) {
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, 5 * dpr, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, 3 * dpr, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = style.color;
-    }
-
-    // Get measurements
-    const m = drawing.getMeasurements();
-
-    // Format text lines
-    const priceSign = m.priceChange >= 0 ? '+' : '';
-    const priceColor = m.priceChange >= 0 ? '#26a69a' : '#ef5350';
-
-    const line1 = `${priceSign}${m.priceChange.toFixed(2)} (${m.priceChangePercent.toFixed(2)}%)`;
-    const line2 = `${m.barCount} bar, ${m.timeDuration}`;
-    const line3 = `${m.angle.toFixed(2)}°`;
-
-    // Tooltip position
-    const tooltipX = points[1].x + 20 * dpr;
-    const tooltipY = points[1].y - 10 * dpr;
-
-    // Font setup
-    const fontSize = 12 * dpr;
-    const fontBold = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial`;
-    const fontNormal = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial`;
-    ctx.font = fontNormal;
-
-    const padding = 10 * dpr;
-    const lineHeight = fontSize + 6 * dpr;
-    const iconWidth = 20 * dpr;
-
-    // Measure text widths
-    ctx.font = fontBold;
-    const textWidths = [
-        ctx.measureText(line1).width,
-        ctx.measureText(line2).width,
-        ctx.measureText(line3).width
-    ];
-    const maxTextWidth = Math.max(...textWidths);
-
-    const boxWidth = iconWidth + maxTextWidth + padding * 2 + 5 * dpr;
-    const boxHeight = lineHeight * 3 + padding * 2;
-
-    // Draw shadow
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
-    ctx.shadowBlur = 8 * dpr;
-    ctx.shadowOffsetX = 2 * dpr;
-    ctx.shadowOffsetY = 2 * dpr;
-
-    // Background
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.roundRect(tooltipX, tooltipY, boxWidth, boxHeight, 6 * dpr);
-    ctx.fill();
-
-    // Reset shadow
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-
-    // Border
-    ctx.strokeStyle = '#e0e0e0';
-    ctx.lineWidth = 1 * dpr;
-    ctx.stroke();
-
-    // Text rendering
-    ctx.textBaseline = 'middle';
-    const textX = tooltipX + padding;
-    let textY = tooltipY + padding + lineHeight / 2;
-
-    // Line 1 - Price change
-    ctx.fillStyle = '#787878';
-    ctx.font = fontNormal;
-    ctx.fillText('↕', textX, textY);
-    ctx.fillStyle = priceColor;
-    ctx.font = fontBold;
-    ctx.fillText(line1, textX + iconWidth, textY);
-    textY += lineHeight;
-
-    // Line 2 - Bars/Time
-    ctx.fillStyle = '#787878';
-    ctx.font = fontNormal;
-    ctx.fillText('↔', textX, textY);
-    ctx.fillStyle = '#333333';
-    ctx.font = fontBold;
-    ctx.fillText(line2, textX + iconWidth, textY);
-    textY += lineHeight;
-
-    // Line 3 - Angle
-    ctx.fillStyle = '#787878';
-    ctx.font = fontNormal;
-    ctx.fillText('∠', textX, textY);
-    ctx.fillStyle = '#333333';
-    ctx.font = fontBold;
-    ctx.fillText(line3, textX + iconWidth, textY);
 }

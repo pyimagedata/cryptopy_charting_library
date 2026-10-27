@@ -5,20 +5,24 @@
 
 import {
     XABCDPatternDrawing,
-    ElliottImpulseDrawing,
-    ElliottCorrectionDrawing,
+    ElliottWaveDrawing,
     ThreeDrivesDrawing,
     HeadShouldersDrawing,
     ABCDPatternDrawing,
-    TrianglePatternDrawing
+    TrianglePatternDrawing,
+    shapeFillCss,
+    xabcdRatios,
+    cypherRatios,
+    threeDrivesRatios,
 } from '../../../drawings';
+import { DrawingStyle } from '../../../drawings/drawing';
+import { t } from '../../../helpers/translations';
 
 import { fillWithOpacity } from './utils';
 
 export type PatternDrawing =
     | XABCDPatternDrawing
-    | ElliottImpulseDrawing
-    | ElliottCorrectionDrawing
+    | ElliottWaveDrawing
     | ThreeDrivesDrawing
     | HeadShouldersDrawing
     | ABCDPatternDrawing
@@ -37,8 +41,11 @@ export function drawPatternWave(
 ): void {
     if (pixelPoints.length < 2) return;
 
+    // Elliott: "Wave" kapaliyken yalniz etiketler (ve secimde kontrol noktalari) cizilir
+    const waveHidden = drawing instanceof ElliottWaveDrawing && !drawing.showWave;
+
     // Draw fills: XAB triangle and BCD triangle (NOT for headShoulders or trianglePattern - they have custom fills)
-    if (drawing.style.fillColor && drawing.type !== 'headShoulders' && drawing.type !== 'trianglePattern') {
+    if (!waveHidden && drawing.style.fillColor && drawing.type !== 'headShoulders' && drawing.type !== 'trianglePattern') {
         // Fill XAB triangle (X, A, B)
         if (pixelPoints.length >= 3) {
             ctx.beginPath();
@@ -46,7 +53,7 @@ export function drawPatternWave(
             ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y); // A
             ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y); // B
             ctx.closePath();
-            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+            fillPatternPath(ctx, drawing, drawing.style.fillColor);
         }
 
         // Fill BCD triangle (B, C, D)
@@ -56,30 +63,32 @@ export function drawPatternWave(
             ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y); // C
             ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y); // D
             ctx.closePath();
-            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+            fillPatternPath(ctx, drawing, drawing.style.fillColor);
         }
     }
 
     // Draw lines: X-A, A-B, B-C, C-D
-    ctx.beginPath();
-    ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-    for (let i = 1; i < pixelPoints.length; i++) {
-        ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+    if (!waveHidden) {
+        ctx.beginPath();
+        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+        for (let i = 1; i < pixelPoints.length; i++) {
+            ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+        }
+        ctx.strokeStyle = drawing.style.color;
+        ctx.lineWidth = drawing.style.lineWidth * dpr;
+        ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
+        ctx.stroke();
+        ctx.setLineDash([]);
     }
-    ctx.strokeStyle = drawing.style.color;
-    ctx.lineWidth = drawing.style.lineWidth * dpr;
-    ctx.setLineDash((drawing.style.lineDash || []).map(d => d * dpr));
-    ctx.stroke();
-    ctx.setLineDash([]);
 
-    // Draw X-B, A-C, B-D, X-D connecting lines (dashed) - ONLY for XABCD pattern
-    if (drawing.type === 'xabcdPattern' && pixelPoints.length >= 3) {
-        drawXABCDConnectingLines(ctx, pixelPoints, drawing.style.color, dpr);
+    // Dashed connectors with ratio labels - XABCD (XB, AC, BD, XD) and Cypher (XB, XC, XD)
+    if ((drawing.type === 'xabcdPattern' || drawing.type === 'cypherPattern') && pixelPoints.length >= 3) {
+        drawHarmonicConnectors(ctx, drawing, pixelPoints, dpr);
     }
 
     // Draw dashed connecting lines for Three Drives (valleys: points 1, 3, 5)
-    if (drawing.type === 'threeDrives' && pixelPoints.length >= 4) {
-        drawThreeDrivesConnectingLines(ctx, pixelPoints, drawing.style.color, dpr);
+    if (drawing.type === 'threeDrives' && pixelPoints.length >= 3) {
+        drawThreeDrivesConnectingLines(ctx, drawing as ThreeDrivesDrawing, pixelPoints, dpr);
     }
 
     // Draw ABCD pattern: dashed diagonal lines A-C and B-D with Fibonacci ratios
@@ -103,77 +112,103 @@ export function drawPatternWave(
     }
 
     // Always draw labels
-    drawLabels(ctx, pixelPoints, labels, drawing.style.color, dpr);
+    drawLabels(ctx, pixelPoints, labels, drawing.style, dpr);
 }
 
 // ============================================================================
-// XABCD Pattern
+// XABCD / Cypher Pattern
 // ============================================================================
 
-function drawXABCDConnectingLines(
+function drawHarmonicConnectors(
     ctx: CanvasRenderingContext2D,
+    drawing: PatternDrawing,
     pixelPoints: { x: number; y: number }[],
-    color: string,
     dpr: number
 ): void {
+    const isCypher = drawing.type === 'cypherPattern';
+    // [from index, to index, ratio]
+    let connectors: [number, number, number | null][];
+    if (isCypher) {
+        const r = cypherRatios(drawing.points);
+        connectors = [[0, 2, r.xb], [0, 3, r.xc], [0, 4, r.xd]];
+    } else {
+        const r = xabcdRatios(drawing.points);
+        connectors = [[0, 2, r.xb], [1, 3, r.ac], [2, 4, r.bd], [0, 4, r.xd]];
+    }
+    // Null ratio (undefined/absurd) -> no connector either
+    const visible = connectors.filter(([from, to, value]) => to < pixelPoints.length && from < pixelPoints.length && value !== null);
+
     ctx.beginPath();
     ctx.setLineDash([4 * dpr, 4 * dpr]);
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = drawing.style.color;
     ctx.lineWidth = 1 * dpr;
-
-    // X-B line
-    ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-    ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
-
-    // A-C line (if exists)
-    if (pixelPoints.length >= 4) {
-        ctx.moveTo(pixelPoints[1].x, pixelPoints[1].y);
-        ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y);
+    for (const [from, to] of visible) {
+        ctx.moveTo(pixelPoints[from].x, pixelPoints[from].y);
+        ctx.lineTo(pixelPoints[to].x, pixelPoints[to].y);
     }
-
-    // B-D line (if exists)
-    if (pixelPoints.length >= 5) {
-        ctx.moveTo(pixelPoints[2].x, pixelPoints[2].y);
-        ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y);
-
-        // X-D line
-        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-        ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y);
-    }
-
     ctx.stroke();
     ctx.setLineDash([]);
+
+    for (const [from, to, value] of visible) {
+        if (value === null) continue;
+        drawBadge(
+            ctx,
+            value.toFixed(3),
+            (pixelPoints[from].x + pixelPoints[to].x) / 2,
+            (pixelPoints[from].y + pixelPoints[to].y) / 2,
+            drawing.style,
+            dpr
+        );
+    }
 }
 
 // ============================================================================
 // Three Drives Pattern
 // ============================================================================
 
+/**
+ * Ratios (PiPj = price(Pj) - price(Pi), see threeDrivesRatios):
+ *  - retracement 1 = |P1P2| / |P0P1|, badge at the middle of segment P1->P2
+ *  - retracement 2 = |P3P4| / |P2P3|, badge at the middle of segment P3->P4
+ *  - extension 1   = |P2P3| / |P1P2|, badge at the middle of dashed connector P1->P3
+ *  - extension 2   = |P4P5| / |P3P4|, badge at the middle of dashed connector P3->P5
+ * A dashed connector is skipped when its ratio is null.
+ */
 function drawThreeDrivesConnectingLines(
     ctx: CanvasRenderingContext2D,
+    drawing: ThreeDrivesDrawing,
     pixelPoints: { x: number; y: number }[],
-    color: string,
     dpr: number
 ): void {
+    const r = threeDrivesRatios(drawing.points);
+    const n = pixelPoints.length;
+    // [from, to, ratio] dashed valley connectors
+    const connectors: [number, number, number | null][] = [[1, 3, r.ext1], [3, 5, r.ext2]];
+    const visible = connectors.filter(([, to, v]) => to < n && v !== null);
+
     ctx.beginPath();
     ctx.setLineDash([4 * dpr, 4 * dpr]);
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = drawing.style.color;
     ctx.lineWidth = 1 * dpr;
-
-    // Connect valleys: point 1 → point 3 (indices 1 and 3)
-    if (pixelPoints.length >= 4) {
-        ctx.moveTo(pixelPoints[1].x, pixelPoints[1].y);
-        ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y);
+    for (const [from, to] of visible) {
+        ctx.moveTo(pixelPoints[from].x, pixelPoints[from].y);
+        ctx.lineTo(pixelPoints[to].x, pixelPoints[to].y);
     }
-
-    // Connect valleys: point 3 → point 5 (indices 3 and 5)
-    if (pixelPoints.length >= 6) {
-        ctx.moveTo(pixelPoints[3].x, pixelPoints[3].y);
-        ctx.lineTo(pixelPoints[5].x, pixelPoints[5].y);
-    }
-
     ctx.stroke();
     ctx.setLineDash([]);
+
+    const badges: [number, number, number | null][] = [[1, 2, r.retrace1], [3, 4, r.retrace2], ...visible];
+    for (const [from, to, value] of badges) {
+        if (value === null || to >= n) continue;
+        drawBadge(
+            ctx,
+            value.toFixed(3),
+            (pixelPoints[from].x + pixelPoints[to].x) / 2,
+            (pixelPoints[from].y + pixelPoints[to].y) / 2,
+            drawing.style,
+            dpr
+        );
+    }
 }
 
 // ============================================================================
@@ -204,43 +239,29 @@ function drawABCDPattern(
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Draw Fibonacci ratio labels
-    ctx.font = `bold ${11 * dpr}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // BC/AB ratio on A-C line
+    // Draw Fibonacci ratio labels (BC/AB on A-C, CD/BC on B-D)
     const bcRatio = drawing.getBCRatio();
     if (bcRatio !== null && pixelPoints.length >= 3) {
-        const labelX = (pixelPoints[0].x + pixelPoints[2].x) / 2;
-        const labelY = (pixelPoints[0].y + pixelPoints[2].y) / 2 - 15 * dpr;
-
-        // Draw background
-        const ratioText = bcRatio.toFixed(3);
-        const textWidth = ctx.measureText(ratioText).width;
-        ctx.fillStyle = drawing.style.color;
-        ctx.fillRect(labelX - textWidth / 2 - 4 * dpr, labelY - 8 * dpr, textWidth + 8 * dpr, 16 * dpr);
-
-        // Draw text
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(ratioText, labelX, labelY);
+        drawBadge(
+            ctx,
+            bcRatio.toFixed(3),
+            (pixelPoints[0].x + pixelPoints[2].x) / 2,
+            (pixelPoints[0].y + pixelPoints[2].y) / 2 - 15 * dpr,
+            drawing.style,
+            dpr
+        );
     }
 
-    // CD/BC ratio on B-D line
     const cdRatio = drawing.getCDRatio();
     if (cdRatio !== null && pixelPoints.length >= 4) {
-        const labelX = (pixelPoints[1].x + pixelPoints[3].x) / 2;
-        const labelY = (pixelPoints[1].y + pixelPoints[3].y) / 2 - 15 * dpr;
-
-        // Draw background
-        const ratioText = cdRatio.toFixed(3);
-        const textWidth = ctx.measureText(ratioText).width;
-        ctx.fillStyle = drawing.style.color;
-        ctx.fillRect(labelX - textWidth / 2 - 4 * dpr, labelY - 8 * dpr, textWidth + 8 * dpr, 16 * dpr);
-
-        // Draw text
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(ratioText, labelX, labelY);
+        drawBadge(
+            ctx,
+            cdRatio.toFixed(3),
+            (pixelPoints[1].x + pixelPoints[3].x) / 2,
+            (pixelPoints[1].y + pixelPoints[3].y) / 2 - 15 * dpr,
+            drawing.style,
+            dpr
+        );
     }
 }
 
@@ -277,7 +298,7 @@ function drawTrianglePattern(
     }
 
     // Draw filled triangle area
-    if (drawing.style.fillColor) {
+    {
         if (pixelPoints.length >= 4 && apexX !== null && apexY !== null) {
             const A = pixelPoints[0];
             const B = pixelPoints[1];
@@ -292,14 +313,14 @@ function drawTrianglePattern(
             ctx.lineTo(apexX, apexY);
             ctx.lineTo(A.x, A.y);
             ctx.closePath();
-            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+            fillStylePath(ctx, drawing.style);
         } else if (pixelPoints.length >= 3) {
             ctx.beginPath();
             ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
             ctx.lineTo(pixelPoints[1].x, pixelPoints[1].y);
             ctx.lineTo(pixelPoints[2].x, pixelPoints[2].y);
             ctx.closePath();
-            fillWithOpacity(ctx, drawing.style.fillColor, drawing.style.fillOpacity);
+            fillStylePath(ctx, drawing.style);
         }
     }
 
@@ -350,8 +371,6 @@ function drawHeadAndShoulders(
     pixelPoints: { x: number; y: number }[],
     dpr: number
 ): void {
-    const fillColor = drawing.style.fillColor || 'rgba(206, 147, 216, 0.4)';
-    const fillOpacity = drawing.style.fillOpacity;
 
     // Calculate neckline slope from P2 to P4 (when available)
     let necklineSlope = 0;
@@ -397,7 +416,7 @@ function drawHeadAndShoulders(
         ctx.lineTo(p1.x, p1.y);
         ctx.lineTo(p2.x, p2.y);
         ctx.closePath();
-        fillWithOpacity(ctx, fillColor, fillOpacity);
+        fillStylePath(ctx, drawing.style);
 
         // HEAD FILL: P2-P3-P4
         ctx.beginPath();
@@ -405,7 +424,7 @@ function drawHeadAndShoulders(
         ctx.lineTo(pixelPoints[3].x, pixelPoints[3].y);
         ctx.lineTo(pixelPoints[4].x, pixelPoints[4].y);
         ctx.closePath();
-        fillWithOpacity(ctx, fillColor, fillOpacity);
+        fillStylePath(ctx, drawing.style);
     }
 
     // RIGHT SHOULDER FILL
@@ -436,7 +455,7 @@ function drawHeadAndShoulders(
         ctx.lineTo(p5.x, p5.y);
         ctx.lineTo(rsRightX, rsRightY);
         ctx.closePath();
-        fillWithOpacity(ctx, fillColor, fillOpacity);
+        fillStylePath(ctx, drawing.style);
     }
 
     // Draw dashed neckline
@@ -524,19 +543,82 @@ function drawControlPoints(
     }
 }
 
+function fontFor(style: DrawingStyle, dpr: number): string {
+    const size = (style.fontSize || 12) * dpr;
+    return `${style.fontStyle === 'italic' ? 'italic ' : ''}${style.fontWeight === 'bold' ? 'bold ' : ''}${size}px Arial`;
+}
+
+/** Fill the current path with the pattern's background (colour + opacity + enabled flag). */
+function fillStylePath(ctx: CanvasRenderingContext2D, style: DrawingStyle): void {
+    const css = shapeFillCss(style);
+    if (!css) return;
+    ctx.save();
+    ctx.fillStyle = css;
+    ctx.fill();
+    ctx.restore();
+}
+
+/** Fill for the generic X-A-B / B-C-D triangles: XABCD/Cypher use the shared model, other patterns keep legacy fill. */
+function fillPatternPath(ctx: CanvasRenderingContext2D, drawing: PatternDrawing, fillColor: string): void {
+    if (drawing.type === 'xabcdPattern' || drawing.type === 'cypherPattern') {
+        fillStylePath(ctx, drawing.style);
+    } else {
+        fillWithOpacity(ctx, fillColor, drawing.style.fillOpacity);
+    }
+}
+
+/** Rounded box filled with the line colour and text in the text colour, centred on (cx, cy). Returns box height. */
+function drawBadge(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    cx: number,
+    cy: number,
+    style: DrawingStyle,
+    dpr: number
+): { w: number; h: number } {
+    ctx.save();
+    ctx.font = fontFor(style, dpr);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + 10 * dpr;
+    const h = (style.fontSize || 12) * dpr + 8 * dpr;
+    const x = cx - w / 2;
+    const y = cy - h / 2;
+    const r = Math.min(4 * dpr, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+    ctx.lineTo(x + r, y + h);
+    ctx.arcTo(x, y + h, x, y + h - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+    ctx.fillStyle = style.color;
+    ctx.fill();
+    ctx.fillStyle = style.textColor || '#FFFFFF';
+    ctx.fillText(text, cx, cy + 0.5 * dpr);
+    ctx.restore();
+    return { w, h };
+}
+
 function drawLabels(
     ctx: CanvasRenderingContext2D,
     pixelPoints: { x: number; y: number }[],
     labels: string[],
-    color: string,
+    style: DrawingStyle,
     dpr: number
 ): void {
+    const h = (style.fontSize || 12) * dpr + 8 * dpr;
+    const gap = 6 * dpr;
     for (let i = 0; i < pixelPoints.length; i++) {
         const point = pixelPoints[i];
-        const label = labels[i] || String(i);
-        ctx.font = `bold ${12 * dpr}px Arial`;
-        ctx.fillStyle = color;
-        ctx.textAlign = 'center';
+        const raw = labels[i] ?? String(i);
+        if (!raw) continue; // intentionally unlabeled point
+        // Only multi-letter names are translated (single letters like D would collide with unit abbreviations)
+        const label = raw.length > 1 ? t(raw) : raw;
 
         // Determine if this point is a local peak or valley
         let isValley = false;
@@ -547,12 +629,7 @@ function drawLabels(
             isValley = point.y > prevY || point.y > nextY;
         }
 
-        if (isValley) {
-            ctx.textBaseline = 'top';
-            ctx.fillText(label, point.x, point.y + 8 * dpr);
-        } else {
-            ctx.textBaseline = 'bottom';
-            ctx.fillText(label, point.x, point.y - 8 * dpr);
-        }
+        const cy = isValley ? point.y + gap + h / 2 : point.y - gap - h / 2;
+        drawBadge(ctx, label, point.x, cy, style, dpr);
     }
 }

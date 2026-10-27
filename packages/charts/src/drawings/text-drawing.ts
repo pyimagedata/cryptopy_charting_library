@@ -20,13 +20,20 @@ import {
     DrawingSettingsConfig,
     AttributeBarItem,
     createVisibilityTab,
-    colorRow,
-    checkboxRow,
-    textareaRow,
-    toggleColorRow,
-    groupRow,
-    selectRow,
+    createCoordinatesTab,
 } from './drawing-settings-config';
+
+import {
+    TV_COLORS,
+    TextBoxState,
+    TEXT_BOX_DEFAULTS,
+    createTextBoxState,
+    getTextBoxSetting,
+    setTextBoxSetting,
+    textBoxToJSON,
+    textBoxFromJSON,
+    textBoxSettingsSections,
+} from './text-common';
 
 export interface TextOptions {
     color?: string;
@@ -47,27 +54,21 @@ export class TextDrawing implements Drawing, DrawingSettingsProvider {
     locked: boolean = false;
 
     private _text: string = 'Text';
-    private _fontSize: number = 14;
-    private _bold: boolean = false;
-    private _italic: boolean = false;
-    private _backgroundColor: string = 'rgba(41, 98, 255, 0.2)';
-    private _borderColor: string = '#2962ff';
-    private _borderWidth: number = 1;
-
-    private _backgroundVisible: boolean = false;
-    private _borderVisible: boolean = false;
-    private _wrap: boolean = false;
+    /** Metin kutusu ayarlari (yazi tipi, arka plan, kenarlik, kelime kaydirma) */
+    readonly box: TextBoxState = createTextBoxState(TEXT_BOX_DEFAULTS);
+    /** Gecici: satir ici editor acikken cizim metni/kutuyu cizmez (serilestirilmez) */
+    editing: boolean = false;
 
     constructor(options: TextOptions = {}) {
         this.id = generateDrawingId();
         this.style = {
             ...DEFAULT_DRAWING_STYLE,
-            color: options.color || '#2196f3',
+            color: options.color || TV_COLORS.blue,
         };
         if (options.text) this._text = options.text;
-        if (options.fontSize) this._fontSize = options.fontSize;
-        if (options.bold) this._bold = options.bold;
-        if (options.italic) this._italic = options.italic;
+        if (options.fontSize) this.box.fontSize = options.fontSize;
+        if (options.bold) this.box.bold = options.bold;
+        if (options.italic) this.box.italic = options.italic;
     }
 
     // =========================================================================
@@ -77,71 +78,41 @@ export class TextDrawing implements Drawing, DrawingSettingsProvider {
     get text(): string { return this._text; }
     set text(value: string) { this._text = value; }
 
-    get fontSize(): number { return this._fontSize; }
-    set fontSize(value: number) { this._fontSize = value; }
+    get fontSize(): number { return this.box.fontSize; }
+    set fontSize(value: number) { this.box.fontSize = value; }
 
-    get bold(): boolean { return this._bold; }
-    set bold(value: boolean) { this._bold = value; }
+    get bold(): boolean { return this.box.bold; }
+    set bold(value: boolean) { this.box.bold = value; }
 
-    get italic(): boolean { return this._italic; }
-    set italic(value: boolean) { this._italic = value; }
+    get italic(): boolean { return this.box.italic; }
+    set italic(value: boolean) { this.box.italic = value; }
 
-    get backgroundColor(): string { return this._backgroundColor; }
-    set backgroundColor(value: string) { this._backgroundColor = value; }
+    get borderColor(): string { return this.box.borderColor; }
+    set borderColor(value: string) { this.box.borderColor = value; }
 
-    get borderColor(): string { return this._borderColor; }
-    set borderColor(value: string) { this._borderColor = value; }
+    get borderWidth(): number { return this.box.borderWidth; }
+    set borderWidth(value: number) { this.box.borderWidth = value; }
 
-    get borderWidth(): number { return this._borderWidth; }
-    set borderWidth(value: number) { this._borderWidth = value; }
+    get backgroundVisible(): boolean { return this.box.bgVisible; }
+    set backgroundVisible(value: boolean) { this.box.bgVisible = value; }
 
-    get backgroundVisible(): boolean { return this._backgroundVisible; }
-    set backgroundVisible(value: boolean) { this._backgroundVisible = value; }
+    get borderVisible(): boolean { return this.box.borderVisible; }
+    set borderVisible(value: boolean) { this.box.borderVisible = value; }
 
-    get borderVisible(): boolean { return this._borderVisible; }
-    set borderVisible(value: boolean) { this._borderVisible = value; }
-
-    get wrap(): boolean { return this._wrap; }
-    set wrap(value: boolean) { this._wrap = value; }
+    get wrap(): boolean { return this.box.wrap; }
+    set wrap(value: boolean) { this.box.wrap = value; }
 
     // =========================================================================
     // DrawingSettingsProvider Implementation
     // =========================================================================
 
     getSettingsConfig(): DrawingSettingsConfig {
+        const sec = textBoxSettingsSections({ toggles: true });
         return {
             tabs: [
-                {
-                    id: 'style',
-                    label: 'Text',
-                    sections: [
-                        {
-                            rows: [
-                                groupRow([
-                                    colorRow('color', ''),
-                                    selectRow('fontSize', '', [
-                                        { value: '10', label: '10' },
-                                        { value: '11', label: '11' },
-                                        { value: '12', label: '12' },
-                                        { value: '14', label: '14' },
-                                        { value: '16', label: '16' },
-                                        { value: '20', label: '20' },
-                                        { value: '24', label: '24' },
-                                        { value: '28', label: '28' },
-                                        { value: '32', label: '32' },
-                                        { value: '40', label: '40' },
-                                    ]),
-                                    checkboxRow('bold', 'B'),
-                                    checkboxRow('italic', 'I'),
-                                ]),
-                                textareaRow('text'),
-                                toggleColorRow('Background', 'backgroundVisible', 'backgroundColor'),
-                                toggleColorRow('Border', 'borderVisible', 'borderColor'),
-                                checkboxRow('wrap', 'Text wrap'),
-                            ]
-                        }
-                    ]
-                },
+                { id: 'textContent', label: 'Text', sections: sec.text },
+                { id: 'style', label: 'Style', sections: sec.style },
+                createCoordinatesTab([]),
                 createVisibilityTab()
             ]
         };
@@ -149,9 +120,10 @@ export class TextDrawing implements Drawing, DrawingSettingsProvider {
 
     getAttributeBarItems(): AttributeBarItem[] {
         return [
-            { type: 'color', key: 'color', tooltip: 'Text Color' },
+            { type: 'color', key: 'color', tooltip: 'Text Color', icon: 'textColor' } as AttributeBarItem,
+            { type: 'color', key: 'backgroundColor', tooltip: 'Background', icon: 'fillBucket' } as AttributeBarItem,
+            { type: 'color', key: 'borderColor', tooltip: 'Border', icon: 'pencil' } as AttributeBarItem,
             { type: 'number', key: 'fontSize', tooltip: 'Font Size' },
-            { type: 'color', key: 'backgroundColor', tooltip: 'Background' },
         ];
     }
 
@@ -159,34 +131,17 @@ export class TextDrawing implements Drawing, DrawingSettingsProvider {
         switch (key) {
             case 'text': return this._text;
             case 'color': return this.style.color;
-            case 'fontSize': return String(this._fontSize);
-            case 'bold': return this._bold;
-            case 'italic': return this._italic;
-            case 'backgroundColor': return this._backgroundColor;
-            case 'borderColor': return this._borderColor;
-            case 'borderWidth': return this._borderWidth;
-            case 'backgroundVisible': return this._backgroundVisible;
-            case 'borderVisible': return this._borderVisible;
-            case 'wrap': return this._wrap;
             case 'visible': return this.visible;
-            default: return undefined;
+            default: return getTextBoxSetting(this.box, key);
         }
     }
 
     setSettingValue(key: string, value: any): void {
         switch (key) {
-            case 'text': this._text = value; break;
+            case 'text': this._text = String(value ?? ''); break;
             case 'color': this.style.color = value; break;
-            case 'fontSize': this._fontSize = parseInt(value); break;
-            case 'bold': this._bold = value; break;
-            case 'italic': this._italic = value; break;
-            case 'backgroundColor': this._backgroundColor = value; break;
-            case 'borderColor': this._borderColor = value; break;
-            case 'borderWidth': this._borderWidth = value; break;
-            case 'backgroundVisible': this._backgroundVisible = value; break;
-            case 'borderVisible': this._borderVisible = value; break;
-            case 'wrap': this._wrap = value; break;
             case 'visible': this.visible = value; break;
+            default: setTextBoxSetting(this.box, key, value);
         }
     }
 
@@ -257,11 +212,11 @@ export class TextDrawing implements Drawing, DrawingSettingsProvider {
             visible: this.visible,
             locked: this.locked,
             text: this._text,
-            fontSize: this._fontSize,
-            fontWeight: this._bold ? 'bold' : 'normal',
-            fontStyle: this._italic ? 'italic' : 'normal',
-            fillColor: this._backgroundColor,
-            // borderColor and borderWidth could be added to DrawingStyle or SerializedDrawing if needed
+            fontSize: this.box.fontSize,
+            fontWeight: this.box.bold ? 'bold' : 'normal',
+            fontStyle: this.box.italic ? 'italic' : 'normal',
+            fillColor: this.box.bgColor,
+            textBox: textBoxToJSON(this.box),
         };
     }
 
@@ -269,10 +224,9 @@ export class TextDrawing implements Drawing, DrawingSettingsProvider {
         const drawing = new TextDrawing({
             color: data.style.color,
             text: data.text,
-            fontSize: data.fontSize,
-            bold: data.fontWeight === 'bold',
-            italic: data.fontStyle === 'italic',
         });
+        // Eski kayitlarda metin bos olabilir; bos metin de korunur
+        if (data.text === '') drawing._text = '';
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
         drawing.points = [...data.points];
@@ -280,7 +234,9 @@ export class TextDrawing implements Drawing, DrawingSettingsProvider {
         drawing.visible = data.visible;
         drawing.locked = data.locked;
 
-        if (data.fillColor) drawing.backgroundColor = data.fillColor;
+        // Eski Text: arka plan/kenarlik hic gorunmezdi
+        textBoxFromJSON(drawing.box, data, { color: TV_COLORS.gray550, width: 1, visible: false });
+        if (drawing.box.legacy) drawing.box.bgVisible = false;
 
         return drawing;
     }

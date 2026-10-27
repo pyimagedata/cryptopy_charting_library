@@ -2,6 +2,8 @@
  * Drawing System - Base types and interfaces
  */
 
+import type { IntervalsVisibilities } from './intervals-visibility';
+
 /** Logical point on the chart (time + price) */
 export interface DrawingPoint {
     time: number;      // Unix timestamp in milliseconds
@@ -15,6 +17,8 @@ export interface DrawingStyle {
     lineDash?: number[];
     fillColor?: string;
     fillOpacity?: number;
+    /** Kapali sekillerde arka plan dolgusu (undefined = acik) */
+    fillEnabled?: boolean;
     // Text properties
     text?: string;
     textColor?: string;
@@ -42,6 +46,8 @@ export type DrawingType =
     | 'arrowMarker'
     | 'arrowMarkedUp'
     | 'arrowMarkedDown'
+    | 'arrowMarkedLeft'
+    | 'arrowMarkedRight'
     | 'rectangle'
     | 'ellipse'
     | 'brush'
@@ -53,6 +59,9 @@ export type DrawingType =
     | 'cypher'
     | 'elliotImpulse'
     | 'elliotCorrection'
+    | 'elliotTriangle'
+    | 'elliotDoubleCombo'
+    | 'elliotTripleCombo'
     | 'threeDrives'
     | 'headShoulders'
     | 'abcd'
@@ -62,9 +71,40 @@ export type DrawingType =
     | 'priceRange'
     | 'dateRange'
     | 'datePriceRange'
+    | 'anchoredVwap'
+    | 'fixedRangeVolumeProfile'
+    | 'anchoredVolumeProfile'
+    | 'pitchfork'
+    | 'schiffPitchfork'
+    | 'modifiedSchiffPitchfork'
+    | 'insidePitchfork'
+    | 'pitchfan'
+    | 'fibTimeZone'
+    | 'trendBasedFibTime'
+    | 'fibSpeedResistanceFan'
+    | 'fibSpeedResistanceArcs'
+    | 'fibCircles'
+    | 'fibSpiral'
+    | 'fibWedge'
+    | 'gannBox'
+    | 'gannSquareFixed'
+    | 'gannSquare'
+    | 'gannFan'
+    | 'disjointChannel'
+    | 'flatTopBottom'
+    | 'projection'
+    | 'positionForecast'
+    | 'barsPattern'
+    | 'ghostFeed'
     | 'text'
     | 'callout'
     | 'priceLabel'
+    | 'note'
+    | 'priceNote'
+    | 'pin'
+    | 'signpost'
+    | 'comment'
+    | 'table'
     | 'flagMarked'
     | 'sticker'
     | 'rotatedRectangle'
@@ -75,9 +115,17 @@ export type DrawingType =
     | 'circle'
     | 'polyline'
     | 'curve'
+    | 'doubleCurve'
+    | 'cyclicLines'
+    | 'timeCycles'
+    | 'sineLine'
     | 'xabcdPattern'
+    | 'cypherPattern'
     | 'elliotImpulse'
     | 'elliotCorrection'
+    | 'elliotTriangle'
+    | 'elliotDoubleCombo'
+    | 'elliotTripleCombo'
     | 'threeDrives'
     | 'headShoulders';
 
@@ -94,18 +142,33 @@ export interface SerializedDrawing {
     visible: boolean;
     locked: boolean;
     paneId?: string | null;
+    /** Zaman dilimlerinde gorunurluk; yalnizca varsayilandan farkliysa yazilir (yoksa hepsi gorunur). */
+    intervalsVisibilities?: IntervalsVisibilities;
     // Type-specific properties
     extendLeft?: boolean;
+    /** Dikdortgen orta cizgisi */
+    middleLine?: { show: boolean; color: string; width: number; style: string };
     extendRight?: boolean;
     extendLines?: boolean;
     showLabels?: boolean;
     showPrices?: boolean;
+    /** Dikey cizgi: tam yukseklik (yalnizca true uygulanir) ve metin yonu */
+    extendLine?: boolean;
+    textOrientation?: 'vertical' | 'horizontal';
     opacity?: number;
     backgroundOpacity?: number;
     reversed?: boolean;
     size?: number;
     direction?: 'up' | 'down' | 'left' | 'right';
-    levels?: Array<{ value: number; color: string; visible: boolean }>;
+    levels?: Array<{ value: number; color: string; visible: boolean; text?: string }>;
+    /** Trend Line ailesinin ortak ayarlari (bkz. line-tool-common.ts LineToolProps). */
+    lineProps?: Record<string, any>;
+    /** Elliott dalga araclari: dalga cizgileri gorunurlugu ve derece (bkz. elliott-common.ts). */
+    elliott?: { showWave: boolean; degree: string };
+    /** Text / Callout metin kutusu ayarlari (bkz. text-common.ts TextBoxState); yoksa eski kayit. */
+    textBox?: Record<string, any>;
+    /** Fiyat etiketi / ok isareti / ok isaretleyici ek ayarlari (yoksa eski kayit). */
+    ext?: Record<string, any>;
     /** Fibonacci araclarinin ortak ayarlari (bkz. fib-common.ts FibCommonSettings). */
     fib?: Record<string, any>;
     // Text properties
@@ -124,6 +187,8 @@ export interface SerializedDrawing {
     lossColor?: string;
     entryColor?: string;
     fillColor?: string;
+    /** Long/Short Position ayarlari (bkz. position-common.ts PositionProps). */
+    position?: Record<string, any>;
 }
 
 /** Base drawing interface */
@@ -136,6 +201,8 @@ export interface Drawing {
     visible: boolean;
     locked: boolean;
     paneId?: string | null;
+    /** Zaman dilimlerinde gorunurluk (yoksa tum zaman dilimlerinde gorunur); DrawingManager serilestirir. */
+    intervalsVisibilities?: IntervalsVisibilities;
 
     /** Add a point to the drawing */
     addPoint(time: number, price: number): void;
@@ -161,6 +228,7 @@ export const DEFAULT_DRAWING_STYLE: DrawingStyle = {
     lineDash: [],
 };
 
+export * from './intervals-visibility';
 export * from './three-drives-drawing';
 export * from './head-shoulders-drawing';
 

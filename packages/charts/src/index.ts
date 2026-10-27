@@ -26,6 +26,7 @@ export { TimeAxisWidget } from './gui/time-axis-widget';
 
 // Helpers
 export { Delegate } from './helpers/delegate';
+export { setPipSizeResolver, PipSizeResolver } from './drawings/line-tool-common';
 export { setDisplayAliases, displaySymbol, displayExchange, DisplayAliases } from './helpers/display-aliases';
 export { clamp, lerp, isInteger, roundTo, niceNumber, generateAxisValues } from './helpers/math';
 export { ensureNotNull, ensureDefined, assert } from './helpers/assertions';

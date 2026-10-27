@@ -13,6 +13,7 @@ import {
 
 import {
     DrawingSettingsConfig,
+    AttributeBarItem,
     createStyleTab,
     createVisibilityTab,
     colorRow,
@@ -20,6 +21,14 @@ import {
     lineStyleRow,
     checkboxRow
 } from './drawing-settings-config';
+
+import {
+    AxisLabelProvider,
+    DrawingAxisLabels,
+    applyTextFields,
+    textFieldsToJSON,
+    singlePriceAxisLabels
+} from './line-tool-common';
 
 const generateId = () => `hray-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -33,7 +42,7 @@ export interface HorizontalRayOptions {
 /**
  * Horizontal Ray - A horizontal line that extends from anchor point to the right edge
  */
-export class HorizontalRayDrawing implements Drawing {
+export class HorizontalRayDrawing implements Drawing, AxisLabelProvider {
     readonly id: string = generateId();
     readonly type: DrawingType = 'horizontalRay';
 
@@ -50,7 +59,11 @@ export class HorizontalRayDrawing implements Drawing {
         this.style = {
             color: options.color || '#2962ff',
             lineWidth: options.lineWidth || 2,
-            lineDash: options.lineDash || []
+            lineDash: options.lineDash || [],
+            // TradingView varsayilani: metin 12px, ortada, cizginin ustunde
+            fontSize: 12,
+            textHAlign: 'center',
+            textVAlign: 'top',
         };
         this.showPrice = options.showPrice !== false;
     }
@@ -103,6 +116,19 @@ export class HorizontalRayDrawing implements Drawing {
         return null;
     }
 
+    /** Fiyat ekseninde cizgi renginde etiket (showPrice) */
+    getAxisLabels(): DrawingAxisLabels {
+        return singlePriceAxisLabels(this.showPrice, this.points, this.style.color);
+    }
+
+    getAttributeBarItems(): AttributeBarItem[] {
+        return [
+            { type: 'color', key: 'color', tooltip: 'Line Color' },
+            { type: 'lineWidth', key: 'lineWidth', tooltip: 'Line Width' },
+            { type: 'lineStyle', key: 'lineStyle', tooltip: 'Line Style' },
+        ];
+    }
+
     getSettingsConfig(): DrawingSettingsConfig {
         return {
             tabs: [
@@ -113,7 +139,12 @@ export class HorizontalRayDrawing implements Drawing {
                             colorRow('color', 'Line Color'),
                             lineWidthRow('lineWidth'),
                             lineStyleRow('lineStyle'),
-                            checkboxRow('showPrice', 'Show Price Label')
+                        ]
+                    },
+                    {
+                        title: 'Labels',
+                        rows: [
+                            checkboxRow('showPrice', 'Price label'),
                         ]
                     }
                 ]),
@@ -162,7 +193,9 @@ export class HorizontalRayDrawing implements Drawing {
             state: this.state,
             style: { ...this.style },
             visible: this.visible,
-            locked: this.locked
+            locked: this.locked,
+            showPrices: this.showPrice,
+            ...textFieldsToJSON(this.style),
         };
     }
 
@@ -171,6 +204,7 @@ export class HorizontalRayDrawing implements Drawing {
             color: data.style.color,
             lineWidth: data.style.lineWidth,
             lineDash: data.style.lineDash,
+            showPrice: data.showPrices,
         });
 
         Object.defineProperty(drawing, 'id', { value: data.id, writable: false });
@@ -179,6 +213,7 @@ export class HorizontalRayDrawing implements Drawing {
         drawing.state = data.state;
         drawing.visible = data.visible;
         drawing.locked = data.locked;
+        applyTextFields(drawing.style, data);
 
         return drawing;
     }

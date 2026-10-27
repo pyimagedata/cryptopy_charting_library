@@ -176,6 +176,19 @@ export class TimeScale {
         this._correctOffset();
     }
 
+    /**
+     * Fits the float bar range [fromIndex, toIndex] to the full width (Zoom In tool).
+     * The left edge shows fromIndex and the right edge shows toIndex.
+     */
+    setVisibleBarRange(fromIndex: number, toIndex: number): void {
+        if (this._baseIndex === null || this._width <= 0) return;
+        const span = Math.max(toIndex - fromIndex, 1);
+        this.setBarSpacing((this._width - 1) / span);
+        // coordinateToFloatIndex(width - 1) === toIndex
+        this._scrollOffset = this._baseIndex + this._rightOffset + 0.5 - toIndex;
+        this._correctOffset();
+    }
+
     scrollBy(deltaPixels: number): void {
         const deltaBars = deltaPixels / this._barSpacing;
         this._scrollOffset += deltaBars;
