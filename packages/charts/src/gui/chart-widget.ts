@@ -436,6 +436,7 @@ export class ChartWidget implements Disposable {
                 this._currentTheme = (0.2126 * r + 0.7152 * g + 0.0722 * b) < 0.5 ? 'dark' : 'light';
                 // Nesne agaci paneli yerlesim sirasinda varsayilan 'light' ile olusmustu
                 this._objectTreePanel?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+                this._watchlistPanel?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
             }
         }
     }

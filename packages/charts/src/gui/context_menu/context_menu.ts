@@ -253,7 +253,15 @@ export class ContextMenu {
             const row = document.createElement('div');
             row.dataset.id = child.id;
             row.style.cssText = `box-sizing: border-box; height: ${m.popupItemHeight}px; display: flex; align-items: center; padding: 0 ${m.popupPadX}px; cursor: ${child.disabled ? 'default' : 'pointer'}; color: ${child.disabled ? colors.popupDisabledText : colors.popupText};`;
-            row.textContent = child.label;
+            if (child.icon) {
+                const ic = document.createElement('span');
+                ic.style.cssText = 'width:20px;height:18px;display:flex;align-items:center;justify-content:center;margin-right:10px;';
+                ic.innerHTML = child.icon;
+                row.appendChild(ic);
+            }
+            const lbl = document.createElement('span');
+            lbl.textContent = child.label;
+            row.appendChild(lbl);
             if (!child.disabled) {
                 row.addEventListener('mouseenter', () => { row.style.background = colors.popupHoverBg; });
                 row.addEventListener('mouseleave', () => { row.style.background = 'transparent'; });
