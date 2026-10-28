@@ -41,6 +41,7 @@ import { EqHLIndicatorV2 } from './eqhl-v2-indicator';
 import { JudasSwingIndicator } from './judas-swing-indicator';
 import { SMTDivergenceIndicator } from './smt-divergence-indicator';
 import { SpecialForcesIndicator } from './special-forces-indicator';
+import { TYPE_ID_TO_CATALOG_ID, isIndicatorAllowed, getIndicatorAccess } from '../gui/indicator_search/indicator_access';
 
 
 
@@ -135,12 +136,28 @@ export class IndicatorManager {
         return this._theme;
     }
 
+    // --- Plan access ---
+
+    /** False when the host's plan access (setIndicatorAccess) locks this indicator type. */
+    isAllowed(indicator: Indicator): boolean {
+        const catalogId = TYPE_ID_TO_CATALOG_ID[this.typeIdOf(indicator)];
+        return !catalogId || isIndicatorAllowed(getIndicatorAccess(), catalogId);
+    }
+
+    /** Remove every active indicator the current access no longer allows. */
+    removeDisallowed(): void {
+        for (const ind of [...this.allIndicators]) {
+            if (!this.isAllowed(ind)) this.removeIndicator(ind.id);
+        }
+    }
+
     // --- Indicator management ---
 
     /**
      * Add an overlay indicator (drawn on main chart)
      */
     addOverlayIndicator(indicator: OverlayIndicator): void {
+        if (!this.isAllowed(indicator)) return;
         this._overlayIndicators.push(indicator);
         // Indicators added after a theme switch must not start on the default
         indicator.setTheme(this._theme);
@@ -157,6 +174,7 @@ export class IndicatorManager {
      * Add a panel indicator (drawn in separate pane)
      */
     addPanelIndicator(indicator: PanelIndicator): void {
+        if (!this.isAllowed(indicator)) return;
         this._panelIndicators.push(indicator);
         indicator.setTheme(this._theme);
 

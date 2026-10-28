@@ -18,6 +18,7 @@ export { AreaRenderer } from './renderers/area-renderer';
 export { GridRenderer } from './renderers/grid-renderer';
 
 // GUI Widgets
+export { setIndicatorAccess, getIndicatorAccess, isIndicatorAllowed, IndicatorAccess } from './gui/indicator_search/indicator_access';
 export { ChartWidget, createChart } from './gui/chart-widget';
 export { MultiChartLayout, MultiChartLayoutOptions, MultiChartLayoutType, MultiChartSlotOptions, MultiChartRatios, MultiChartRatiosChangeEvent, createMultiChartLayout } from './gui/multi-chart-layout';
 export { PaneWidget } from './gui/pane-widget';

@@ -17,6 +17,7 @@ import {
     itemsForCategory,
     searchIndicators,
 } from './indicator_catalog';
+import { getIndicatorAccess, isIndicatorAllowed, requiredPlanLabel } from './indicator_access';
 
 export { IndicatorItem, AVAILABLE_INDICATORS } from './indicator_catalog';
 
@@ -71,6 +72,9 @@ const STAR_SVG = (fill: string, stroke: string) =>
 const CHECK_SVG = (stroke: string) =>
     `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 
+const LOCK_SVG = (stroke: string) =>
+    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
+
 export class IndicatorSearchModal {
     private _element: HTMLElement | null = null;
     private _overlay: HTMLElement | null = null;
@@ -78,6 +82,8 @@ export class IndicatorSearchModal {
     private _resultsList: HTMLElement | null = null;
     private _sidebar: HTMLElement | null = null;
     private _body: HTMLElement | null = null;
+    private _notice: HTMLElement | null = null;
+    private _noticeTimer: ReturnType<typeof setTimeout> | null = null;
     private _activeCategory: IndicatorCategoryId = 'technical';
     private _theme: ModalTheme = 'dark';
     private _visible = false;
@@ -149,6 +155,7 @@ export class IndicatorSearchModal {
 
     hide(): void {
         if (!this._overlay) return;
+        this._hideNotice();
         this._overlay.style.display = 'none';
         this._visible = false;
         document.removeEventListener('keydown', this._onKeyDown, true);
@@ -262,6 +269,18 @@ export class IndicatorSearchModal {
         searchContainer.appendChild(input);
         this._element.appendChild(searchContainer);
 
+        // Inline notice (locked indicator clicked); hidden until needed
+        this._notice = document.createElement('div');
+        this._notice.className = 'tv-indicator-notice';
+        this._notice.setAttribute('role', 'alert');
+        this._notice.style.cssText = `
+            display: none; flex-shrink: 0; align-items: center; gap: 8px;
+            padding: 8px 20px; font-size: 13px; color: ${c.text};
+            background: ${this._theme === 'dark' ? 'rgba(247, 201, 72, 0.12)' : 'rgba(247, 201, 72, 0.22)'};
+            border-bottom: 1px solid ${c.border};
+        `;
+        this._element.appendChild(this._notice);
+
         // Body: sidebar + list
         this._body = document.createElement('div');
         this._body.style.cssText = `display: flex; flex: 1; min-height: 0;`;
@@ -293,7 +312,39 @@ export class IndicatorSearchModal {
         this._resultsList = null;
         this._sidebar = null;
         this._body = null;
+        this._notice = null;
         this._rowEls = [];
+    }
+
+    /** Access changed (setIndicatorAccess): repaint lock state of the visible rows. */
+    refreshAccess(): void {
+        if (!this._visible) return;
+        const top = this._resultsList?.scrollTop ?? 0;
+        this._refresh();
+        if (this._resultsList) this._resultsList.scrollTop = top;
+    }
+
+    private _isLocked(ind: CatalogItem): boolean {
+        return !isIndicatorAllowed(getIndicatorAccess(), ind.id);
+    }
+
+    private _showLockedNotice(ind: CatalogItem): void {
+        if (!this._notice) return;
+        const plan = requiredPlanLabel(getIndicatorAccess(), ind.id);
+        const text = plan === 'Admin'
+            ? t('This indicator is available to administrators only.')
+            : t('This indicator requires a {plan} membership.').replace('{plan}', plan);
+        this._notice.innerHTML = `${LOCK_SVG(UI.favoriteColor)}<span></span>`;
+        (this._notice.lastChild as HTMLElement).textContent = text;
+        this._notice.style.display = 'flex';
+        if (this._noticeTimer) clearTimeout(this._noticeTimer);
+        this._noticeTimer = setTimeout(() => this._hideNotice(), 5000);
+    }
+
+    private _hideNotice(): void {
+        if (this._noticeTimer) clearTimeout(this._noticeTimer);
+        this._noticeTimer = null;
+        if (this._notice) this._notice.style.display = 'none';
     }
 
     private _isNarrow(): boolean {
@@ -403,6 +454,11 @@ export class IndicatorSearchModal {
     }
 
     private _addIndicator(ind: CatalogItem): void {
+        if (this._isLocked(ind)) {
+            this._showLockedNotice(ind);
+            return;
+        }
+        this._hideNotice();
         this._indicatorSelected.fire(ind.id);
         this._prefs.addRecent(ind.id);
         this._addedCounts.set(ind.id, (this._addedCounts.get(ind.id) ?? 0) + 1);
@@ -490,9 +546,12 @@ export class IndicatorSearchModal {
                 font-size: 14px; background: transparent;
             `;
 
+            const locked = this._isLocked(ind);
+            if (locked) row.dataset.locked = 'true';
+
             const name = document.createElement('span');
             name.textContent = ind.name;
-            name.style.cssText = `color: ${c.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1;`;
+            name.style.cssText = `color: ${locked ? c.muted : c.text}; opacity: ${locked ? 0.6 : 1}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1;`;
             row.appendChild(name);
 
             const short = document.createElement('span');
@@ -506,9 +565,22 @@ export class IndicatorSearchModal {
 
             if (ind.remote) {
                 const tag = document.createElement('span');
-                tag.textContent = 'Backend';
+                tag.textContent = 'Premium';
                 tag.style.cssText = `color: ${c.muted}; font-size: 11px; border: 1px solid ${c.border}; border-radius: 3px; padding: 0 5px; line-height: 16px; flex-shrink: 0;`;
                 row.appendChild(tag);
+            }
+
+            if (locked) {
+                const plan = requiredPlanLabel(getIndicatorAccess(), ind.id);
+                const lock = document.createElement('span');
+                lock.className = 'tv-ind-lock';
+                lock.style.cssText = `display: flex; align-items: center; gap: 5px; flex-shrink: 0; color: ${UI.favoriteColor};`;
+                lock.innerHTML = LOCK_SVG(UI.favoriteColor);
+                const badge = document.createElement('span');
+                badge.textContent = plan;
+                badge.style.cssText = `font-size: 10px; font-weight: 700; letter-spacing: 0.04em; border: 1px solid ${UI.favoriteColor}; border-radius: 3px; padding: 0 5px; line-height: 15px; color: ${UI.favoriteColor};`;
+                lock.appendChild(badge);
+                row.appendChild(lock);
             }
 
             const added = document.createElement('span');
@@ -574,6 +646,7 @@ export class IndicatorSearchModal {
         window.removeEventListener('resize', this._onResize);
         this._flashTimers.forEach(tm => clearTimeout(tm));
         this._flashTimers.clear();
+        if (this._noticeTimer) clearTimeout(this._noticeTimer);
         this._indicatorSelected.destroy();
         this._closed.destroy();
         this._destroyElement();

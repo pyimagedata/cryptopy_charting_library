@@ -334,7 +334,7 @@ export const SECTION_LABELS: Record<IndicatorSection, string> = {
     technical: 'Technical indicators',
     volume: 'Volume & profiles',
     pattern: 'Patterns',
-    custom: 'Backend / Custom',
+    custom: 'Premium',
 };
 
 export const CATEGORY_LABELS: Record<IndicatorCategoryId, string> = {
@@ -343,7 +343,7 @@ export const CATEGORY_LABELS: Record<IndicatorCategoryId, string> = {
     technical: 'Technical indicators',
     volume: 'Volume & profiles',
     pattern: 'Patterns',
-    backend: 'Backend / Custom',
+    backend: 'Premium',
 };
 
 export const CATEGORY_ORDER: IndicatorCategoryId[] = ['favorites', 'recent', 'technical', 'volume', 'pattern', 'backend'];

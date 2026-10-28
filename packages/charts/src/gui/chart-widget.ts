@@ -22,7 +22,7 @@ import { indicatorRowSignature } from './object_tree/object_tree_model';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
 import { IndicatorType, IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator, SMTDivergenceIndicator } from '../indicators';
-import { IndicatorSearchModal } from './indicator_search';
+import { IndicatorSearchModal, IndicatorAccess, isIndicatorAllowed, getIndicatorAccess, setIndicatorAccess, subscribeIndicatorAccess } from './indicator_search';
 import { IndicatorSettingsModal, applySavedDefaults, withCommonSettings, safeLocalStorage } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
 import { DrawingManager, DrawingMode, Drawing } from '../drawings';
@@ -219,6 +219,7 @@ export class ChartWidget implements Disposable {
     // Loading overlay
     private _loadingOverlay: HTMLElement | null = null;
 
+    private _unsubscribeIndicatorAccess: (() => void) | null = null;
     // Indicator search modal
     private _indicatorSearchModal: IndicatorSearchModal | null = null;
     private _indicatorSettingsModal: IndicatorSettingsModal | null = null;
@@ -395,6 +396,12 @@ export class ChartWidget implements Disposable {
             this._onIndicatorSelected(indicatorId);
         });
         this._indicatorSearchModal.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+        // Plan access changes (setIndicatorAccess, any chart): drop indicators that became locked
+        this._unsubscribeIndicatorAccess = subscribeIndicatorAccess(() => {
+            this._indicatorManager.removeDisallowed();
+            this._indicatorSearchModal?.refreshAccess();
+            this._scheduleDraw();
+        });
 
         // Initialize indicator settings modal
         this._indicatorSettingsModal = new IndicatorSettingsModal(this._container);
@@ -709,6 +716,15 @@ export class ChartWidget implements Disposable {
 
     showSymbolSearch(): void {
         this._symbolSearch?.show();
+    }
+
+    /**
+     * Plan-based indicator access. `null` (default) = everything allowed. Locked indicators
+     * show a lock in the indicator dialog, cannot be added by any path and are removed from
+     * every chart when the access is set. State is shared by all charts on the page.
+     */
+    setIndicatorAccess(access: IndicatorAccess | null): void {
+        setIndicatorAccess(access);
     }
 
     showIndicatorSearch(): void {
@@ -3528,6 +3544,7 @@ export class ChartWidget implements Disposable {
     }
 
     private _onIndicatorSelected(indicatorId: string): void {
+        if (!isIndicatorAllowed(getIndicatorAccess(), indicatorId)) return;
         const before = new Set<Indicator>(this._indicatorManager.allIndicators);
         this._createIndicatorById(indicatorId);
         // "Save as default" values of the indicator type apply to what was just added
@@ -3738,6 +3755,7 @@ export class ChartWidget implements Disposable {
      * Public API: Add an indicator to the chart
      */
     addIndicator(indicator: PanelIndicator): void {
+        if (!this._indicatorManager.isAllowed(indicator)) return;
         this._indicatorManager.addPanelIndicator(indicator);
         this._wireIndicatorEvents(indicator);
         // Backend'de hesaplanan indikatorler sembol/zaman dilimini ilk hesaptan ONCE bilmeli.
@@ -3753,6 +3771,7 @@ export class ChartWidget implements Disposable {
      * Public API: Add an overlay indicator to the chart (drawn on main chart)
      */
     addOverlayIndicator(indicator: OverlayIndicator): void {
+        if (!this._indicatorManager.isAllowed(indicator)) return;
         this._indicatorManager.addOverlayIndicator(indicator);
         this._wireIndicatorEvents(indicator);
         // Backend'de hesaplanan indikatorler sembol/zaman dilimini ilk hesaptan ONCE bilmeli.
@@ -3809,6 +3828,8 @@ export class ChartWidget implements Disposable {
     dispose(): void {
         if (_keyboardActiveChart === this) _keyboardActiveChart = null;
         document.removeEventListener('keydown', this._boundKeyDown);
+        this._unsubscribeIndicatorAccess?.();
+        this._unsubscribeIndicatorAccess = null;
         // Yarim kalan yeni Text (bos) model yok edilmeden kaldirilir; yazilmis metin kaydedilir
         this._textEditor?.close(true);
         this._textEditor?.dispose();
