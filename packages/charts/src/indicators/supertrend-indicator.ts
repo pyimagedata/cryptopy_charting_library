@@ -10,6 +10,7 @@ import {
     checkboxRow,
     lineWidthRow,
 } from '../gui/indicator_settings';
+import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
 
 interface SuperTrendState {
     time: number;
@@ -187,6 +188,20 @@ export class SuperTrendIndicator extends OverlayIndicator {
             max = Math.max(max, state.up, state.dn, state.ohlc4);
         }
         return { min, max };
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._states.length, index);
+        const state = i >= 0 ? this._states[i] : undefined;
+        const o = this._superTrendOptions;
+        return {
+            title: 'Supertrend',
+            params: legendParams(o.period, o.multiplier),
+            plots: [{
+                color: state && state.trend === -1 ? o.downColor : o.upColor,
+                value: state ? state.lineValue : null,
+            }],
+        };
     }
 
     getDescription(index?: number): string {

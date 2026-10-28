@@ -9,6 +9,7 @@
 
 import { OverlayIndicator, IndicatorOptions, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
+import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
 
 /**
  * Parabolic SAR options
@@ -155,6 +156,16 @@ export class ParabolicSARIndicator extends OverlayIndicator {
                 value: sar,
             });
         }
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._data.length, index);
+        const o = this._sarOptions;
+        return {
+            title: 'SAR',
+            params: legendParams(o.start, o.increment, o.maximum),
+            plots: [{ color: this._options.color, value: i >= 0 ? this._data[i].value : null }],
+        };
     }
 
     getDescription(index?: number): string {

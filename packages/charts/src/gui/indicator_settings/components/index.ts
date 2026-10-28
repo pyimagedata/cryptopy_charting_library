@@ -7,3 +7,4 @@ export { createColorInput } from './ColorInput';
 export { createCheckbox } from './Checkbox';
 export { createLineWidthSelect } from './LineWidthSelect';
 export { createSliderInput } from './SliderInput';
+export { createSelectInput } from './SelectInput';

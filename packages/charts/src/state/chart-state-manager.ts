@@ -7,6 +7,13 @@
 import { DrawingManager } from '../drawings/drawing-manager';
 import { SerializedDrawing } from '../drawings/drawing';
 import { IndicatorManager, SerializedIndicator } from '../indicators/indicator-manager';
+import type { PaneLayoutPersist } from '../indicators/pane-layout';
+
+/** Owner of the sub-pane layout (heights / collapsed / maximized) saved next to the indicators */
+export interface PaneLayoutHost {
+    getPaneLayout(): PaneLayoutPersist;
+    applyPaneLayout(layout: PaneLayoutPersist | undefined): void;
+}
 
 /** Chart state data structure */
 export interface ChartState {
@@ -90,6 +97,7 @@ export class ChartStateManager {
     private _autoSave: boolean = true;
     private _saveDebounceTimer: number | null = null;
     private _unloadListenersAttached = false;
+    private _paneLayoutHost: PaneLayoutHost | null = null;
 
     private _onUnload = (): void => this.flushPendingSave();
     private _onVisibilityChange = (): void => {
@@ -148,6 +156,17 @@ export class ChartStateManager {
         return this._currentSymbol;
     }
 
+    setPaneLayoutHost(host: PaneLayoutHost | null): void {
+        this._paneLayoutHost = host;
+    }
+
+    /** Ask for a (debounced) save, e.g. after indicator visibility / order changed */
+    requestSave(): void {
+        if (this._autoSave && this._currentSymbol) {
+            this._debouncedSave();
+        }
+    }
+
     /** Enable/disable auto-save */
     set autoSave(enabled: boolean) {
         this._autoSave = enabled;
@@ -181,6 +200,7 @@ export class ChartStateManager {
     private _saveIndicatorsGlobal(): void {
         const indicatorState = {
             indicators: this._indicatorManager.serialize(),
+            paneLayout: this._paneLayoutHost?.getPaneLayout(),
             savedAt: Date.now(),
             version: CURRENT_VERSION,
         };
@@ -225,6 +245,7 @@ export class ChartStateManager {
         try {
             const state = JSON.parse(indicatorJson);
             this._indicatorManager.deserialize(state.indicators || []);
+            this._paneLayoutHost?.applyPaneLayout(state.paneLayout);
             console.log(`Indicators loaded globally:`, state.indicators?.length || 0);
         } catch (e) {
             console.error('Failed to parse saved indicators:', e);

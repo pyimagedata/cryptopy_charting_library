@@ -10,6 +10,7 @@
 
 import { PanelIndicator, IndicatorOptions, IndicatorRange } from './indicator';
 import { BarData } from '../model/data';
+import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
 
 /**
  * Stochastic RSI indicator options
@@ -192,6 +193,22 @@ export class StochRSIIndicator extends PanelIndicator {
 
     getLineColors(): string[] {
         return [this._stochRSIOptions.color, '#ff6d00']; // K (Blue), D (Orange)
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._data.length, index);
+        const v = i >= 0 ? this._data[i].values : undefined;
+        const o = this._stochRSIOptions;
+        const [kColor, dColor] = this.getLineColors();
+        return {
+            title: 'Stoch RSI',
+            params: legendParams(o.rsiPeriod, o.stochPeriod, o.kPeriod, o.dPeriod),
+            precision: 2,
+            plots: [
+                { color: kColor, value: v ? v[0] : null },
+                { color: dColor, value: v ? v[1] : null },
+            ],
+        };
     }
 
     getDescription(index?: number): string {

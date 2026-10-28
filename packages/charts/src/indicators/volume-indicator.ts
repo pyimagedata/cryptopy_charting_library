@@ -18,6 +18,7 @@ import {
     checkboxRow,
     selectRow,
 } from '../gui/indicator_settings';
+import { IndicatorLegendInfo, legendParams, legendBarIndex, formatLegendVolume } from './legend-info';
 
 export type VolumeMAType = 'sma' | 'ema' | 'wma';
 
@@ -190,6 +191,26 @@ export class VolumeIndicator extends OverlayIndicator {
                 return result;
             }
         }
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._data.length, index);
+        const point = i >= 0 ? this._data[i] : undefined;
+        const o = this._volumeOptions;
+        const plots: IndicatorLegendInfo['plots'] = [{
+            color: point?.values?.[0] === -1 ? o.downColor : o.upColor,
+            value: point ? point.value : null,
+            text: formatLegendVolume(point ? point.value : null),
+        }];
+        if (o.showMA) {
+            const ma = point?.values?.[1];
+            plots.push({ color: o.maColor, value: ma ?? null, text: formatLegendVolume(ma ?? null) });
+        }
+        return {
+            title: 'Volume',
+            params: o.showMA ? legendParams(o.maType.toUpperCase(), o.maPeriod) : [],
+            plots,
+        };
     }
 
     getDescription(index?: number): string {

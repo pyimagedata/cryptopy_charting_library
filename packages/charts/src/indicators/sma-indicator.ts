@@ -4,6 +4,7 @@
 
 import { OverlayIndicator, IndicatorOptions } from './indicator';
 import { BarData } from '../model/data';
+import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
 
 /**
  * SMA indicator options
@@ -129,6 +130,16 @@ export class SMAIndicator extends OverlayIndicator {
                 value: sum / period,
             });
         }
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._data.length, index);
+        const o = this._smaOptions;
+        return {
+            title: 'SMA',
+            params: legendParams(o.period, o.source),
+            plots: [{ color: this._options.color, value: i >= 0 ? this._data[i].value : null }],
+        };
     }
 
     getDescription(index?: number): string {

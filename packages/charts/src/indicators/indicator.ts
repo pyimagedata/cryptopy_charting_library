@@ -9,6 +9,10 @@
 
 import { BarData } from '../model/data';
 import { Delegate } from '../helpers/delegate';
+import { IndicatorLegendInfo, legendTitleFromName } from './legend-info';
+import { IntervalsVisibilities, ParsedTimeframe, isVisibleOnTimeframe, normalizeIntervalsVisibilities, parseTimeframe } from '../drawings/intervals-visibility';
+
+export type { IndicatorLegendInfo, LegendPlot } from './legend-info';
 
 /**
  * Indicator data point
@@ -47,6 +51,10 @@ export interface IndicatorOptions {
     color: string;
     lineWidth: number;
     style: IndicatorStyle;  // Plot style (line, dots, etc.)
+    /** Legend value decimals (undefined = adaptive "Default") */
+    precision?: number;
+    /** Intervals the indicator is shown on (undefined = all); same model as drawings */
+    intervalsVisibilities?: IntervalsVisibilities;
 }
 
 /**
@@ -81,6 +89,7 @@ export abstract class Indicator {
     protected _sourceData: BarData[] = [];
     protected readonly _dataChanged = new Delegate<void>();
     protected _theme: 'dark' | 'light' = 'dark';
+    private _parsedTimeframe: ParsedTimeframe | null = null;
 
     constructor(options: Partial<IndicatorOptions> = {}) {
         this._options = { ...defaultIndicatorOptions, ...options };
@@ -141,6 +150,26 @@ export abstract class Indicator {
         return this._options.visible;
     }
 
+    /**
+     * Drawn right now: the user flag (eye) AND the current chart interval is inside the
+     * indicator's "visibility on intervals" settings. Render / hit-test paths use this;
+     * `visible` stays the eye state shown in the legend.
+     */
+    get shown(): boolean {
+        if (!this._options.visible) return false;
+        return isVisibleOnTimeframe(this._options.intervalsVisibilities, this._parsedTimeframe);
+    }
+
+    /** The current chart interval is outside the "visibility on intervals" settings (eye state ignored) */
+    get hiddenByInterval(): boolean {
+        return !isVisibleOnTimeframe(this._options.intervalsVisibilities, this._parsedTimeframe);
+    }
+
+    /** Chart timeframe, pushed down by the chart widget (drives `shown`) */
+    setTimeframe(timeframe: string): void {
+        this._parsedTimeframe = parseTimeframe(timeframe);
+    }
+
     // --- Settings Provider Methods (IndicatorSettingsProvider interface) ---
 
     /**
@@ -155,34 +184,76 @@ export abstract class Indicator {
         const allOptions = this._getAllOptions();
 
         for (const [key, value] of Object.entries(allOptions)) {
-            // Skip internal/readonly options
-            if (['id', 'name', 'type'].includes(key)) continue;
+            // Skip internal/readonly options and the ones the dialog handles itself
+            if (['id', 'name', 'type', 'visible', 'style', 'precision', 'intervalsVisibilities'].includes(key)) continue;
 
             if (typeof value === 'number') {
-                if (key.toLowerCase().includes('period') || key.toLowerCase().includes('length')) {
+                const lower = key.toLowerCase();
+                const step = Number.isInteger(value) ? 1 : 0.01;
+                if (lower.includes('width')) {
+                    styleRows.push({ type: 'lineWidth', key, label: 'Line Width', min: 1, max: 4 });
+                } else if (lower.includes('period') || lower.includes('length')) {
                     inputRows.push({ type: 'number', key, label: this._formatLabel(key), min: 1, max: 500, step: 1 });
-                } else if (key.toLowerCase().includes('width')) {
-                    styleRows.push({ type: 'number', key, label: this._formatLabel(key), min: 1, max: 5, step: 1 });
-                } else if (key.toLowerCase().includes('level')) {
+                } else if (lower.includes('level')) {
                     inputRows.push({ type: 'number', key, label: this._formatLabel(key), min: 0, max: 100, step: 1 });
                 } else {
-                    inputRows.push({ type: 'number', key, label: this._formatLabel(key) });
+                    inputRows.push({ type: 'number', key, label: this._formatLabel(key), step });
                 }
+            } else if (key === 'source' && typeof value === 'string') {
+                inputRows.push({
+                    type: 'select', key, label: 'Source', defaultValue: value,
+                    options: ['close', 'open', 'high', 'low', 'hl2', 'hlc3', 'ohlc4'].map(v => ({ value: v, label: v })),
+                });
             } else if (typeof value === 'string' && (value.startsWith('#') || value.startsWith('rgb'))) {
-                styleRows.push({ type: 'color', key, label: this._formatLabel(key), defaultValue: value });
+                styleRows.push({ type: 'color', key, label: key === 'color' ? 'Line Color' : this._formatLabel(key), defaultValue: value });
             } else if (typeof value === 'boolean') {
                 inputRows.push({ type: 'checkbox', key, label: this._formatLabel(key), defaultValue: value });
             }
         }
+
+        // Main colour first, its width right after it (the dialog folds them into one row)
+        const order = (r: any) => (r.key === 'color' ? 0 : r.type === 'lineWidth' ? 1 : 2);
+        styleRows.sort((a, b) => order(a) - order(b));
 
         return {
             name: this.name,
             tabs: [
                 { id: 'inputs', label: 'Inputs', sections: [{ rows: inputRows }] },
                 { id: 'style', label: 'Style', sections: [{ rows: styleRows }] },
-                { id: 'visibility', label: 'Visibility', sections: [{ rows: [{ type: 'checkbox', key: 'visible', label: 'Visible', defaultValue: true }] }] }
             ]
         };
+    }
+
+    // --- Common settings (every indicator): precision + visibility on intervals ---
+
+    getCommonSetting(key: string): any {
+        return (this._options as any)[key];
+    }
+
+    setCommonSetting(key: string, value: any): void {
+        if (key === 'intervalsVisibilities') {
+            (this._options as any)[key] = value ? normalizeIntervalsVisibilities(value) : undefined;
+        } else {
+            (this._options as any)[key] = value;
+        }
+        this._dataChanged.fire();
+    }
+
+    /** The Precision select applies to indicators that print plot values in the legend */
+    supportsPrecision(): boolean {
+        try {
+            return this.getLegendInfo().plots.some(p => p.text === undefined);
+        } catch {
+            return false;
+        }
+    }
+
+    /** Recompute from the current source data (live settings apply) */
+    recalculate(): void {
+        if (this._sourceData.length > 0) {
+            this.calculate(this._sourceData);
+        }
+        this._dataChanged.fire();
     }
 
     /**
@@ -241,6 +312,15 @@ export abstract class Indicator {
 
         this._dataChanged.fire();
         return needsRecalc;
+    }
+
+    /**
+     * Legend row model (title, parameters, per-plot values at `index`).
+     * `index` is the bar index under the crosshair; null/undefined means the last bar.
+     * The default shows only the name; indicators with plain numeric plots override it.
+     */
+    getLegendInfo(_index?: number | null): IndicatorLegendInfo {
+        return { title: legendTitleFromName(this.name), params: [], plots: [] };
     }
 
     // --- Abstract methods ---

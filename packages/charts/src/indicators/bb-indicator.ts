@@ -4,6 +4,10 @@
 
 import { OverlayIndicator, IndicatorOptions } from './indicator';
 import { BarData } from '../model/data';
+import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
+import {
+    IndicatorSettingsConfig, createInputsTab, createStyleTab, numberRow, selectRow, colorRow, lineWidthRow, SOURCE_OPTIONS,
+} from '../gui/indicator_settings';
 
 /**
  * BB indicator options
@@ -60,6 +64,32 @@ export class BBIndicator extends OverlayIndicator {
 
         this._dataChanged.fire();
         return needsRecalc;
+    }
+
+    getSettingsConfig(): IndicatorSettingsConfig {
+        return {
+            name: this.name,
+            tabs: [
+                createInputsTab([{
+                    rows: [
+                        numberRow('period', 'Length', 1, 500, 1),
+                        selectRow('source', 'Source', SOURCE_OPTIONS, this._bbOptions.source),
+                        numberRow('stdDev', 'StdDev', 0.1, 50, 0.1),
+                    ],
+                }]),
+                createStyleTab([{
+                    rows: [
+                        colorRow('color', 'Bands Color'),
+                        lineWidthRow('lineWidth', 'Line Width'),
+                    ],
+                }]),
+            ],
+        };
+    }
+
+    getSettingValue(key: string): any {
+        if (key === 'visible') return this._options.visible;
+        return (this._bbOptions as any)[key];
     }
 
     /**
@@ -124,6 +154,22 @@ export class BBIndicator extends OverlayIndicator {
                 values: [middle, upper, lower]
             });
         }
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._data.length, index);
+        const v = i >= 0 ? this._data[i].values : undefined;
+        const c = this._options.color;
+        const o = this._bbOptions;
+        return {
+            title: 'BB',
+            params: legendParams(o.period, o.stdDev, o.source),
+            plots: [
+                { color: c, value: v ? v[0] : null },
+                { color: c, value: v ? v[1] : null },
+                { color: c, value: v ? v[2] : null },
+            ],
+        };
     }
 
     getDescription(index?: number): string {

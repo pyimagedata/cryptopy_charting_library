@@ -131,6 +131,7 @@ export function applyZoomTarget(
 export function collectIndicatorPrices(
     indicators: readonly {
         visible: boolean;
+        shown?: boolean;
         options?: { name?: string; style?: string };
         data: readonly { time: number; value: number; values?: number[] }[];
     }[],
@@ -138,7 +139,7 @@ export function collectIndicatorPrices(
 ): number[] {
     const out: number[] = [];
     for (const ind of indicators) {
-        if (!ind.visible) continue;
+        if (!(ind.shown ?? ind.visible)) continue;
         if (ind.options?.style === 'histogram') continue;
         if (/volume/i.test(ind.options?.name ?? '')) continue;
         const data = ind.data;

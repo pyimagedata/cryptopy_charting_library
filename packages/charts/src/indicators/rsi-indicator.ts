@@ -24,6 +24,7 @@ import {
     colorRow,
     checkboxRow
 } from '../gui/indicator_settings';
+import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
 
 /**
  * RSI indicator options
@@ -130,11 +131,11 @@ export class RSIIndicator extends PanelIndicator {
                 }, {
                     title: 'Levels',
                     rows: [
+                        checkboxRow('showLevels', 'Show Levels', true),
                         numberRow('overboughtLevel', 'Overbought', 50, 100, 1),
                         colorRow('overboughtColor', 'Overbought Color'),
                         numberRow('oversoldLevel', 'Oversold', 0, 50, 1),
                         colorRow('oversoldColor', 'Oversold Color'),
-                        checkboxRow('showLevels', 'Show Levels', true),
                     ]
                 }]),
                 createVisibilityTab()
@@ -237,6 +238,16 @@ export class RSIIndicator extends PanelIndicator {
             max: 100,
             fixedMin: 0,
             fixedMax: 100,
+        };
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._data.length, index);
+        return {
+            title: 'RSI',
+            params: legendParams(this._rsiOptions.period, 'close'),
+            precision: 2,
+            plots: [{ color: this._options.color, value: i >= 0 ? this._data[i].value : null }],
         };
     }
 

@@ -1,304 +1,112 @@
 /**
- * Indicator Search Modal - Modern, clean TradingView-style design
+ * Indicator Search Modal - TradingView "Indicators, metrics & strategies" style dialog.
+ * Search + category sidebar + favourites/recents; clicking a row adds the indicator and
+ * keeps the dialog open. Pure logic lives in indicator_catalog.ts.
  */
 
 import { Delegate } from '../../helpers/delegate';
+import { t, getCurrentLanguage } from '../../helpers/translations';
+import {
+    CATEGORY_LABELS,
+    CATEGORY_ORDER,
+    CatalogItem,
+    IndicatorCategoryId,
+    IndicatorPrefs,
+    SECTION_LABELS,
+    groupBySection,
+    itemsForCategory,
+    searchIndicators,
+} from './indicator_catalog';
 
-export interface IndicatorItem {
-    id: string;
-    name: string;
-    shortName: string;
-    description: string;
-    category: 'standard' | 'custom' | 'pattern';
-    type: 'overlay' | 'panel';
-}
+export { IndicatorItem, AVAILABLE_INDICATORS } from './indicator_catalog';
 
-const AVAILABLE_INDICATORS: IndicatorItem[] = [
-    {
-        id: 'ema',
-        name: 'Exponential Moving Average',
-        shortName: 'EMA',
-        description: 'Trend-following indicator that gives more weight to recent prices',
-        category: 'standard',
-        type: 'overlay'
+type ModalTheme = 'dark' | 'light';
+
+const UI = {
+    width: 760,
+    height: 620,
+    narrowBreakpoint: 600,
+    radius: 8,
+    headerHeight: 52,
+    searchHeight: 40,
+    sidebarWidth: 210,
+    rowHeight: 34,
+    sectionHeaderHeight: 28,
+    fontFamily: `-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif`,
+    zIndex: 10000,
+    favoriteColor: '#F7C948',
+    addedColor: '#26A69A',
+    accent: '#2962FF',
+    addedFlashMs: 1400,
+    colors: {
+        dark: {
+            backdrop: 'rgba(0, 0, 0, 0.55)',
+            bg: '#1E222D',
+            border: '#2A2E39',
+            text: '#D1D4DC',
+            muted: '#787B86',
+            hover: '#2A2E39',
+            highlight: '#2A2E39',
+            input: '#131722',
+            activeCat: '#2A2E39',
+            shadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
+        },
+        light: {
+            backdrop: 'rgba(19, 23, 34, 0.4)',
+            bg: '#FFFFFF',
+            border: '#E0E3EB',
+            text: '#131722',
+            muted: '#787B86',
+            hover: '#F0F3FA',
+            highlight: '#F0F3FA',
+            input: '#FFFFFF',
+            activeCat: '#E3EFFD',
+            shadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+        },
     },
-    {
-        id: 'rsi',
-        name: 'Relative Strength Index',
-        shortName: 'RSI',
-        description: 'Momentum oscillator measuring speed and change of price movements',
-        category: 'standard',
-        type: 'panel'
-    },
-    {
-        id: 'sma',
-        name: 'Simple Moving Average',
-        shortName: 'SMA',
-        description: 'Average price over a specified period',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'bb',
-        name: 'Bollinger Bands',
-        shortName: 'BB',
-        description: 'Volatility bands placed above and below a moving average',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'macd',
-        name: 'MACD',
-        shortName: 'MACD',
-        description: 'Trend-following momentum indicator showing relationship between two EMAs',
-        category: 'standard',
-        type: 'panel'
-    },
-    {
-        id: 'stoch',
-        name: 'Stochastic',
-        shortName: 'STOCH',
-        description: 'Momentum indicator comparing closing price to price range',
-        category: 'standard',
-        type: 'panel'
-    },
-    {
-        id: 'sar',
-        name: 'Parabolic SAR',
-        shortName: 'SAR',
-        description: 'Stop and Reverse indicator that identifies potential trend reversals',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'halftrend',
-        name: 'HalfTrend',
-        shortName: 'HT',
-        description: 'Trend reversal overlay with ATR channels and buy/sell signals',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'supertrend',
-        name: 'SuperTrend',
-        shortName: 'ST',
-        description: 'ATR tabanli trend takip overlay indikatori',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'alphatrend',
-        name: 'AlphaTrend',
-        shortName: 'AT',
-        description: 'ATR ve RSI/MFI tabanli trend overlay indikatori',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'ichimoku',
-        name: 'Ichimoku Cloud',
-        shortName: 'ICHI',
-        description: 'Conversion, base, lagging spans and kumo cloud overlay',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'fixed-range-volume-profile',
-        name: 'Fixed Range Volume Profile',
-        shortName: 'FRVP',
-        description: 'Seçilen sabit bar aralığı için fiyat seviyelerine göre hacim dağılımı gösterir',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'volume',
-        name: 'Volume',
-        shortName: 'Vol',
-        description: 'Measures the number of shares or contracts traded in a security or market during a given period',
-        category: 'standard',
-        type: 'panel'
-    },
-    {
-        id: 'hma',
-        name: 'Hull Moving Average',
-        shortName: 'HMA',
-        description: 'Modified moving average with reduced lag and increased smoothness',
-        category: 'standard',
-        type: 'overlay'
-    },
-    {
-        id: 'stochrsi',
-        name: 'Stochastic RSI',
-        shortName: 'StochRSI',
-        description: 'Combines Stochastic oscillator with RSI to identify overbought/oversold levels of the RSI',
-        category: 'standard',
-        type: 'panel'
-    },
-    {
-        id: 'tdoji',
-        name: 'Tdoji Oscilator',
-        shortName: 'TDOJI',
-        description: 'Linear regression slope oscillator with EMA smoothing, SMA signal, and zero-line context',
-        category: 'custom',
-        type: 'panel'
-    },
-    {
-        id: 'thunderbirdx',
-        name: 'Thunderbirdx',
-        shortName: 'TBX',
-        description: 'Sinc momentum, MA and convergence-divergence histogram oscillator',
-        category: 'custom',
-        type: 'panel'
-    },
-    {
-        id: 'tdoji-sr',
-        name: 'TDOJI-SR',
-        shortName: 'SR',
-        description: 'Prev close based support and resistance ladder with labels and level notes',
-        category: 'custom',
-        type: 'overlay'
-    },
-    {
-        id: 'demark-pivot',
-        name: 'GainMetrics',
-        shortName: 'GM',
-        description: 'Günlük, haftalık veya aylık DeMark destek direnç pivotları, EMA ve OBV çizgileri',
-        category: 'custom',
-        type: 'overlay'
-    },
-    {
-        id: 'tdoji-mom',
-        name: 'TDOJI MOM',
-        shortName: 'MOM',
-        description: 'EMA(60) tabanli close farkini kolon histogram olarak gosterir',
-        category: 'custom',
-        type: 'panel'
-    },
-    {
-        id: 'zigzag',
-        name: 'ZigZag',
-        shortName: 'ZZ',
-        description: 'Pivot high ve low noktalarini deviation filtresi ile birlestiren formasyon indikatori',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'abcd-pattern',
-        name: 'ABCD Pattern',
-        shortName: 'ABCD',
-        description: 'ZigZag pivotlarindan bullish veya bearish ABCD harmonic formasyonu tespit eder',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'harmonic-patterns',
-        name: 'Harmonic Patterns',
-        shortName: 'HARM',
-        description: 'ABCD ve Gartley patternlerini ortak zigzag pivotlariyla tespit eder',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'chart-patterns',
-        name: 'Chart Patterns',
-        shortName: 'CHART',
-        description: 'Cifte tepe, cifte dip, flama ve bayrak gibi klasik grafik formasyonlarini tespit eder',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'zigzag-trendline',
-        name: 'Trendline',
-        shortName: 'TL',
-        description: 'ZigZag pivotlarindan otomatik trendline cizer',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'trendline-breakout',
-        name: 'Trendline Breakout',
-        shortName: 'TL BO',
-        description: 'Alcalan veya yukselen zigzag trendline kirilimlarini tespit eder',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'smc',
-        name: 'Smart Money Concepts',
-        shortName: 'SMC',
-        description: 'BOS (Break of Structure) ve MSB (Market Structure Break) yapısal kırılımlarını ve minor/macro zigzag kanallarını gösterir',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'special-forces',
-        name: 'Special Forces',
-        shortName: 'SF',
-        description: 'Üst timeframe Heikin Ashi pivotlarından otomatik destek/direnç kutuları çizer',
-        category: 'custom',
-        type: 'overlay'
-    },
-    {
-        id: 'bobbin',
-        name: 'Bobbin',
-        shortName: 'Bobbin',
-        description: 'Ardışık gövde-renk dizilerindeki tekdüze/dar bantlı "bobin" bölgelerini istatistiksel bir skor modeliyle tespit eder',
-        category: 'custom',
-        type: 'overlay'
-    },
-    {
-        id: 'fvg',
-        name: 'Fair Value Gap',
-        shortName: 'FVG',
-        description: '3 mumluk dengesizlik (imbalance) bölgelerini ATR/displacement filtreleriyle çizer, Londra seansı ve 1:2 hedef çizgisi vurgulu',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'fvg-inversion',
-        name: 'FVG Inversion',
-        shortName: 'IFVG',
-        description: 'Kendi yönünün tersine gövde-kapanışla kırılan Fair Value Gap bölgelerini (IFVG) tespit eder',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'eqhl-v2',
-        name: 'Equal Highs/Lows V2',
-        shortName: 'EQH/EQL',
-        description: 'ATR veya akademik gama toleransıyla eşit tepe/dip likidite seviyelerini kümeleyip süpürülmeyi işaretler',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'judas-swing',
-        name: 'Judas Swing',
-        shortName: 'Judas',
-        description: 'ICT Judas Swing: referans aralık dışına sahte kırılım, MSS, FVG onayı ve retest ile giriş sinyali',
-        category: 'pattern',
-        type: 'overlay'
-    },
-    {
-        id: 'smt-divergence',
-        name: 'SMT Divergence',
-        shortName: 'SMT',
-        description: 'ICT SMT Divergence: korele varlıkla (ör. altın/gümüş) tepe/dip uyumsuzluğunu çizgilerle gösterir',
-        category: 'pattern',
-        type: 'overlay'
-    },
-];
+};
+
+const STAR_SVG = (fill: string, stroke: string) =>
+    `<svg width="18" height="18" viewBox="0 0 24 24" fill="${fill}" stroke="${stroke}" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/></svg>`;
+const CHECK_SVG = (stroke: string) =>
+    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 
 export class IndicatorSearchModal {
     private _element: HTMLElement | null = null;
     private _overlay: HTMLElement | null = null;
     private _searchInput: HTMLInputElement | null = null;
     private _resultsList: HTMLElement | null = null;
-    private _activeCategory: string = 'standard';
+    private _sidebar: HTMLElement | null = null;
+    private _body: HTMLElement | null = null;
+    private _activeCategory: IndicatorCategoryId = 'technical';
+    private _theme: ModalTheme = 'dark';
+    private _visible = false;
+    private _prefs: IndicatorPrefs;
+
+    /** Flat list of the rows currently rendered (keyboard navigation order). */
+    private _rows: CatalogItem[] = [];
+    private _rowEls: HTMLElement[] = [];
+    private _highlight = -1;
+    private readonly _addedCounts = new Map<string, number>();
+    private readonly _flashTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     private readonly _indicatorSelected = new Delegate<string>();
     private readonly _closed = new Delegate<void>();
 
+    private readonly _onKeyDown = (e: KeyboardEvent): void => {
+        if (!this._visible) return;
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            this.hide();
+        }
+    };
+    private readonly _onResize = (): void => this._applyLayout();
+
     constructor(private _container: HTMLElement) {
+        let storage: Storage | null = null;
+        try { storage = window.localStorage; } catch (e) { storage = null; }
+        this._prefs = new IndicatorPrefs(storage);
         this._createElement();
     }
 
@@ -310,383 +118,464 @@ export class IndicatorSearchModal {
         return this._closed;
     }
 
-    show(): void {
-        if (this._overlay && this._element) {
+    setTheme(theme: ModalTheme): void {
+        if (theme === this._theme) return;
+        this._theme = theme;
+        const query = this._searchInput?.value ?? '';
+        this._destroyElement();
+        this._createElement();
+        if (this._searchInput) this._searchInput.value = query;
+        if (this._visible && this._overlay) {
             this._overlay.style.display = 'flex';
+            this._applyLayout();
+            this._refresh();
             this._searchInput?.focus();
-            this._filterIndicators();
         }
+    }
+
+    show(): void {
+        if (!this._overlay || !this._element) return;
+        // CSS uppercase follows the language (Turkish dotted/dotless i)
+        this._overlay.lang = getCurrentLanguage();
+        this._overlay.style.display = 'flex';
+        this._visible = true;
+        document.addEventListener('keydown', this._onKeyDown, true);
+        window.addEventListener('resize', this._onResize);
+        if (this._searchInput) this._searchInput.value = '';
+        this._applyLayout();
+        this._refresh();
+        this._searchInput?.focus();
     }
 
     hide(): void {
-        if (this._overlay) {
-            this._overlay.style.display = 'none';
-            this._closed.fire();
-        }
+        if (!this._overlay) return;
+        this._overlay.style.display = 'none';
+        this._visible = false;
+        document.removeEventListener('keydown', this._onKeyDown, true);
+        window.removeEventListener('resize', this._onResize);
+        this._closed.fire();
+    }
+
+    private get _c() {
+        return UI.colors[this._theme];
     }
 
     private _createElement(): void {
-        // Overlay
+        const c = this._c;
+
         this._overlay = document.createElement('div');
+        this._overlay.className = 'tv-indicator-dialog-overlay';
         this._overlay.style.cssText = `
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: ${c.backdrop};
             display: none;
             align-items: center;
             justify-content: center;
-            z-index: 10000;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            z-index: ${UI.zIndex};
+            font-family: ${UI.fontFamily};
         `;
 
-        // Modal
         this._element = document.createElement('div');
+        this._element.className = 'tv-indicator-dialog';
+        this._element.setAttribute('role', 'dialog');
+        this._element.setAttribute('aria-label', t('Indicators'));
         this._element.style.cssText = `
-            background: white;
-            border-radius: 12px;
-            width: 480px;
-            max-width: 95vw;
-            max-height: 600px;
+            background: ${c.bg};
+            color: ${c.text};
+            border: 1px solid ${c.border};
+            border-radius: ${UI.radius}px;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            box-shadow: ${c.shadow};
             overflow: hidden;
+            box-sizing: border-box;
         `;
 
         // Header
         const header = document.createElement('div');
         header.style.cssText = `
-            padding: 20px 24px 16px;
+            height: ${UI.headerHeight}px;
+            flex-shrink: 0;
+            padding: 0 12px 0 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 1px solid #e0e3eb;
         `;
-
         const title = document.createElement('div');
-        title.textContent = 'Add Indicator';
-        title.style.cssText = `
-            font-size: 18px;
-            font-weight: 600;
-            color: #131722;
-        `;
+        title.textContent = t('Indicators');
+        title.style.cssText = `font-size: 20px; font-weight: 600; color: ${c.text};`;
         header.appendChild(title);
 
         const closeBtn = document.createElement('button');
-        closeBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#787b86" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+        closeBtn.setAttribute('aria-label', t('Close'));
+        closeBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${c.muted}" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
         closeBtn.style.cssText = `
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 6px;
-            border-radius: 6px;
-            display: flex;
-            transition: background 0.15s;
+            background: none; border: none; cursor: pointer; padding: 6px;
+            border-radius: 6px; display: flex; transition: background 0.15s;
         `;
-        closeBtn.onmouseenter = () => closeBtn.style.background = '#f0f3fa';
+        closeBtn.onmousedown = (e) => e.preventDefault();
+        closeBtn.onmouseenter = () => closeBtn.style.background = c.hover;
         closeBtn.onmouseleave = () => closeBtn.style.background = 'none';
         closeBtn.onclick = () => this.hide();
         header.appendChild(closeBtn);
-
         this._element.appendChild(header);
 
         // Search
         const searchContainer = document.createElement('div');
         searchContainer.style.cssText = `
-            padding: 12px 24px;
+            flex-shrink: 0;
+            padding: 0 20px 12px;
             position: relative;
+            border-bottom: 1px solid ${c.border};
         `;
-
         const searchIcon = document.createElement('span');
-        searchIcon.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#787b86" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>`;
+        searchIcon.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${c.muted}" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>`;
         searchIcon.style.cssText = `
-            position: absolute;
-            left: 36px;
-            top: 50%;
-            transform: translateY(-50%);
-            display: flex;
-            pointer-events: none;
+            position: absolute; left: 32px; top: ${UI.searchHeight / 2}px;
+            transform: translateY(-50%); display: flex; pointer-events: none;
         `;
         searchContainer.appendChild(searchIcon);
 
-        this._searchInput = document.createElement('input');
-        this._searchInput.type = 'text';
-        this._searchInput.placeholder = 'Search indicators...';
-        this._searchInput.style.cssText = `
-            width: 100%;
-            background: #f0f3fa;
-            border: none;
-            border-radius: 8px;
-            padding: 12px 16px 12px 44px;
-            font-size: 14px;
-            color: #131722;
+        const input = document.createElement('input');
+        this._searchInput = input;
+        input.type = 'text';
+        input.placeholder = t('Search');
+        input.setAttribute('autocomplete', 'off');
+        input.spellcheck = false;
+        input.style.cssText = `
+            width: 100%; box-sizing: border-box;
+            height: ${UI.searchHeight}px;
+            background: ${c.input};
+            border: 1px solid ${c.border};
+            border-radius: 6px;
+            padding: 0 12px 0 38px;
+            font-size: 15px; font-family: inherit;
+            color: ${c.text};
             outline: none;
-            transition: all 0.15s;
+            transition: border-color 0.15s;
         `;
-        this._searchInput.onfocus = () => {
-            this._searchInput!.style.background = '#e8ebf2';
-        };
-        this._searchInput.onblur = () => {
-            this._searchInput!.style.background = '#f0f3fa';
-        };
-        this._searchInput.oninput = () => this._filterIndicators();
-        searchContainer.appendChild(this._searchInput);
-
+        input.onfocus = () => { input.style.borderColor = UI.accent; };
+        input.onblur = () => { input.style.borderColor = c.border; };
+        input.oninput = () => { this._highlight = -1; this._refresh(); };
+        input.onkeydown = (e) => this._onInputKey(e);
+        searchContainer.appendChild(input);
         this._element.appendChild(searchContainer);
 
-        // Category tabs
-        const tabsContainer = document.createElement('div');
-        tabsContainer.style.cssText = `
-            padding: 0 24px;
-            display: flex;
-            gap: 4px;
-            border-bottom: 1px solid #e0e3eb;
-        `;
+        // Body: sidebar + list
+        this._body = document.createElement('div');
+        this._body.style.cssText = `display: flex; flex: 1; min-height: 0;`;
 
-        const categories = [
-            { id: 'standard', label: 'İndikatörler' },
-            { id: 'custom', label: 'Özel' },
-            { id: 'pattern', label: 'Formasyon' },
-        ];
+        this._sidebar = document.createElement('div');
+        this._body.appendChild(this._sidebar);
 
-        categories.forEach(cat => {
-            const tab = document.createElement('button');
-            tab.textContent = cat.label;
-            tab.dataset.category = cat.id;
-            tab.style.cssText = `
-                background: none;
-                border: none;
-                padding: 12px 16px;
-                font-size: 13px;
-                font-weight: 500;
-                color: ${cat.id === 'standard' ? '#131722' : '#787b86'};
-                cursor: pointer;
-                position: relative;
-                transition: color 0.15s;
-            `;
-
-            if (cat.id === 'standard') {
-                const underline = document.createElement('div');
-                underline.className = 'tab-underline';
-                underline.style.cssText = `
-                    position: absolute;
-                    bottom: -1px;
-                    left: 0;
-                    right: 0;
-                    height: 2px;
-                    background: #2962ff;
-                `;
-                tab.appendChild(underline);
-            }
-
-            tab.onmouseenter = () => {
-                if (tab.dataset.category !== this._activeCategory) {
-                    tab.style.color = '#131722';
-                }
-            };
-            tab.onmouseleave = () => {
-                if (tab.dataset.category !== this._activeCategory) {
-                    tab.style.color = '#787b86';
-                }
-            };
-            tab.onclick = () => {
-                this._activeCategory = cat.id;
-                // Update tab styles
-                tabsContainer.querySelectorAll('button').forEach((btn: Element) => {
-                    const b = btn as HTMLButtonElement;
-                    const isActive = b.dataset.category === this._activeCategory;
-                    b.style.color = isActive ? '#131722' : '#787b86';
-                    const underline = b.querySelector('.tab-underline') as HTMLElement;
-                    if (underline) underline.remove();
-                    if (isActive) {
-                        const ul = document.createElement('div');
-                        ul.className = 'tab-underline';
-                        ul.style.cssText = `
-                            position: absolute;
-                            bottom: -1px;
-                            left: 0;
-                            right: 0;
-                            height: 2px;
-                            background: #2962ff;
-                        `;
-                        b.appendChild(ul);
-                    }
-                });
-                this._filterIndicators();
-            };
-
-            tabsContainer.appendChild(tab);
-        });
-
-        this._element.appendChild(tabsContainer);
-
-        // Results list
         this._resultsList = document.createElement('div');
-        this._resultsList.style.cssText = `
-            flex: 1;
-            overflow-y: auto;
-            padding: 8px 0;
-        `;
+        this._resultsList.style.cssText = `flex: 1; min-width: 0; overflow-y: auto; padding: 6px 0;`;
+        this._body.appendChild(this._resultsList);
 
-        this._element.appendChild(this._resultsList);
+        this._element.appendChild(this._body);
         this._overlay.appendChild(this._element);
         this._container.appendChild(this._overlay);
 
-        // Close on overlay click
-        this._overlay.onclick = (e) => {
+        this._overlay.onmousedown = (e) => {
             if (e.target === this._overlay) this.hide();
         };
 
-        // Close on Escape
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this._overlay?.style.display === 'flex') {
-                this.hide();
-            }
-        });
+        this._applyLayout();
+        this._renderSidebar();
     }
 
-    private _filterIndicators(): void {
-        const query = this._searchInput?.value.toLowerCase() || '';
-        const filtered = AVAILABLE_INDICATORS.filter(ind =>
-            ind.name.toLowerCase().includes(query) ||
-            ind.shortName.toLowerCase().includes(query) ||
-            ind.description.toLowerCase().includes(query)
-        ).filter(ind => ind.category === this._activeCategory);
-
-        this._renderResults(filtered);
+    private _destroyElement(): void {
+        if (this._overlay?.parentNode) this._overlay.parentNode.removeChild(this._overlay);
+        this._overlay = null;
+        this._element = null;
+        this._searchInput = null;
+        this._resultsList = null;
+        this._sidebar = null;
+        this._body = null;
+        this._rowEls = [];
     }
 
-    private _renderResults(indicators: IndicatorItem[]): void {
+    private _isNarrow(): boolean {
+        return window.innerWidth < UI.narrowBreakpoint;
+    }
+
+    private _applyLayout(): void {
+        if (!this._element || !this._sidebar || !this._body || !this._overlay) return;
+        const c = this._c;
+        const narrow = this._isNarrow();
+        if (narrow) {
+            this._overlay.style.alignItems = 'stretch';
+            this._element.style.cssText += `width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; border: none;`;
+            this._body.style.flexDirection = 'column';
+            this._sidebar.style.cssText = `
+                flex-shrink: 0; display: flex; flex-direction: row; gap: 4px; overflow-x: auto;
+                padding: 8px 12px; border-bottom: 1px solid ${c.border}; box-sizing: border-box;
+            `;
+        } else {
+            this._overlay.style.alignItems = 'center';
+            this._element.style.cssText += `
+                width: ${UI.width}px; height: ${UI.height}px; max-width: 96vw; max-height: 94vh;
+                border-radius: ${UI.radius}px; border: 1px solid ${c.border};
+            `;
+            this._body.style.flexDirection = 'row';
+            this._sidebar.style.cssText = `
+                width: ${UI.sidebarWidth}px; flex-shrink: 0; overflow-y: auto;
+                padding: 8px; border-right: 1px solid ${c.border}; box-sizing: border-box;
+            `;
+        }
+        this._renderSidebar();
+    }
+
+    private _renderSidebar(): void {
+        if (!this._sidebar) return;
+        const c = this._c;
+        const narrow = this._isNarrow();
+        const searching = !!this._searchInput?.value.trim();
+        this._sidebar.innerHTML = '';
+        for (const id of CATEGORY_ORDER) {
+            const active = !searching && id === this._activeCategory;
+            const btn = document.createElement('button');
+            btn.dataset.category = id;
+            btn.textContent = t(CATEGORY_LABELS[id]);
+            btn.style.cssText = `
+                display: block; ${narrow ? 'white-space: nowrap; flex-shrink: 0;' : 'width: 100%;'}
+                text-align: left; border: none; border-radius: 6px;
+                padding: 0 12px; height: 34px; line-height: 34px;
+                font-family: inherit; font-size: 14px; cursor: pointer;
+                font-weight: ${active ? 600 : 400};
+                color: ${active ? c.text : searching ? c.muted : c.text};
+                background: ${active ? c.activeCat : 'transparent'};
+                opacity: ${searching ? 0.55 : 1};
+                transition: background 0.1s;
+            `;
+            btn.onmousedown = (e) => e.preventDefault();
+            btn.onmouseenter = () => { if (!active) btn.style.background = c.hover; };
+            btn.onmouseleave = () => { if (!active) btn.style.background = 'transparent'; };
+            btn.onclick = () => {
+                this._activeCategory = id;
+                if (this._searchInput) this._searchInput.value = '';
+                this._highlight = -1;
+                this._refresh();
+                this._searchInput?.focus();
+            };
+            this._sidebar.appendChild(btn);
+        }
+    }
+
+    private _refresh(): void {
+        this._renderSidebar();
+        const query = this._searchInput?.value.trim() ?? '';
+        if (query) {
+            this._renderResults(searchIndicators(query), true);
+        } else {
+            this._renderResults(itemsForCategory(this._activeCategory, this._prefs), false);
+        }
+    }
+
+    private _onInputKey(e: KeyboardEvent): void {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (this._rows.length === 0) return;
+            const dir = e.key === 'ArrowDown' ? 1 : -1;
+            const next = this._highlight < 0
+                ? (dir > 0 ? 0 : this._rows.length - 1)
+                : (this._highlight + dir + this._rows.length) % this._rows.length;
+            this._setHighlight(next, true);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const idx = this._highlight >= 0 ? this._highlight : (this._searchInput?.value.trim() ? 0 : -1);
+            if (idx >= 0 && this._rows[idx]) this._addIndicator(this._rows[idx]);
+        }
+    }
+
+    private _setHighlight(idx: number, scroll: boolean): void {
+        const c = this._c;
+        if (this._highlight >= 0 && this._rowEls[this._highlight]) {
+            this._rowEls[this._highlight].style.background = 'transparent';
+        }
+        this._highlight = idx;
+        const el = this._rowEls[idx];
+        if (el) {
+            el.style.background = c.highlight;
+            if (scroll) el.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    private _addIndicator(ind: CatalogItem): void {
+        this._indicatorSelected.fire(ind.id);
+        this._prefs.addRecent(ind.id);
+        this._addedCounts.set(ind.id, (this._addedCounts.get(ind.id) ?? 0) + 1);
+        this._flashAdded(ind.id);
+        // Recents order changed; keep the visible list in sync without losing scroll position.
+        if (this._activeCategory === 'recent' && !this._searchInput?.value.trim() && this._resultsList) {
+            const top = this._resultsList.scrollTop;
+            const hl = this._rows[this._highlight]?.id;
+            this._refresh();
+            this._resultsList.scrollTop = top;
+            const idx = this._rows.findIndex(r => r.id === hl);
+            if (idx >= 0) this._setHighlight(idx, false);
+        }
+    }
+
+    private _flashAdded(id: string): void {
+        const idx = this._rows.findIndex(r => r.id === id);
+        const el = idx >= 0 ? this._rowEls[idx] : null;
+        const badge = el?.querySelector('.tv-ind-added') as HTMLElement | null;
+        if (!badge) return;
+        const n = this._addedCounts.get(id) ?? 1;
+        badge.innerHTML = `${CHECK_SVG(UI.addedColor)}<span style="margin-left:4px">${n > 1 ? '×' + n : t('Added')}</span>`;
+        badge.style.opacity = '1';
+        const prev = this._flashTimers.get(id);
+        if (prev) clearTimeout(prev);
+        this._flashTimers.set(id, setTimeout(() => {
+            // Leave the small counter once flashed more than once, fade otherwise.
+            if (n > 1) badge.innerHTML = `${CHECK_SVG(UI.addedColor)}<span style="margin-left:4px">×${n}</span>`;
+            else badge.style.opacity = '0';
+            this._flashTimers.delete(id);
+        }, UI.addedFlashMs));
+    }
+
+    private _toggleFavorite(ind: CatalogItem, starEl: HTMLElement, rowEl: HTMLElement): void {
+        const fav = this._prefs.toggleFavorite(ind.id);
+        if (this._activeCategory === 'favorites' && !this._searchInput?.value.trim()) {
+            // Item leaves the list: re-render, keep scroll.
+            const top = this._resultsList?.scrollTop ?? 0;
+            this._refresh();
+            if (this._resultsList) this._resultsList.scrollTop = top;
+            return;
+        }
+        this._paintStar(starEl, fav, rowEl.matches(':hover'));
+    }
+
+    private _paintStar(starEl: HTMLElement, fav: boolean, hovered: boolean): void {
+        const c = this._c;
+        starEl.innerHTML = STAR_SVG(fav ? UI.favoriteColor : 'none', fav ? UI.favoriteColor : c.muted);
+        starEl.style.opacity = fav || hovered ? '1' : '0';
+        starEl.title = fav ? t('Remove from favorites') : t('Add to favorites');
+    }
+
+    private _emptyMessage(searching: boolean): string {
+        if (searching) return t('No indicators found');
+        if (this._activeCategory === 'favorites') return t('No favorites yet. Click the star next to an indicator to add it.');
+        if (this._activeCategory === 'recent') return t('No recently used indicators yet.');
+        return t('No indicators found');
+    }
+
+    private _renderResults(indicators: CatalogItem[], searching: boolean): void {
         if (!this._resultsList) return;
-
+        const c = this._c;
         this._resultsList.innerHTML = '';
+        this._rows = [];
+        this._rowEls = [];
+        this._highlight = -1;
 
         if (indicators.length === 0) {
             const empty = document.createElement('div');
-            empty.textContent = this._activeCategory === 'pattern'
-                ? 'Henüz formasyon eklenmedi'
-                : 'No indicators found';
-            empty.style.cssText = `
-                padding: 40px;
-                text-align: center;
-                color: #787b86;
-                font-size: 14px;
-            `;
+            empty.textContent = this._emptyMessage(searching);
+            empty.style.cssText = `padding: 60px 24px; text-align: center; color: ${c.muted}; font-size: 14px; line-height: 1.5;`;
             this._resultsList.appendChild(empty);
             return;
         }
 
-        indicators.forEach(ind => {
+        const addRow = (ind: CatalogItem) => {
+            const idx = this._rows.length;
             const row = document.createElement('div');
+            row.className = 'tv-indicator-row';
+            row.dataset.id = ind.id;
+            row.title = ind.description;
             row.style.cssText = `
-                padding: 10px 24px;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                transition: background 0.1s;
-            `;
-            row.onmouseenter = () => row.style.background = '#f0f3fa';
-            row.onmouseleave = () => row.style.background = 'transparent';
-
-            // Icon based on type
-            const icon = document.createElement('div');
-            icon.innerHTML = ind.type === 'overlay'
-                ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2962ff" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/></svg>`
-                : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff6d00" stroke-width="2"><rect x="3" y="10" width="4" height="10"/><rect x="10" y="6" width="4" height="14"/><rect x="17" y="2" width="4" height="18"/></svg>`;
-            icon.style.cssText = `
-                width: 34px;
-                height: 34px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                background: ${ind.type === 'overlay' ? 'rgba(41, 98, 255, 0.1)' : 'rgba(255, 109, 0, 0.1)'};
-                border-radius: 8px;
-                flex-shrink: 0;
-            `;
-            row.appendChild(icon);
-
-            // Text content
-            const textContainer = document.createElement('div');
-            textContainer.style.cssText = `
-                flex: 1;
-                min-width: 0;
-                display: flex;
-                align-items: center;
+                height: ${UI.rowHeight}px; padding: 0 16px 0 20px; box-sizing: border-box;
+                cursor: pointer; display: flex; align-items: center; gap: 8px;
+                font-size: 14px; background: transparent;
             `;
 
-            const nameRow = document.createElement('div');
-            nameRow.style.cssText = `
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                min-width: 0;
-            `;
-
-            const name = document.createElement('div');
+            const name = document.createElement('span');
             name.textContent = ind.name;
-            name.style.cssText = `
-                font-size: 14px;
-                font-weight: 500;
-                color: #131722;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            `;
-            nameRow.appendChild(name);
+            name.style.cssText = `color: ${c.text}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1;`;
+            row.appendChild(name);
 
-            const badge = document.createElement('span');
-            badge.textContent = ind.shortName;
-            badge.style.cssText = `
-                font-size: 11px;
-                font-weight: 600;
-                color: #787b86;
-                background: #f0f3fa;
-                padding: 2px 6px;
-                border-radius: 4px;
-            `;
-            nameRow.appendChild(badge);
+            const short = document.createElement('span');
+            short.textContent = ind.shortName;
+            short.style.cssText = `color: ${c.muted}; font-size: 12px; white-space: nowrap; flex-shrink: 0;`;
+            row.appendChild(short);
 
-            textContainer.appendChild(nameRow);
+            const spacer = document.createElement('span');
+            spacer.style.cssText = 'flex: 1;';
+            row.appendChild(spacer);
 
-            row.appendChild(textContainer);
+            if (ind.remote) {
+                const tag = document.createElement('span');
+                tag.textContent = 'Backend';
+                tag.style.cssText = `color: ${c.muted}; font-size: 11px; border: 1px solid ${c.border}; border-radius: 3px; padding: 0 5px; line-height: 16px; flex-shrink: 0;`;
+                row.appendChild(tag);
+            }
 
-            // Plus icon
-            const addIcon = document.createElement('div');
-            addIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#787b86" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
-            addIcon.style.cssText = `
-                opacity: 0;
-                transition: opacity 0.15s;
-            `;
+            const added = document.createElement('span');
+            added.className = 'tv-ind-added';
+            added.style.cssText = `display: flex; align-items: center; font-size: 12px; color: ${UI.addedColor}; flex-shrink: 0; opacity: 0; transition: opacity 0.2s; min-width: 0;`;
+            const count = this._addedCounts.get(ind.id) ?? 0;
+            if (count > 1) {
+                added.innerHTML = `${CHECK_SVG(UI.addedColor)}<span style="margin-left:4px">×${count}</span>`;
+                added.style.opacity = '1';
+            }
+            row.appendChild(added);
+
+            const star = document.createElement('span');
+            star.style.cssText = `display: flex; padding: 2px; border-radius: 4px; flex-shrink: 0; transition: opacity 0.1s;`;
+            this._paintStar(star, this._prefs.isFavorite(ind.id), false);
+            star.onclick = (e) => {
+                e.stopPropagation();
+                this._toggleFavorite(ind, star, row);
+            };
+            star.onmousedown = (e) => e.preventDefault();
+            row.appendChild(star);
+
             row.onmouseenter = () => {
-                row.style.background = '#f0f3fa';
-                addIcon.style.opacity = '1';
+                this._setHighlight(idx, false);
+                this._paintStar(star, this._prefs.isFavorite(ind.id), true);
             };
             row.onmouseleave = () => {
-                row.style.background = 'transparent';
-                addIcon.style.opacity = '0';
+                this._paintStar(star, this._prefs.isFavorite(ind.id), false);
             };
-            row.appendChild(addIcon);
+            row.onmousedown = (e) => e.preventDefault();
+            row.onclick = () => this._addIndicator(ind);
 
-            row.onclick = () => {
-                this._indicatorSelected.fire(ind.id);
-                this.hide();
-            };
-
+            this._rows.push(ind);
+            this._rowEls.push(row);
             this._resultsList!.appendChild(row);
-        });
+        };
+
+        if (searching) {
+            for (const g of groupBySection(indicators)) {
+                // Keep relevance order inside each section header (rows are already sorted).
+                this._resultsList.appendChild(this._sectionHeader(t(SECTION_LABELS[g.section])));
+                g.items.forEach(addRow);
+            }
+        } else {
+            indicators.forEach(addRow);
+        }
+    }
+
+    private _sectionHeader(text: string): HTMLElement {
+        const h = document.createElement('div');
+        h.textContent = text;
+        h.style.cssText = `
+            height: ${UI.sectionHeaderHeight}px; line-height: ${UI.sectionHeaderHeight}px;
+            padding: 0 20px; margin-top: 4px; box-sizing: border-box;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+            text-transform: uppercase; color: ${this._c.muted};
+        `;
+        return h;
     }
 
     dispose(): void {
+        document.removeEventListener('keydown', this._onKeyDown, true);
+        window.removeEventListener('resize', this._onResize);
+        this._flashTimers.forEach(tm => clearTimeout(tm));
+        this._flashTimers.clear();
         this._indicatorSelected.destroy();
         this._closed.destroy();
-        if (this._overlay?.parentNode) {
-            this._overlay.parentNode.removeChild(this._overlay);
-        }
-        this._overlay = null;
-        this._element = null;
+        this._destroyElement();
     }
 }

@@ -11,6 +11,9 @@ import { TimeScale } from '../model/time-scale';
 import { PanelIndicator, IndicatorDataPoint } from './indicator';
 import { PaneWidget } from '../gui/pane-widget';
 import { Drawing } from '../drawings';
+import { IndicatorLegendList, LegendActionHandler, LEGEND_STYLE } from '../gui/indicator_legend';
+import { PANE_STYLE, PaneAction, paneColors } from './pane-layout';
+import { t } from '../helpers/translations';
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -38,7 +41,7 @@ export interface IndicatorPaneOptions {
 const defaultIndicatorPaneOptions: IndicatorPaneOptions = {
     height: 100,
     minHeight: 50,
-    maxHeight: 300,
+    maxHeight: Infinity,
     backgroundColor: '#1a1a2e',
     borderColor: 'rgba(255, 255, 255, 0.06)',
     showPriceScale: true,
@@ -75,15 +78,22 @@ export class IndicatorPaneWidget implements Disposable {
     private _priceAxisCanvas: HTMLCanvasElement | null = null;
     private _priceAxisCtx: CanvasRenderingContext2D | null = null;
     private _resizeHandle: HTMLElement | null = null;
-    private _legendContainer: HTMLElement | null = null;
+    private _legend: IndicatorLegendList | null = null;
+    private _legendHost: HTMLElement | null = null;
+    private _theme: 'dark' | 'light' = 'dark';
 
     private _width: number = 0;
     private _height: number = 0;
     private _indicators: PanelIndicator[] = [];
 
-    private _isResizing: boolean = false;
-    private _resizeStartY: number = 0;
-    private _resizeStartHeight: number = 0;
+    /** User height (what a restore / expand returns to); `_height` is the content height drawn now */
+    private _normalHeight: number = 0;
+    private _layoutHidden: boolean = false;
+    private _collapsed: boolean = false;
+    private _controlsEl: HTMLElement | null = null;
+    private _separatorLine: HTMLElement | null = null;
+    private _controlsState = { canUp: false, canDown: false, maximized: false, collapsed: false };
+    private _endSeparatorDrag: (() => void) | null = null;
 
     private _crosshairX: number | null = null;
     private _crosshairY: number | null = null;
@@ -118,11 +128,16 @@ export class IndicatorPaneWidget implements Disposable {
 
     get height(): number {
         // Return 0 when hidden so layout calculations work correctly
-        return this._isHidden ? 0 : this._height;
+        if (this._isHidden || this._layoutHidden) return 0;
+        return this._collapsed ? PANE_STYLE.metrics.collapsedHeight : this._height;
     }
 
     get actualHeight(): number {
-        return this._height;
+        return this._normalHeight;
+    }
+
+    get collapsed(): boolean {
+        return this._collapsed;
     }
 
     get priceScale(): PriceScale {
@@ -144,17 +159,47 @@ export class IndicatorPaneWidget implements Disposable {
     /** Hide the indicator pane */
     hide(): void {
         this._isHidden = true;
-        if (this._element) {
-            this._element.style.display = 'none';
-        }
+        this._applyDisplay();
     }
 
     /** Show the indicator pane */
     show(): void {
         this._isHidden = false;
+        this._applyDisplay();
+    }
+
+    private _applyDisplay(): void {
         if (this._element) {
-            this._element.style.display = 'flex';
+            this._element.style.display = this._isHidden || this._layoutHidden ? 'none' : 'flex';
         }
+    }
+
+    /**
+     * Apply the resolved layout: hidden (other pane maximized / hidden on this timeframe),
+     * collapsed (legend row only) and the content height (full available height when maximized).
+     */
+    applyLayout(layout: { hidden: boolean; collapsed: boolean; displayHeight: number; contentHeight: number }): void {
+        this._layoutHidden = layout.hidden;
+        this._collapsed = layout.collapsed;
+        this._applyDisplay();
+        this._setContentHeight(Math.max(1, layout.contentHeight));
+        if (this._element) {
+            this._element.style.height = `${layout.collapsed ? PANE_STYLE.metrics.collapsedHeight : this._height}px`;
+        }
+        // Collapsed: the plot and axis are not drawn, only the legend row and controls remain
+        const vis = layout.collapsed ? 'hidden' : 'visible';
+        if (this._canvas) this._canvas.style.visibility = vis;
+        if (this._priceAxisCanvas) this._priceAxisCanvas.style.visibility = vis;
+        this._renderControls();
+    }
+
+    /** Button state: neighbours exist / maximized / collapsed */
+    setControlsState(state: { canUp: boolean; canDown: boolean; maximized: boolean; collapsed: boolean }): void {
+        const cur = this._controlsState;
+        if (cur.canUp === state.canUp && cur.canDown === state.canDown
+            && cur.maximized === state.maximized && cur.collapsed === state.collapsed) return;
+        this._controlsState = { ...state };
+        this._renderControls();
     }
 
     // --- Indicator management ---
@@ -189,20 +234,28 @@ export class IndicatorPaneWidget implements Disposable {
             this._canvas.width = chartWidth * dpr;
         }
 
-        if (this._legendContainer) {
-            this._legendContainer.style.right = `${this._options.priceScaleWidth + 10}px`;
+        if (this._legendHost) {
+            this._legendHost.style.right = `${this._options.priceScaleWidth + LEGEND_STYLE.metrics.reservedRight}px`;
+        }
+        if (this._controlsEl) {
+            this._controlsEl.style.right = `${this._options.priceScaleWidth + PANE_STYLE.metrics.controlsRight}px`;
         }
     }
 
     setHeight(height: number): void {
-        this._height = Math.max(
+        this._normalHeight = Math.max(
             this._options.minHeight,
             Math.min(this._options.maxHeight, height)
         );
-
+        this._setContentHeight(this._normalHeight);
         if (this._element) {
-            this._element.style.height = `${this._height}px`;
+            this._element.style.height = `${this.height}px`;
         }
+    }
+
+    private _setContentHeight(height: number): void {
+        if (height === this._height) return;
+        this._height = height;
 
         if (this._canvas) {
             const dpr = window.devicePixelRatio || 1;
@@ -227,6 +280,7 @@ export class IndicatorPaneWidget implements Disposable {
         this._updatePriceRange();
         this._renderChart();
         this._renderPriceAxis();
+        this._updateLegend();
     }
 
     setChartData(data: readonly any[]): void {
@@ -289,7 +343,7 @@ export class IndicatorPaneWidget implements Disposable {
 
         // Draw each indicator
         for (const indicator of this._indicators) {
-            if (indicator.visible) {
+            if (indicator.shown) {
                 this._drawIndicator(scope, indicator);
             }
         }
@@ -409,9 +463,6 @@ export class IndicatorPaneWidget implements Disposable {
             }
             ctx.stroke();
         }
-
-        // Draw indicator label
-        this._drawIndicatorLabel(ctx, indicator);
     }
 
     private _drawHistogram(
@@ -548,22 +599,6 @@ export class IndicatorPaneWidget implements Disposable {
             previousFromY = fromY;
             previousToY = toY;
         }
-    }
-
-    private _drawIndicatorLabel(ctx: CanvasRenderingContext2D, indicator: PanelIndicator): void {
-        let index: number | undefined;
-
-        if (this._crosshairX !== null) {
-            index = Math.round(this._timeScale.coordinateToIndex(this._crosshairX as any));
-        }
-
-        const description = indicator.getDescription(index);
-
-        ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillStyle = indicator.options.color;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(description, 8, 8);
     }
 
     private _renderPriceAxis(): void {
@@ -744,37 +779,24 @@ export class IndicatorPaneWidget implements Disposable {
             flex-shrink: 0;
         `;
 
-        // Create action buttons container (minimal - no box, just buttons)
-        this._legendContainer = document.createElement('div');
-        this._legendContainer.style.cssText = `
+        // Legend row (title, parameters, values, hover buttons) at the top-left of the pane.
+        // The right side of the pane top stays free for pane header controls.
+        this._legend = new IndicatorLegendList(
+            (action, indicator, point) => this.onLegendAction?.(action, indicator, point),
+            { collapsible: false, chartKey: 'pane' },
+        );
+        this._legendHost = document.createElement('div');
+        this._legendHost.style.cssText = `
             position: absolute;
             top: 6px;
-            right: 90px;
-            z-index: 5;
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            gap: 4px;
-            opacity: 0;
-            transition: opacity 0.15s ease;
+            left: 12px;
+            right: ${this._options.priceScaleWidth + LEGEND_STYLE.metrics.reservedRight}px;
+            z-index: 11;
             pointer-events: none;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         `;
-
-        // Show buttons on panel hover
-        this._element.addEventListener('mouseenter', () => {
-            if (this._legendContainer) {
-                this._legendContainer.style.opacity = '1';
-                this._legendContainer.style.pointerEvents = 'auto';
-            }
-        });
-        this._element.addEventListener('mouseleave', () => {
-            if (this._legendContainer) {
-                this._legendContainer.style.opacity = '0';
-                this._legendContainer.style.pointerEvents = 'none';
-            }
-        });
-
-        this._element.appendChild(this._legendContainer);
+        this._legendHost.appendChild(this._legend.element);
+        this._element.appendChild(this._legendHost);
 
         // Main canvas
         this._canvas = document.createElement('canvas');
@@ -787,16 +809,10 @@ export class IndicatorPaneWidget implements Disposable {
         this._canvas.height = this._height * dpr;
         this._ctx = this._canvas.getContext('2d');
 
-        // Double-click to open indicator settings
-        this._canvas.addEventListener('dblclick', () => {
-            if (this._indicators.length > 0 && this.onSettingsRequested) {
-                this.onSettingsRequested(this._indicators[0]);
-            }
-        });
+        // Double-click on the empty plot toggles maximize (TradingView); settings: legend row / button
+        this._canvas.addEventListener('dblclick', () => this._emitPaneAction('maximize'));
 
         this._element.appendChild(this._canvas);
-
-        this._renderLegend();
 
         // Price axis canvas
         this._priceAxisCanvas = document.createElement('canvas');
@@ -828,136 +844,166 @@ export class IndicatorPaneWidget implements Disposable {
             e.preventDefault();
         });
 
-        // Resize handle (top border) - larger for easier grabbing
+        // Separator (top edge): 1px line in the middle of a row-resize hit zone
+        const m = PANE_STYLE.metrics;
         this._resizeHandle = document.createElement('div');
+        this._resizeHandle.className = 'tvp-separator';
         this._resizeHandle.style.cssText = `
             position: absolute;
-            top: -2px;
+            top: -${Math.floor(m.separatorZone / 2)}px;
             left: 0;
             right: 0;
-            height: 8px;
-            cursor: ns-resize;
-            z-index: 10;
-            transition: background 0.15s;
+            height: ${m.separatorZone}px;
+            cursor: row-resize;
+            z-index: 13;
         `;
-
-        // Add visual feedback on hover
-        this._resizeHandle.addEventListener('mouseenter', () => {
-            if (this._resizeHandle) {
-                this._resizeHandle.style.background = 'rgba(41, 98, 255, 0.3)';
-            }
-        });
-        this._resizeHandle.addEventListener('mouseleave', () => {
-            if (this._resizeHandle && !this._isResizing) {
-                this._resizeHandle.style.background = 'transparent';
-            }
-        });
-
+        this._separatorLine = document.createElement('div');
+        this._separatorLine.style.cssText = `
+            position: absolute; left: 0; right: 0; top: ${Math.floor(m.separatorZone / 2)}px; height: 1px; pointer-events: none;
+        `;
+        this._resizeHandle.appendChild(this._separatorLine);
+        this._resizeHandle.addEventListener('mouseenter', () => this._paintSeparator(true));
+        this._resizeHandle.addEventListener('mouseleave', () => { if (!this._endSeparatorDrag) this._paintSeparator(false); });
+        this._resizeHandle.addEventListener('mousedown', this._onSeparatorDown);
+        this._resizeHandle.addEventListener('dblclick', () => this._emitPaneAction('maximize'));
         this._element.appendChild(this._resizeHandle);
 
-        // Resize events
-        this._resizeHandle.addEventListener('mousedown', this._onResizeStart.bind(this));
-        document.addEventListener('mousemove', this._onResizeMove.bind(this));
-        document.addEventListener('mouseup', this._onResizeEnd.bind(this));
+        // Controls (move up / down, maximize, collapse, delete) at the top-right, shown on hover
+        this._controlsEl = document.createElement('div');
+        this._controlsEl.className = 'tvp-controls';
+        this._controlsEl.style.cssText = `
+            position: absolute;
+            top: ${m.controlsTop}px;
+            right: ${this._options.priceScaleWidth + m.controlsRight}px;
+            display: none;
+            align-items: center;
+            z-index: 12;
+            border-radius: ${m.radius}px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        `;
+        this._element.appendChild(this._controlsEl);
+        this._element.addEventListener('mouseenter', () => this._showControls(true));
+        this._element.addEventListener('mouseleave', () => this._showControls(false));
+        this._renderControls();
+        this._paintSeparator(false);
+        this._element.style.background = this._options.backgroundColor;
 
         container.appendChild(this._element);
     }
 
-    // --- Resize handling ---
+    // --- Separator / controls ---
 
-    private _onResizeStart(e: MouseEvent): void {
-        this._isResizing = true;
-        this._resizeStartY = e.clientY;
-        this._resizeStartHeight = this._height;
+    /** Separator drag: the chart widget resizes the neighbouring panes */
+    public onSeparatorDrag?: (phase: 'start' | 'move' | 'end', clientY: number) => void;
+
+    /** Pane header buttons (up / down / maximize / collapse / delete) */
+    public onPaneAction?: (action: PaneAction, indicator: PanelIndicator) => void;
+
+    private _emitPaneAction(action: PaneAction): void {
+        const ind = this._indicators[0];
+        if (ind) this.onPaneAction?.(action, ind);
+    }
+
+    private _onSeparatorDown = (e: MouseEvent): void => {
+        if (e.button !== 0) return;
         e.preventDefault();
+        e.stopPropagation();
+        this._endSeparatorDrag?.();
+        this._paintSeparator(true);
+        this.onSeparatorDrag?.('start', e.clientY);
+        this._endSeparatorDrag = startDragSession(
+            (ev) => this.onSeparatorDrag?.('move', ev.clientY),
+            () => {
+                this._endSeparatorDrag = null;
+                this._paintSeparator(false);
+                this.onSeparatorDrag?.('end', 0);
+            },
+        );
+    };
+
+    private _paintSeparator(hover: boolean): void {
+        const c = paneColors(this._theme);
+        if (this._resizeHandle) this._resizeHandle.style.background = hover ? c.zoneHover : 'transparent';
+        if (this._separatorLine) this._separatorLine.style.background = hover ? c.separatorHover : c.separator;
     }
 
-    private _onResizeMove(e: MouseEvent): void {
-        if (!this._isResizing) return;
-
-        const deltaY = this._resizeStartY - e.clientY;
-        const newHeight = this._resizeStartHeight + deltaY;
-        this.setHeight(newHeight);
+    private _showControls(on: boolean): void {
+        if (this._controlsEl) this._controlsEl.style.display = on ? 'flex' : 'none';
     }
 
-    private _onResizeEnd(): void {
-        this._isResizing = false;
-        // Reset visual feedback
-        if (this._resizeHandle) {
-            this._resizeHandle.style.background = 'transparent';
-        }
-    }
-
-    private _renderLegend(): void {
-        if (!this._legendContainer) return;
-        this._legendContainer.innerHTML = '';
-
-        if (this._indicators.length === 0) return;
-
-        const indicator = this._indicators[0];
-
-        // Simple transparent icon button
-        const createBtn = (svgContent: string, onClick: () => void) => {
-            const btn = document.createElement('div');
-            btn.style.cssText = `
-                cursor: pointer;
-                width: 20px;
-                height: 20px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border-radius: 3px;
-                transition: background 0.1s;
+    private _renderControls(): void {
+        const el = this._controlsEl;
+        if (!el) return;
+        const c = paneColors(this._theme);
+        const m = PANE_STYLE.metrics;
+        const st = this._controlsState;
+        el.style.background = c.controlsBg;
+        el.innerHTML = '';
+        const svg = (body: string) =>
+            `<svg width="${m.iconSize}" height="${m.iconSize}" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+        const items: Array<{ action: PaneAction; icon: string; label: string; disabled?: boolean }> = [
+            { action: 'up', icon: svg('<path d="M9 14V4.5M5 8.5l4-4 4 4"/>'), label: t('Move pane up'), disabled: !st.canUp },
+            { action: 'down', icon: svg('<path d="M9 4v9.5M5 9.5l4 4 4-4"/>'), label: t('Move pane down'), disabled: !st.canDown },
+            {
+                action: 'maximize',
+                icon: svg(st.maximized
+                    ? '<path d="M7.5 4.5v3h-3M10.5 4.5v3h3M7.5 13.5v-3h-3M10.5 13.5v-3h3"/>'
+                    : '<path d="M4.5 7.5v-3h3M13.5 7.5v-3h-3M4.5 10.5v3h3M13.5 10.5v3h-3"/>'),
+                label: st.maximized ? t('Restore pane') : t('Maximize pane'),
+            },
+            {
+                action: 'collapse',
+                icon: svg(st.collapsed ? '<path d="M5 11l4-4 4 4"/>' : '<path d="M5 7l4 4 4-4"/>'),
+                label: st.collapsed ? t('Expand pane') : t('Collapse pane'),
+            },
+            { action: 'delete', icon: svg('<path d="M5.5 6.5h7M7.5 6.5V5h3v1.5M6.5 6.5l.5 7h4l.5-7M8 8.5v3.5M10 8.5v3.5"/>'), label: t('Delete pane') },
+        ];
+        for (const it of items) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.dataset.paneAction = it.action;
+            b.innerHTML = it.icon;
+            b.title = it.label;
+            b.disabled = !!it.disabled;
+            b.setAttribute('aria-label', it.label);
+            b.style.cssText = `
+                width: ${m.buttonSize}px; height: ${m.buttonSize}px; padding: 0; border: 0; border-radius: ${m.radius}px;
+                background: none; display: inline-flex; align-items: center; justify-content: center;
+                color: ${it.disabled ? c.disabled : c.icon}; cursor: ${it.disabled ? 'default' : 'pointer'};
             `;
-            btn.innerHTML = svgContent;
-            btn.onmouseenter = () => btn.style.background = 'rgba(0,0,0,0.1)';
-            btn.onmouseleave = () => btn.style.background = 'transparent';
-            btn.onclick = (e) => { e.stopPropagation(); onClick(); };
-            return btn;
-        };
-
-        // Settings button (gear icon - simple)
-        const settingsBtn = createBtn(`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#787b86" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`, () => {
-            if (this.onSettingsRequested) {
-                this.onSettingsRequested(indicator);
+            if (!it.disabled) {
+                b.addEventListener('mouseenter', () => { b.style.background = c.buttonHover; b.style.color = c.iconHover; });
+                b.addEventListener('mouseleave', () => { b.style.background = 'none'; b.style.color = c.icon; });
             }
-        });
-
-        // Delete button (trash icon)
-        const closeBtn = createBtn(`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#787b86" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`, () => {
-            this._onRemoveIndicator(indicator);
-        });
-
-        this._legendContainer.appendChild(settingsBtn);
-        this._legendContainer.appendChild(closeBtn);
-    }
-
-    private _onRemoveIndicator(indicator: PanelIndicator): void {
-        const index = this._indicators.indexOf(indicator);
-        if (index > -1) {
-            this._indicators.splice(index, 1);
-            this._renderLegend();
-
-            if (this.onIndicatorRemoved) {
-                this.onIndicatorRemoved(indicator);
-            }
+            b.addEventListener('mousedown', (e) => e.stopPropagation());
+            b.addEventListener('dblclick', (e) => e.stopPropagation());
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (!it.disabled) this._emitPaneAction(it.action);
+            });
+            el.appendChild(b);
         }
     }
 
-    public onIndicatorRemoved?: (indicator: PanelIndicator) => void;
-    public onSettingsRequested?: (indicator: PanelIndicator) => void;
+    /** Legend actions (toggle / settings / remove / more) are handled by the chart widget */
+    public onLegendAction?: LegendActionHandler;
+
+    private _updateLegend(): void {
+        if (!this._legend) return;
+        let index: number | null = null;
+        if (this._crosshairX !== null) {
+            index = Math.round(this._timeScale.coordinateToIndex(this._crosshairX as any));
+        }
+        this._legend.update(this._indicators, index, this._theme);
+    }
 
     public addIndicator(indicator: PanelIndicator): void {
         this._indicators.push(indicator);
-        this._renderLegend();
+        this._updateLegend();
     }
 
     public dispose(): void {
-        if (this._resizeHandle) {
-            this._resizeHandle.removeEventListener('mousedown', this._onResizeStart.bind(this));
-        }
-        document.removeEventListener('mousemove', this._onResizeMove.bind(this));
-        document.removeEventListener('mouseup', this._onResizeEnd.bind(this));
+        this._endSeparatorDrag?.();
 
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);
@@ -970,7 +1016,11 @@ export class IndicatorPaneWidget implements Disposable {
         this._ctx = null;
         this._priceAxisCanvas = null;
         this._priceAxisCtx = null;
-        this._legendContainer = null;
+        this._legend = null;
+        this._legendHost = null;
+        this._controlsEl = null;
+        this._separatorLine = null;
+        this._resizeHandle = null;
     }
 
     /**
@@ -978,6 +1028,7 @@ export class IndicatorPaneWidget implements Disposable {
      */
     public setTheme(theme: 'dark' | 'light'): void {
         const isDark = theme === 'dark';
+        this._theme = theme;
 
         this._options.backgroundColor = isDark ? '#1a1a2e' : '#ffffff';
         this._options.borderColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
@@ -987,6 +1038,9 @@ export class IndicatorPaneWidget implements Disposable {
         this._options.gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
         this._options.crosshairColor = isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.3)';
 
+        if (this._element) this._element.style.background = this._options.backgroundColor;
+        this._paintSeparator(false);
+        this._renderControls();
         this.render();
     }
 }

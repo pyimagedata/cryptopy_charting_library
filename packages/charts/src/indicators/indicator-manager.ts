@@ -170,6 +170,19 @@ export class IndicatorManager {
     }
 
     /**
+     * Move a panel indicator (its pane) one step up / down among the sub-panes.
+     * @returns false when it is not a panel indicator or already at the end
+     */
+    movePanelIndicator(id: string, dir: 'up' | 'down'): boolean {
+        const i = this._panelIndicators.findIndex(x => x.id === id);
+        const j = dir === 'up' ? i - 1 : i + 1;
+        if (i < 0 || j < 0 || j >= this._panelIndicators.length) return false;
+        const list = this._panelIndicators;
+        [list[i], list[j]] = [list[j], list[i]];
+        return true;
+    }
+
+    /**
      * Remove an indicator by ID
      */
     removeIndicator(id: string): void {
@@ -192,6 +205,36 @@ export class IndicatorManager {
             this._onIndicatorRemoved?.(indicator);
             this._onPaneRemoved?.(indicator);
         }
+    }
+
+    /**
+     * Change the draw order of an overlay indicator ("Visual order" menu).
+     * Overlays are painted in array order, so the last one is on top.
+     * @returns false when the indicator is not an overlay or already in place
+     */
+    moveOverlayIndicator(id: string, where: 'front' | 'back'): boolean {
+        const from = this._overlayIndicators.findIndex(i => i.id === id);
+        if (from < 0) return false;
+        const to = where === 'front' ? this._overlayIndicators.length - 1 : 0;
+        if (from === to) return false;
+        const [ind] = this._overlayIndicators.splice(from, 1);
+        this._overlayIndicators.splice(to, 0, ind);
+        return true;
+    }
+
+    /**
+     * Create a copy of an indicator with the same settings (legend "Clone")
+     */
+    duplicateIndicator(id: string): Indicator | null {
+        const source = this.serialize().find(x => x.id === id);
+        if (!source || source.typeId === 'Unknown') return null;
+        const copyId = `${source.typeId}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+        this._createIndicatorFromSerialized({
+            ...source,
+            id: copyId,
+            options: { ...source.options, id: copyId },
+        });
+        return this.getIndicator(copyId);
     }
 
     /**
@@ -254,51 +297,56 @@ export class IndicatorManager {
     // =========================================================================
 
     /**
+     * Persistence / defaults id of an indicator ('RSI', 'EMA', 'BollingerBands', ...);
+     * 'Unknown' for classes without a registered id.
+     */
+    typeIdOf(indicator: Indicator): string {
+        let typeId = 'Unknown';
+        if (indicator instanceof RSIIndicator) typeId = 'RSI';
+        else if (indicator instanceof EMAIndicator) typeId = 'EMA';
+        else if (indicator instanceof SMAIndicator) typeId = 'SMA';
+        else if (indicator instanceof BBIndicator) typeId = 'BollingerBands';
+        else if (indicator instanceof MACDIndicator) typeId = 'MACD';
+        else if (indicator instanceof StochIndicator) typeId = 'Stochastic';
+        else if (indicator instanceof ParabolicSARIndicator) typeId = 'SAR';
+        else if (indicator instanceof SuperTrendIndicator) typeId = 'SuperTrend';
+        else if (indicator instanceof AlphaTrendIndicator) typeId = 'AlphaTrend';
+        else if (indicator instanceof IchimokuIndicator) typeId = 'Ichimoku';
+        else if (indicator instanceof FixedRangeVolumeProfileIndicator) typeId = 'FixedRangeVolumeProfile';
+        else if (indicator instanceof ZigZagTrendlineIndicator) typeId = 'ZigZagTrendline';
+        else if (indicator instanceof VolumeIndicator) typeId = 'Volume';
+        else if (indicator instanceof HMAIndicator) typeId = 'HMA';
+        else if (indicator instanceof StochRSIIndicator) typeId = 'StochasticRSI';
+        else if (indicator instanceof HalfTrendIndicator) typeId = 'HalfTrend';
+        else if (indicator instanceof TdojiOscillatorIndicator) typeId = 'TdojiOscillator';
+        else if (indicator instanceof ThunderbirdxIndicator) typeId = 'Thunderbirdx';
+        else if (indicator instanceof TdojiSRIndicator) typeId = 'TdojiSR';
+        else if (indicator instanceof TdojiMomIndicator) typeId = 'TdojiMom';
+        else if (indicator instanceof ZigZagIndicator) typeId = 'ZigZag';
+        else if (indicator instanceof ABCDPatternIndicator) typeId = 'ABCDPattern';
+        else if (indicator instanceof HarmonicPatternIndicator) typeId = 'HarmonicPattern';
+        else if (indicator instanceof ChartPatternsIndicator) typeId = 'ChartPatterns';
+        else if (indicator instanceof TrendlineBreakoutIndicator) typeId = 'TrendlineBreakout';
+        else if (indicator instanceof DeMarkPivotIndicator) typeId = 'DeMarkPivot';
+        else if (indicator instanceof SMCIndicator) typeId = 'SMC';
+        else if (indicator instanceof BobbinIndicator) typeId = 'Bobbin';
+        else if (indicator instanceof FVGIndicator) typeId = 'FVG';
+        else if (indicator instanceof FvgInversionIndicator) typeId = 'FvgInversion';
+        else if (indicator instanceof EqHLIndicatorV2) typeId = 'EqHLV2';
+        else if (indicator instanceof JudasSwingIndicator) typeId = 'JudasSwing';
+        else if (indicator instanceof SMTDivergenceIndicator) typeId = 'SMTDivergence';
+        else if (indicator instanceof SpecialForcesIndicator) typeId = 'SpecialForces';
+        return typeId;
+    }
+
+    /**
      * Serialize all indicators to JSON
      */
     serialize(): SerializedIndicator[] {
         const serialized: SerializedIndicator[] = [];
 
         for (const indicator of this.allIndicators) {
-            let typeId = 'Unknown';
-            if (indicator instanceof RSIIndicator) typeId = 'RSI';
-            else if (indicator instanceof EMAIndicator) typeId = 'EMA';
-            else if (indicator instanceof SMAIndicator) typeId = 'SMA';
-            else if (indicator instanceof BBIndicator) typeId = 'BollingerBands';
-            else if (indicator instanceof MACDIndicator) typeId = 'MACD';
-            else if (indicator instanceof StochIndicator) typeId = 'Stochastic';
-            else if (indicator instanceof ParabolicSARIndicator) typeId = 'SAR';
-            else if (indicator instanceof SuperTrendIndicator) typeId = 'SuperTrend';
-            else if (indicator instanceof AlphaTrendIndicator) typeId = 'AlphaTrend';
-            else if (indicator instanceof IchimokuIndicator) typeId = 'Ichimoku';
-            else if (indicator instanceof FixedRangeVolumeProfileIndicator) typeId = 'FixedRangeVolumeProfile';
-            else if (indicator instanceof ZigZagTrendlineIndicator) typeId = 'ZigZagTrendline';
-            else if (indicator instanceof VolumeIndicator) typeId = 'Volume';
-            else if (indicator instanceof HMAIndicator) typeId = 'HMA';
-            else if (indicator instanceof StochRSIIndicator) typeId = 'StochasticRSI';
-            else if (indicator instanceof HalfTrendIndicator) typeId = 'HalfTrend';
-            else if (indicator instanceof TdojiOscillatorIndicator) typeId = 'TdojiOscillator';
-            else if (indicator instanceof ThunderbirdxIndicator) typeId = 'Thunderbirdx';
-            else if (indicator instanceof TdojiSRIndicator) typeId = 'TdojiSR';
-            else if (indicator instanceof TdojiMomIndicator) typeId = 'TdojiMom';
-            else if (indicator instanceof ZigZagIndicator) typeId = 'ZigZag';
-            else if (indicator instanceof ABCDPatternIndicator) typeId = 'ABCDPattern';
-            else if (indicator instanceof HarmonicPatternIndicator) typeId = 'HarmonicPattern';
-            else if (indicator instanceof ChartPatternsIndicator) typeId = 'ChartPatterns';
-            else if (indicator instanceof TrendlineBreakoutIndicator) typeId = 'TrendlineBreakout';
-            else if (indicator instanceof DeMarkPivotIndicator) typeId = 'DeMarkPivot';
-            else if (indicator instanceof SMCIndicator) typeId = 'SMC';
-            else if (indicator instanceof BobbinIndicator) typeId = 'Bobbin';
-            else if (indicator instanceof FVGIndicator) typeId = 'FVG';
-            else if (indicator instanceof FvgInversionIndicator) typeId = 'FvgInversion';
-            else if (indicator instanceof EqHLIndicatorV2) typeId = 'EqHLV2';
-            else if (indicator instanceof JudasSwingIndicator) typeId = 'JudasSwing';
-            else if (indicator instanceof SMTDivergenceIndicator) typeId = 'SMTDivergence';
-            else if (indicator instanceof SpecialForcesIndicator) typeId = 'SpecialForces';
-
-
-
-
+            const typeId = this.typeIdOf(indicator);
 
             serialized.push({
                 id: indicator.id,

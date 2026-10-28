@@ -36,6 +36,7 @@ export function closeLineButtonMenu(): void {
  *              body'ye eklenir (pencere transform ile ortalandigi icin icindeki
  *              position:fixed eleman yanlis yere kayardi) ve degiskenler kopyalanir.
  * @param widths Kalinlik secenekleri; bos dizi verilirse sadece stil menusu cikar.
+ * @param styles Stil secenekleri; bos dizi verilirse sadece kalinlik menusu cikar.
  */
 export function createLineButton(
     width: number,
@@ -44,6 +45,7 @@ export function createLineButton(
     onStyle: (s: LineButtonStyle) => void,
     host: HTMLElement | null,
     widths: number[] = [1, 2, 3, 4],
+    styles: LineButtonStyle[] = ['solid', 'dashed', 'dotted'],
 ): HTMLElement {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -81,12 +83,12 @@ export function createLineButton(
         widths.forEach((w) => item(`${linePreviewSvg(w, 'solid', 40)}<span>${w}px</span>`, w === width, () => {
             width = w; onWidth(w); paint(); closeLineButtonMenu();
         }));
-        if (widths.length) {
+        if (widths.length && styles.length) {
             const sep = document.createElement('div');
             sep.style.cssText = 'height:1px;background:var(--border-color);margin:4px 0;';
             menu.appendChild(sep);
         }
-        (['solid', 'dashed', 'dotted'] as LineButtonStyle[]).forEach((s) => item(linePreviewSvg(2, s, 40), s === style, () => {
+        styles.forEach((s) => item(linePreviewSvg(2, s, 40), s === style, () => {
             style = s; onStyle(s); paint(); closeLineButtonMenu();
         }));
         // Baska bir popover (renk / cizgi) aciksa kapatilir

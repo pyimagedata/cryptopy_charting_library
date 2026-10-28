@@ -11,6 +11,7 @@
 
 import { OverlayIndicator, IndicatorOptions } from './indicator';
 import { BarData } from '../model/data';
+import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
 
 /**
  * EMA indicator options
@@ -156,6 +157,16 @@ export class EMAIndicator extends OverlayIndicator {
                 value: ema,
             });
         }
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._data.length, index);
+        const o = this._emaOptions;
+        return {
+            title: 'EMA',
+            params: legendParams(o.period, o.source),
+            plots: [{ color: this._options.color, value: i >= 0 ? this._data[i].value : null }],
+        };
     }
 
     /**

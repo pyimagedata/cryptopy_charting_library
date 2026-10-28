@@ -15,14 +15,15 @@ import { coordinate } from '../model/coordinate';
 import { SpotPriceSource } from '../model/spot-price-source';
 import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ContextMenuItem, ICONS } from './context_menu';
+import { LegendAction, LegendPoint, LEGEND_ICONS } from './indicator_legend';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
 import { ObjectTreePanel } from './object_tree/object_tree_panel';
 import { indicatorRowSignature } from './object_tree/object_tree_model';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator, SMTDivergenceIndicator } from '../indicators';
+import { IndicatorType, IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, JudasSwingIndicator, SMTDivergenceIndicator } from '../indicators';
 import { IndicatorSearchModal } from './indicator_search';
-import { IndicatorSettingsModal } from './indicator_settings';
+import { IndicatorSettingsModal, applySavedDefaults, withCommonSettings, safeLocalStorage } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
 import { DrawingManager, DrawingMode, Drawing } from '../drawings';
 import { TableDrawing } from '../drawings/note-drawings';
@@ -36,6 +37,10 @@ import { TextEditorOverlay } from './text-editor-overlay';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
 import { ChartSettingsModal } from './chart-settings-modal';
 import { ChartStateManager } from '../state';
+import {
+    MAIN_PANE_ID, PANE_STYLE, PaneAction, PaneLayoutPersist, canMovePane, dragSeparator, isPaneHiddenByInterval,
+    paneColors, resolvePaneLayout, toggleCollapsed, toggleMaximized,
+} from '../indicators/pane-layout';
 import { AddTextTooltipHelper } from './tooltips';
 import { TechnicalRatingBadge } from './technical-rating-badge';
 import {
@@ -201,6 +206,15 @@ export class ChartWidget implements Disposable {
     // Indicator system
     private readonly _indicatorManager: IndicatorManager;
     private readonly _indicatorPanes: Map<string, IndicatorPaneWidget> = new Map();
+    // Sub-pane layout (persisted with the indicators): collapsed / maximized state, heights of restored panes
+    private _collapsedPanes: Set<string> = new Set();
+    private _maximizedPane: string | null = null;
+    private _savedPaneHeights: Record<string, number> = {};
+    private _lastMainHeight = 0;
+    private _paneHiddenSig = '';
+    private _paneDrag: { id: string; startY: number; upperId: string | null; upperH: number; lowerH: number } | null = null;
+    private _mainPaneButton: HTMLButtonElement | null = null;
+    private _mainPaneHover = false;
 
     // Loading overlay
     private _loadingOverlay: HTMLElement | null = null;
@@ -345,6 +359,10 @@ export class ChartWidget implements Disposable {
 
         // Initialize chart state manager for per-symbol persistence
         this._chartStateManager = new ChartStateManager(this._drawingManager, this._indicatorManager);
+        this._chartStateManager.setPaneLayoutHost({
+            getPaneLayout: () => this._getPaneLayout(),
+            applyPaneLayout: (layout) => this._applyPaneLayoutState(layout),
+        });
         // Note: setSymbol is called AFTER _createLayout to ensure UI containers exist
 
         // Subscribe to drawing selection changes - show/hide attribute bar
@@ -376,20 +394,22 @@ export class ChartWidget implements Disposable {
         this._indicatorSearchModal.indicatorSelected.subscribe((indicatorId) => {
             this._onIndicatorSelected(indicatorId);
         });
+        this._indicatorSearchModal.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
 
         // Initialize indicator settings modal
         this._indicatorSettingsModal = new IndicatorSettingsModal(this._container);
-        this._indicatorSettingsModal.settingsChanged.subscribe(() => {
+        this._indicatorSettingsModal.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+        // Settings apply live while the dialog is open (Cancel restores the snapshot)
+        this._indicatorSettingsModal.liveChanged.subscribe(() => {
+            this._updateMainLegend();
+            this._scheduleDraw();
+        });
+        this._indicatorSettingsModal.closed.subscribe(() => {
+            // Ok and Cancel both end here: refresh and persist the final state
+            // (the modal never recalculates from here: it already did, per change)
             if (this._editingIndicator) {
-                // The modular modal already applies every changed setting through
-                // setSettingValue(...). Re-running a full recalculation here can
-                // reset live ZigZag-based pattern state and make the signal look
-                // inactive right after changing inputs.
-
                 this._updateMainLegend();
                 this._scheduleDraw();
-
-                // Save state after settings change
                 this._chartStateManager?.saveState();
             }
             this._editingIndicator = null;
@@ -751,6 +771,7 @@ export class ChartWidget implements Disposable {
     private _pushIndicatorContext(): void {
         for (const ind of this._indicatorManager.allIndicators) {
             const withCtx = ind as unknown as { setContext?: (c: { symbol: string; timeframe: string; exchange?: string }) => void };
+            ind.setTimeframe(this._model.timeframe);
             withCtx.setContext?.({
                 symbol: this._model.symbol,
                 timeframe: this._model.timeframe,
@@ -875,6 +896,10 @@ export class ChartWidget implements Disposable {
         if (this._chartSettingsModal) {
             this._chartSettingsModal.setTheme(theme);
         }
+
+        this._indicatorSettingsModal?.setTheme(theme === 'light' ? 'light' : 'dark');
+
+        this._indicatorSearchModal?.setTheme(theme === 'light' ? 'light' : 'dark');
 
         // Update drawing toolbar
         if (this._drawingToolbarWidget) {
@@ -1284,26 +1309,9 @@ export class ChartWidget implements Disposable {
         // Create widgets
         this._paneWidget = new PaneWidget(this._chartRow, this._model);
 
-        // Connect overlay indicator action callback
-        this._paneWidget.onOverlayIndicatorAction = (action, index) => {
-            const indicators = this._indicatorManager.overlayIndicators;
-            if (index < 0 || index >= indicators.length) return;
-            const indicator = indicators[index];
-
-            switch (action) {
-                case 'toggle':
-                    indicator.setVisible(!indicator.visible);
-                    this._scheduleDraw();
-                    break;
-                case 'settings':
-                    this._openIndicatorSettings(indicator);
-                    break;
-                case 'remove':
-                    this._indicatorManager.removeIndicator(indicator.id);
-                    this._scheduleDraw();
-                    break;
-            }
-        };
+        // Indicator legend (main pane rows): eye / settings / remove / more
+        this._paneWidget.setLegendChartKey(this._container.id || 'default');
+        this._paneWidget.onLegendAction = (action, indicator, point) => this._onLegendAction(action, indicator, point);
         this._priceAxisWidget = new PriceAxisWidget(this._chartRow, this._model.rightPriceScale, {
             backgroundColor: this._model.options.layout.backgroundColor,
             textColor: this._model.options.layout.textColor,
@@ -1387,11 +1395,8 @@ export class ChartWidget implements Disposable {
         const priceAxisWidth = this._priceAxisWidget?.width ?? 52;
         const drawingToolbarWidth = this._drawingToolbarWidget?.width ?? 0;
 
-        // Calculate total indicator pane heights
-        let indicatorPanesHeight = 0;
-        for (const pane of this._indicatorPanes.values()) {
-            indicatorPanesHeight += pane.height;
-        }
+        // Sub-pane heights (collapsed / maximized / hidden on this timeframe) and what is left for the main pane
+        const paneLayout = this._layoutIndicatorPanes(this._height - timeAxisHeight - toolbarHeight);
 
         // Izleme listesi acikken grafik onun genisligi kadar daralir.
         // Nesne agaci paneli de ayni sag kenari kullanir (ikisi ayni anda acik olmaz).
@@ -1401,17 +1406,22 @@ export class ChartWidget implements Disposable {
         const usableWidth = this._width - watchlistWidth;
         this._technicalRatingBadge?.setRightOffset(watchlistWidth);
         const paneWidth = usableWidth - priceAxisWidth - drawingToolbarWidth;
-        const paneHeight = this._height - timeAxisHeight - toolbarHeight - indicatorPanesHeight;
+        const paneHeight = paneLayout.mainHeight;
+        if (this._chartRow) this._chartRow.style.display = paneLayout.mainHidden ? 'none' : 'flex';
 
-        // Update model
-        this._model.setSize(usableWidth, paneHeight);
+        // Update model (kept as is while a sub-pane covers the main pane)
         this._model.timeScale.setWidth(paneWidth);
-        this._model.rightPriceScale.setHeight(paneHeight);
+        if (!paneLayout.mainHidden) {
+            this._lastMainHeight = paneHeight;
+            this._model.setSize(usableWidth, paneHeight);
+            this._model.rightPriceScale.setHeight(paneHeight);
 
-        // Update widgets
-        this._paneWidget?.setSize(paneWidth, paneHeight);
-        this._priceAxisWidget?.setHeight(paneHeight);
+            // Update widgets
+            this._paneWidget?.setSize(paneWidth, paneHeight);
+            this._priceAxisWidget?.setHeight(paneHeight);
+        }
         this._timeAxisWidget?.setWidth(paneWidth);
+        this._updateMainPaneButton(priceAxisWidth);
 
         // Offset chart row for drawing toolbar (using CSS variable reference)
         // Izleme listesi acikken satirlar (dolayisiyla fiyat/zaman eksenleri) da onun
@@ -1441,6 +1451,202 @@ export class ChartWidget implements Disposable {
             this._element.style.setProperty('--tv-time-axis-height', `${timeAxisHeight}px`);
             this._element.style.setProperty('--tv-price-axis-width', `${priceAxisWidth}px`);
         }
+    }
+
+    // --- Sub-pane layout (order, separators, maximize / collapse) ---
+
+    /** Panes in display order (the indicator order), hidden-on-timeframe ones included */
+    private _orderedPanes(): Array<{ id: string; pane: IndicatorPaneWidget }> {
+        const out: Array<{ id: string; pane: IndicatorPaneWidget }> = [];
+        for (const ind of this._indicatorManager.panelIndicators) {
+            const pane = this._indicatorPanes.get(ind.id);
+            if (pane) out.push({ id: ind.id, pane });
+        }
+        return out;
+    }
+
+    private _isPaneHiddenNow(pane: IndicatorPaneWidget): boolean {
+        return this._indicatorPanesHidden || isPaneHiddenByInterval(pane.indicators);
+    }
+
+    /** Resolve and apply the layout of every sub-pane; returns the main pane share */
+    private _layoutIndicatorPanes(available: number) {
+        const ordered = this._orderedPanes();
+        const layout = resolvePaneLayout(
+            available,
+            ordered.map(({ id, pane }) => ({
+                id,
+                height: pane.actualHeight,
+                collapsed: this._collapsedPanes.has(id),
+                hiddenByInterval: this._isPaneHiddenNow(pane),
+            })),
+            this._maximizedPane,
+        );
+        const visible = ordered.filter(({ pane }) => !this._isPaneHiddenNow(pane)).map((o) => o.id);
+        for (const { id, pane } of ordered) {
+            pane.applyLayout(layout.panes[id]);
+            pane.setControlsState({
+                canUp: canMovePane(visible, id, 'up'),
+                canDown: canMovePane(visible, id, 'down'),
+                maximized: this._maximizedPane === id,
+                collapsed: this._collapsedPanes.has(id),
+            });
+        }
+        return layout;
+    }
+
+    private _syncPaneDom(): void {
+        const container = this._indicatorContainer;
+        if (!container) return;
+        for (const { pane } of this._orderedPanes()) {
+            if (pane.element) container.appendChild(pane.element);
+        }
+    }
+
+    private _onPaneAction(action: PaneAction, indicator: Indicator): void {
+        const id = indicator.id;
+        switch (action) {
+            case 'up':
+            case 'down': {
+                if (this._maximizedPane !== null) return;
+                const ordered = this._orderedPanes();
+                const visible = ordered.filter(({ pane }) => !this._isPaneHiddenNow(pane)).map((o) => o.id);
+                const vi = visible.indexOf(id);
+                const target = visible[action === 'up' ? vi - 1 : vi + 1];
+                if (vi < 0 || target === undefined) return;
+                const all = ordered.map((o) => o.id);
+                const steps = Math.abs(all.indexOf(target) - all.indexOf(id));
+                for (let i = 0; i < steps; i++) this._indicatorManager.movePanelIndicator(id, action);
+                this._syncPaneDom();
+                break;
+            }
+            case 'maximize':
+                this._maximizedPane = toggleMaximized(this._maximizedPane, id);
+                break;
+            case 'collapse':
+                if (this._maximizedPane === id) this._maximizedPane = null;
+                this._collapsedPanes = new Set(toggleCollapsed([...this._collapsedPanes], id));
+                break;
+            case 'delete':
+                this._indicatorManager.removeIndicator(id);
+                break;
+        }
+        this._updateLayout();
+        this._scheduleDraw();
+        this._chartStateManager?.requestSave();
+    }
+
+    private _onPaneSeparatorDrag(id: string, phase: 'start' | 'move' | 'end', clientY: number): void {
+        const m = PANE_STYLE.metrics;
+        if (phase === 'start') {
+            this._paneDrag = null;
+            if (this._maximizedPane !== null || this._collapsedPanes.has(id)) return;
+            const visible = this._orderedPanes().filter(({ pane }) => !this._isPaneHiddenNow(pane));
+            const i = visible.findIndex((o) => o.id === id);
+            if (i < 0) return;
+            let upper: { id: string; pane: IndicatorPaneWidget } | null = null;
+            for (let k = i - 1; k >= 0; k--) {
+                if (!this._collapsedPanes.has(visible[k].id)) { upper = visible[k]; break; }
+            }
+            this._paneDrag = {
+                id, startY: clientY, upperId: upper ? upper.id : null,
+                upperH: upper ? upper.pane.height : this._lastMainHeight,
+                lowerH: visible[i].pane.height,
+            };
+        } else if (phase === 'move') {
+            const d = this._paneDrag;
+            const lowerPane = d ? this._indicatorPanes.get(d.id) : undefined;
+            if (!d || !lowerPane) return;
+            const upperPane = d.upperId ? this._indicatorPanes.get(d.upperId) : undefined;
+            const [u, l] = dragSeparator(d.upperH, d.lowerH, clientY - d.startY,
+                upperPane ? m.minHeight : m.minMainHeight, m.minHeight);
+            lowerPane.setHeight(l);
+            upperPane?.setHeight(u);
+            this._updateLayout();
+            this._scheduleDraw();
+        } else {
+            if (this._paneDrag) this._chartStateManager?.requestSave();
+            this._paneDrag = null;
+        }
+    }
+
+    private _getPaneLayout(): PaneLayoutPersist {
+        const heights: Record<string, number> = {};
+        for (const { id, pane } of this._orderedPanes()) heights[id] = pane.actualHeight;
+        return {
+            heights,
+            collapsed: [...this._collapsedPanes].filter((id) => this._indicatorPanes.has(id)),
+            maximized: this._maximizedPane === MAIN_PANE_ID || (this._maximizedPane !== null && this._indicatorPanes.has(this._maximizedPane))
+                ? this._maximizedPane : null,
+        };
+    }
+
+    private _applyPaneLayoutState(layout: PaneLayoutPersist | undefined): void {
+        if (!layout) return;
+        this._savedPaneHeights = { ...(layout.heights ?? {}) };
+        for (const [id, h] of Object.entries(this._savedPaneHeights)) {
+            if (typeof h === 'number' && h > 0) this._indicatorPanes.get(id)?.setHeight(h);
+        }
+        this._collapsedPanes = new Set((layout.collapsed ?? []).filter((id) => this._indicatorPanes.has(id)));
+        this._maximizedPane = layout.maximized && (layout.maximized === MAIN_PANE_ID || this._indicatorPanes.has(layout.maximized))
+            ? layout.maximized : null;
+        this._syncPaneDom();
+        this._updateLayout();
+        this._scheduleDraw();
+    }
+
+    /** Maximize / restore button of the main pane (top-right, on hover; only with sub-panes) */
+    private _updateMainPaneButton(priceAxisWidth: number): void {
+        if (!this._chartRow) return;
+        const m = PANE_STYLE.metrics;
+        if (!this._mainPaneButton) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.style.cssText = `
+                position: absolute; top: ${m.controlsTop}px; z-index: 12; display: none;
+                width: ${m.buttonSize}px; height: ${m.buttonSize}px; padding: 0; border: 0; border-radius: ${m.radius}px;
+                align-items: center; justify-content: center; cursor: pointer;
+            `;
+            b.addEventListener('mousedown', (e) => e.stopPropagation());
+            b.addEventListener('dblclick', (e) => e.stopPropagation());
+            b.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._maximizedPane = toggleMaximized(this._maximizedPane, MAIN_PANE_ID);
+                this._updateLayout();
+                this._scheduleDraw();
+                this._chartStateManager?.requestSave();
+            });
+            this._chartRow.appendChild(b);
+            this._chartRow.addEventListener('mouseenter', () => { this._mainPaneHover = true; this._updateMainPaneButton(this._priceAxisWidget?.width ?? 52); });
+            this._chartRow.addEventListener('mouseleave', () => { this._mainPaneHover = false; this._updateMainPaneButton(this._priceAxisWidget?.width ?? 52); });
+            this._mainPaneButton = b;
+        }
+        const b = this._mainPaneButton;
+        const maximized = this._maximizedPane === MAIN_PANE_ID;
+        const c = paneColors(this._currentTheme === 'light' ? 'light' : 'dark');
+        const hasPanes = this._orderedPanes().some(({ pane }) => !this._isPaneHiddenNow(pane)) || maximized;
+        b.style.display = this._mainPaneHover && hasPanes ? 'inline-flex' : 'none';
+        // Keep clear of the technical rating card that sits in the same corner
+        let right = priceAxisWidth + m.controlsRight;
+        const badge = this._element?.querySelector('#tv-technical-rating-badge') as HTMLElement | null;
+        if (badge && badge.offsetWidth > 0) {
+            const br = badge.getBoundingClientRect();
+            const cr = this._chartRow.getBoundingClientRect();
+            if (br.top < cr.top + m.controlsTop + m.buttonSize && br.bottom > cr.top + m.controlsTop) {
+                right = Math.max(right, Math.round(cr.right - br.left) + m.controlsRight);
+            }
+        }
+        b.style.right = `${right}px`;
+        b.style.background = c.controlsBg;
+        b.style.color = c.icon;
+        const label = maximized ? t('Restore pane') : t('Maximize pane');
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        b.dataset.paneAction = 'maximize-main';
+        const body = maximized
+            ? '<path d="M7.5 4.5v3h-3M10.5 4.5v3h3M7.5 13.5v-3h-3M10.5 13.5v-3h3"/>'
+            : '<path d="M4.5 7.5v-3h3M13.5 7.5v-3h-3M4.5 10.5v3h3M13.5 10.5v3h-3"/>';
+        b.innerHTML = `<svg width="${m.iconSize}" height="${m.iconSize}" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
     }
 
     private _onChartTypeChange(type: ChartType): void {
@@ -1513,6 +1719,7 @@ export class ChartWidget implements Disposable {
         this._model.setTimeframe(timeframe);
         // Cizimlerin "zaman dilimlerinde gorunurluk" filtresi
         this._drawingManager.setTimeframe(timeframe);
+        for (const ind of this._indicatorManager.allIndicators) ind.setTimeframe(timeframe);
         this._drawingSettingsModal?.setTimeframe(timeframe);
         this._objectTreePanel?.resetDeleteConfirm();
         this._objectTreePanel?.refresh();
@@ -1745,6 +1952,8 @@ export class ChartWidget implements Disposable {
             this._createContextMenu();
 
             this._element.addEventListener('contextmenu', (e) => {
+                // Legend rows open their own "More" menu
+                if (e.target instanceof Element && e.target.closest('.tvl-row')) return;
                 const hitDrawing = this._getDrawingForContextMenu(e.clientX, e.clientY, e.target);
                 if (hitDrawing) {
                     e.preventDefault();
@@ -2598,7 +2807,7 @@ export class ChartWidget implements Disposable {
         const indicators = [...this._indicatorManager.overlayIndicators].reverse();
 
         for (const indicator of indicators) {
-            if (!indicator.visible) {
+            if (!indicator.shown) {
                 continue;
             }
 
@@ -2783,7 +2992,7 @@ export class ChartWidget implements Disposable {
         }
 
         const gainMetrics = this._indicatorManager.overlayIndicators.find(
-            (indicator) => indicator instanceof DeMarkPivotIndicator && indicator.visible
+            (indicator) => indicator instanceof DeMarkPivotIndicator && indicator.shown
         ) as DeMarkPivotIndicator | undefined;
 
         if (!gainMetrics) {
@@ -3146,15 +3355,12 @@ export class ChartWidget implements Disposable {
             this._scheduleDraw();
         });
 
-        // Handle indicator removal from pane UI (the legend 'X' button)
-        pane.onIndicatorRemoved = (removedIndicator) => {
-            this._indicatorManager.removeIndicator(removedIndicator.id);
-        };
-
-        // Handle settings button click
-        pane.onSettingsRequested = (ind) => {
-            this._openIndicatorSettings(ind);
-        };
+        // Legend buttons / menu of the sub-pane row
+        pane.onLegendAction = (action, ind, point) => this._onLegendAction(action, ind, point);
+        pane.onPaneAction = (action, ind) => this._onPaneAction(action, ind);
+        pane.onSeparatorDrag = (phase, y) => this._onPaneSeparatorDrag(indicator.id, phase, y);
+        const savedHeight = this._savedPaneHeights[indicator.id];
+        if (typeof savedHeight === 'number' && savedHeight > 0) pane.setHeight(savedHeight);
 
         pane.addIndicator(indicator);
         this._indicatorPanes.set(indicator.id, pane);
@@ -3179,6 +3385,9 @@ export class ChartWidget implements Disposable {
             pane.dispose();
             this._indicatorPanes.delete(indicator.id);
         }
+        this._collapsedPanes.delete(indicator.id);
+        delete this._savedPaneHeights[indicator.id];
+        if (this._maximizedPane === indicator.id) this._maximizedPane = null;
 
         this._updateLayout();
         this._scheduleDraw();
@@ -3187,12 +3396,80 @@ export class ChartWidget implements Disposable {
     /**
      * Open settings modal for an indicator
      */
+    /** Indicator legend actions (main pane and sub-panes share this) */
+    private _onLegendAction(action: LegendAction, indicator: Indicator, point: LegendPoint): void {
+        switch (action) {
+            case 'toggle':
+                indicator.setVisible(!indicator.visible);
+                this._scheduleDraw();
+                this._chartStateManager?.requestSave();
+                break;
+            case 'settings':
+                this._openIndicatorSettings(indicator);
+                break;
+            case 'remove':
+                this._indicatorManager.removeIndicator(indicator.id);
+                this._scheduleDraw();
+                break;
+            case 'more':
+                this._showIndicatorMenu(indicator, point);
+                break;
+        }
+    }
+
+    /** "More" menu of a legend row (also opened by right-click on the row) */
+    private _showIndicatorMenu(indicator: Indicator, point: LegendPoint): void {
+        const menu = this._drawingContextMenu;
+        if (!menu) return;
+        if (menu.isVisible()) menu.hide();
+        this._contextMenu?.hide();
+        const manager = this._indicatorManager;
+        const id = indicator.id;
+        const redraw = () => { this._scheduleDraw(); this._chartStateManager?.requestSave(); };
+        const items: ContextMenuItem[] = [
+            {
+                id: 'toggle',
+                label: indicator.visible ? t('Hide') : t('Show'),
+                icon: indicator.visible ? LEGEND_ICONS.eyeOff : LEGEND_ICONS.eye,
+                action: () => { indicator.setVisible(!indicator.visible); redraw(); },
+            },
+            { id: 'settings', label: t('Settings...'), icon: LEGEND_ICONS.settings, action: () => this._openIndicatorSettings(indicator) },
+            { id: 'clone', label: t('Clone'), icon: LEGEND_ICONS.clone, action: () => { manager.duplicateIndicator(id); redraw(); } },
+        ];
+        if (indicator.type === IndicatorType.Overlay) {
+            items.push(
+                { id: 'sep1', label: '', separator: true },
+                {
+                    id: 'order',
+                    label: t('Visual order'),
+                    submenu: true,
+                    children: [
+                        { id: 'order-front', label: t('Bring to front'), action: () => { if (manager.moveOverlayIndicator(id, 'front')) redraw(); } },
+                        { id: 'order-back', label: t('Send to back'), action: () => { if (manager.moveOverlayIndicator(id, 'back')) redraw(); } },
+                    ],
+                },
+            );
+        }
+        items.push(
+            { id: 'sep2', label: '', separator: true },
+            { id: 'remove', label: t('Remove'), icon: LEGEND_ICONS.remove, action: () => { manager.removeIndicator(id); redraw(); } },
+        );
+        menu.setItems(items);
+        menu.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+        if (point.rect) menu.showAnchored(point.rect);
+        else menu.show(point.x, point.y);
+    }
+
     private _openIndicatorSettings(ind: any): void {
         this._editingIndicator = ind;
 
         // Check if indicator has modular settings (implements getSettingsConfig)
         if (typeof ind.getSettingsConfig === 'function') {
-            this._indicatorSettingsModal?.showForIndicator(ind);
+            this._indicatorSettingsModal?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+            this._indicatorSettingsModal?.showForIndicator(ind, {
+                typeId: this._indicatorManager.typeIdOf(ind),
+                getTimeframe: () => this._model.timeframe,
+            });
         } else {
             console.warn('Indicator does not implement getSettingsConfig:', ind.name);
         }
@@ -3203,7 +3480,15 @@ export class ChartWidget implements Disposable {
 
         const mainSeries = this._model.serieses[0];
 
+        // A pane whose indicators are all hidden on this timeframe collapses (and returns with the timeframe)
+        const hiddenSig = this._orderedPanes().map(({ id, pane }) => `${id}:${this._isPaneHiddenNow(pane) ? 1 : 0}`).join('|');
+        if (hiddenSig !== this._paneHiddenSig) {
+            this._paneHiddenSig = hiddenSig;
+            this._updateLayout();
+        }
+
         for (const [paneId, pane] of this._indicatorPanes.entries()) {
+            if (this._isPaneHiddenNow(pane)) continue;
             if (crosshair && crosshair.visible) {
                 // X is synchronized (time axis)
                 // Y is only shown if the mouse is actually over THIS specific pane
@@ -3243,6 +3528,20 @@ export class ChartWidget implements Disposable {
     }
 
     private _onIndicatorSelected(indicatorId: string): void {
+        const before = new Set<Indicator>(this._indicatorManager.allIndicators);
+        this._createIndicatorById(indicatorId);
+        // "Save as default" values of the indicator type apply to what was just added
+        for (const ind of this._indicatorManager.allIndicators) {
+            if (before.has(ind)) continue;
+            const typeId = this._indicatorManager.typeIdOf(ind);
+            if (applySavedDefaults(withCommonSettings(ind), safeLocalStorage(), typeId)) {
+                ind.recalculate();
+            }
+        }
+        this._scheduleDraw();
+    }
+
+    private _createIndicatorById(indicatorId: string): void {
         // Create and add indicator based on ID
         switch (indicatorId) {
             case 'rsi':
@@ -3399,6 +3698,7 @@ export class ChartWidget implements Disposable {
                     showBullBreakout: true,
                     showBearBreakdown: true,
                 }));
+                break;
             case 'smc':
                 this.addOverlayIndicator(new SMCIndicator({
                     period: 15,

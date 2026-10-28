@@ -58,7 +58,7 @@ export class OverlayIndicatorRenderer {
         if (!visibleRange) return;
 
         for (const indicator of this._indicators) {
-            if (!indicator.visible) continue;
+            if (!indicator.shown) continue;
 
             // Apply filter if provided
             const isHistogram = indicator.options.style === 'histogram';

@@ -4,6 +4,10 @@
 
 import { PanelIndicator, IndicatorOptions, IndicatorRange } from './indicator';
 import { BarData } from '../model/data';
+import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
+import {
+    IndicatorSettingsConfig, createInputsTab, createStyleTab, numberRow, selectRow, colorRow, lineWidthRow, SOURCE_OPTIONS,
+} from '../gui/indicator_settings';
 
 /**
  * MACD indicator options
@@ -13,6 +17,9 @@ export interface MACDIndicatorOptions extends IndicatorOptions {
     slowPeriod: number;    // default: 26
     signalPeriod: number;  // default: 9
     source: 'close' | 'open' | 'high' | 'low' | 'hl2' | 'hlc3' | 'ohlc4';
+    signalColor: string;      // Signal line colour
+    histUpColor: string;      // Histogram colour above zero
+    histDownColor: string;    // Histogram colour below zero
 }
 
 const defaultMACDOptions: Partial<MACDIndicatorOptions> = {
@@ -23,7 +30,16 @@ const defaultMACDOptions: Partial<MACDIndicatorOptions> = {
     source: 'close',
     color: '#2196f3',  // MACD Line Color
     lineWidth: 1.5,
+    signalColor: '#ff6d00',
+    histUpColor: 'rgba(38, 166, 154, 0.5)',
+    histDownColor: 'rgba(239, 83, 80, 0.5)',
 };
+
+/** rgba(r,g,b,a) -> rgb(r,g,b): legend value text is painted opaque */
+function opaque(color: string): string {
+    const m = /^rgba\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(color);
+    return m ? `rgb(${m[1]}, ${m[2]}, ${m[3]})` : color;
+}
 
 /**
  * MACD Indicator
@@ -65,6 +81,36 @@ export class MACDIndicator extends PanelIndicator {
 
         this._dataChanged.fire();
         return needsRecalc;
+    }
+
+    getSettingsConfig(): IndicatorSettingsConfig {
+        return {
+            name: this.name,
+            tabs: [
+                createInputsTab([{
+                    rows: [
+                        numberRow('fastPeriod', 'Fast Length', 1, 500, 1),
+                        numberRow('slowPeriod', 'Slow Length', 1, 500, 1),
+                        numberRow('signalPeriod', 'Signal Smoothing', 1, 500, 1),
+                        selectRow('source', 'Source', SOURCE_OPTIONS, this._macdOptions.source),
+                    ],
+                }]),
+                createStyleTab([{
+                    rows: [
+                        colorRow('color', 'MACD Line Color'),
+                        lineWidthRow('lineWidth', 'Line Width'),
+                        colorRow('signalColor', 'Signal Line Color'),
+                        colorRow('histUpColor', 'Histogram Up Color'),
+                        colorRow('histDownColor', 'Histogram Down Color'),
+                    ],
+                }]),
+            ],
+        };
+    }
+
+    getSettingValue(key: string): any {
+        if (key === 'visible') return this._options.visible;
+        return (this._macdOptions as any)[key];
     }
 
     /**
@@ -171,7 +217,29 @@ export class MACDIndicator extends PanelIndicator {
     }
 
     getLineColors(): string[] {
-        return [this._macdOptions.color, '#ff6d00']; // MACD (Blue), Signal (Orange)
+        return [this._macdOptions.color, this._macdOptions.signalColor]; // MACD (Blue), Signal (Orange)
+    }
+
+    getHistogramColor(index: number): string {
+        const v = this._histogramData[index];
+        return v >= 0 ? this._macdOptions.histUpColor : this._macdOptions.histDownColor;
+    }
+
+    getLegendInfo(index?: number | null): IndicatorLegendInfo {
+        const i = legendBarIndex(this._data.length, index);
+        const v = i >= 0 ? this._data[i].values : undefined;
+        const hist = i >= 0 ? this.getHistogramValue(i) : NaN;
+        const o = this._macdOptions;
+        const [macdColor, signalColor] = this.getLineColors();
+        return {
+            title: 'MACD',
+            params: legendParams(o.fastPeriod, o.slowPeriod, o.source, o.signalPeriod),
+            plots: [
+                { color: opaque(hist >= 0 ? o.histUpColor : o.histDownColor), value: hist },
+                { color: macdColor, value: v ? v[0] : null },
+                { color: signalColor, value: v ? v[1] : null },
+            ],
+        };
     }
 
     getDescription(index?: number): string {

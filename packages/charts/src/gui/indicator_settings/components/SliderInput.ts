@@ -16,15 +16,11 @@ export function createSliderInput(
     slider.max = String(options.max);
     slider.step = String(options.step || 1);
     slider.value = String(value ?? options.min);
-    slider.style.cssText = `width: 120px;`;
+    slider.style.cssText = `width: 120px; accent-color: var(--tvs-accent, #2962ff);`;
 
     const valueDisplay = document.createElement('span');
     valueDisplay.textContent = slider.value;
-    valueDisplay.style.cssText = `
-        font-size: 14px;
-        color: #131722;
-        min-width: 30px;
-    `;
+    valueDisplay.style.cssText = `font-size: 14px; color: var(--tvs-text, #131722); min-width: 30px;`;
 
     slider.addEventListener('input', () => {
         valueDisplay.textContent = slider.value;
