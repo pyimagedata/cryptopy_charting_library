@@ -831,9 +831,9 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     const setBusy = (b: boolean) => {
         st.busy = b;
         okBtn.disabled = b;
-        cancelBtn.disabled = b;
         okBtn.style.opacity = b ? '0.6' : '1';
         okBtn.style.cursor = b ? 'default' : 'pointer';
+        okBtn.textContent = b ? (editing ? t('Saving…') : t('Creating…')) : (editing ? t('Save') : t('Create'));
     };
     const showBanner = (text: string) => { banner.textContent = text; banner.style.display = 'block'; };
     const hideBanner = () => { banner.style.display = 'none'; banner.textContent = ''; };
@@ -987,6 +987,8 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         } catch (e) {
             setBusy(false);
             const text = errorText(e);
+            // the dialog was closed while the request was in flight: nowhere to show the error but a toast
+            if (closed) { if (text) showToast({ title: text, kind: 'error' }); return; }
             if (e instanceof AlertsError && (e.field === 'left' || e.field === 'right' || e.field === 'right2' || e.field === 'symbol') && text) {
                 condErr.textContent = text;
                 condErr.style.display = 'block';
@@ -1005,7 +1007,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         if (e.key === 'Escape') {
             e.preventDefault();
             e.stopPropagation();
-            if (!st.busy) close();
+            close();
         }
     };
     for (const inp of [moveInput, barsInput, hookInput, rightHi.input, rightLo.input]) {
@@ -1042,10 +1044,10 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     }
     const handle = { close };
 
-    closeBtn.addEventListener('click', () => { if (!st.busy) close(); });
+    closeBtn.addEventListener('click', () => close());
     cancelBtn.addEventListener('click', () => close());
     okBtn.addEventListener('click', () => { void submit(); });
-    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay && !st.busy) close(); });
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
     document.addEventListener('keydown', onKeyDown, true);
 
     selectTab('settings');

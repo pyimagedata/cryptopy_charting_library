@@ -607,9 +607,11 @@ export class AlertsPanel {
             b.title = title;
             b.setAttribute('aria-label', title);
             b.style.cssText = `display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:none;background:transparent;color:${c.muted};border-radius:4px;cursor:pointer;`;
-            b.addEventListener('mouseenter', () => { b.style.background = c.active; b.style.color = c.text; });
+            // a request of this alert is in flight: no double clicks
+            if (this._busy.has(a.id)) { b.disabled = true; b.style.opacity = '0.4'; b.style.cursor = 'default'; }
+            b.addEventListener('mouseenter', () => { if (b.disabled) return; b.style.background = c.active; b.style.color = c.text; });
             b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; b.style.color = c.muted; });
-            b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+            b.addEventListener('click', (e) => { e.stopPropagation(); if (!b.disabled) fn(); });
             return b;
         };
         const running = a.status === 'active';
