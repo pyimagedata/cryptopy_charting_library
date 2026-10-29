@@ -44,6 +44,9 @@ export interface ChartWidgetContext {
     tools?: InteractionTools;
     /** Main pane scale + data access for the tools */
     getToolEnv?: () => ToolEnv | null;
+
+    /** Bar replay shortcuts (Esc cancels selection, Shift+Down play/pause, Shift+Right step). */
+    replay?: { handleKey(e: KeyboardEvent): boolean };
 }
 
 /** Odak bir metin giris alanindaysa true (kisayollar calinmasin) */
@@ -544,6 +547,9 @@ export function handleKeyDown(
 
     // Cok grafikli sayfada kisayollar yalnizca aktif grafikte
     if (ctx.isActiveForKeyboard?.() === false) return;
+
+    // Bar replay shortcuts
+    if (ctx.replay?.handleKey(e)) return;
 
     const mod = e.ctrlKey || e.metaKey;
 

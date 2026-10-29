@@ -21,6 +21,7 @@ export { GridRenderer } from './renderers/grid-renderer';
 export { setIndicatorAccess, getIndicatorAccess, isIndicatorAllowed, IndicatorAccess } from './gui/indicator_search/indicator_access';
 export { ChartWidget, createChart } from './gui/chart-widget';
 export { MultiChartLayout, MultiChartLayoutOptions, MultiChartLayoutType, MultiChartSlotOptions, MultiChartRatios, MultiChartRatiosChangeEvent, createMultiChartLayout } from './gui/multi-chart-layout';
+export { ReplayController, ReplayState, ReplayHost, ReplayChartAdapter, REPLAY_SPEEDS, REPLAY_NOTICE_INTRABAR_UNAVAILABLE } from './replay';
 export { PaneWidget } from './gui/pane-widget';
 export { PriceAxisWidget } from './gui/price-axis-widget';
 export { TimeAxisWidget } from './gui/time-axis-widget';

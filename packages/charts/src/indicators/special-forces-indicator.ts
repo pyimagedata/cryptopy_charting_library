@@ -60,16 +60,19 @@ export interface SpecialForcesZones {
     engulf: SpecialForcesZone[];
 }
 
+/** `options.end` = epoch ms (exclusive) while bar replay is active (only bars with open + tf <= end are used). */
 export type SpecialForcesLevelsProvider = (
     symbol: string,
     exchange: string,
-    timeframe: string
+    timeframe: string,
+    options?: { end?: number }
 ) => Promise<SRBox[] | null>;
 
 export type SpecialForcesZonesProvider = (
     symbol: string,
     exchange: string,
-    timeframe: string
+    timeframe: string,
+    options?: { end?: number }
 ) => Promise<SpecialForcesZones | null>;
 
 function withAlpha(color: string, alpha: number): string {
@@ -85,6 +88,8 @@ function withAlpha(color: string, alpha: number): string {
 
 // Backend önbelleği 30-60 sn; aynı bağlam için bu süreden sık yeniden istenmez.
 const REFRESH_MS = 30_000;
+// Replay (ctxEnd set): leading throttle + at most one request in flight (latest wins).
+const REPLAY_THROTTLE_MS = 300;
 
 export class SpecialForcesIndicator extends OverlayIndicator {
     static defaultLevelsProvider: SpecialForcesLevelsProvider | null = null;
@@ -96,6 +101,8 @@ export class SpecialForcesIndicator extends OverlayIndicator {
     private _engulfZones: SpecialForcesZone[] = [];
     private _fetchToken = 0;
     private _ctxTimeframe = '';
+    private _ctxEnd: number | undefined = undefined;
+    private _queued = false;
     // Devam eden / son biten isteğin anahtarı (symbol|exchange|tf).
     private _inFlightKey: string | null = null;
     private _lastDoneKey = '';
@@ -124,8 +131,22 @@ export class SpecialForcesIndicator extends OverlayIndicator {
      * oluşturma anında sabitlenirse (ya da kayıttan geri yüklenirse) grafik
      * başka bir sembole geçince eski sembolün seviyeleri çizilirdi.
      */
-    setContext(ctx: { symbol: string; timeframe: string; exchange?: string }): void {
+    setContext(ctx: { symbol: string; timeframe: string; exchange?: string; end?: number }): void {
         this._ctxTimeframe = ctx.timeframe;
+        const replayFlip = (this._ctxEnd === undefined) !== (ctx.end === undefined);
+        const movedBack = this._ctxEnd !== undefined && ctx.end !== undefined && ctx.end < this._ctxEnd;
+        if (replayFlip || movedBack) {
+            // entering / leaving replay or cursor moved back: the previous result (and any request in
+            // flight) holds future data
+            this._boxes = [];
+            this._bobbinZones = [];
+            this._engulfZones = [];
+            this._lastDoneKey = '';
+            this._fetchToken++;
+            this._inFlightKey = null;
+            this._queued = false;
+        }
+        this._ctxEnd = ctx.end;
         const exchange = ctx.exchange || this._sfOptions.exchange;
         if (ctx.symbol === this._sfOptions.symbol && exchange === this._sfOptions.exchange) return;
         this._sfOptions.symbol = ctx.symbol;
@@ -147,16 +168,28 @@ export class SpecialForcesIndicator extends OverlayIndicator {
 
         // calculate() canlı mum güncellemeleri (WebSocket tick'leri) her fullUpdate()'te
         // tekrar tetiklenebiliyor; her tetiklemede backend'e istek atmamak için debounce.
+        if (this._ctxEnd !== undefined) {
+            // replay: throttle (a trailing debounce would never fire while playing)
+            if (this._debounceTimer === null) this._debounceTimer = setTimeout(() => this._maybeRefresh(), REPLAY_THROTTLE_MS);
+            return;
+        }
         if (this._debounceTimer !== null) {
             clearTimeout(this._debounceTimer);
         }
-        this._debounceTimer = setTimeout(() => {
-            this._debounceTimer = null;
-            const key = `${this._sfOptions.symbol}|${this._sfOptions.exchange}|${this._currentTimeframeGuess(this._sourceData)}`;
-            if (this._inFlightKey === key) return;
-            if (this._lastDoneKey === key && Date.now() - this._lastDoneAt < REFRESH_MS) return;
-            void this._refresh(key);
-        }, 500);
+        this._debounceTimer = setTimeout(() => this._maybeRefresh(), 500);
+    }
+
+    private _maybeRefresh(): void {
+        this._debounceTimer = null;
+        if (this._sourceData.length === 0) return;
+        const key = `${this._sfOptions.symbol}|${this._sfOptions.exchange}|${this._currentTimeframeGuess(this._sourceData)}|${this._ctxEnd ?? ''}`;
+        if (this._ctxEnd !== undefined && this._inFlightKey !== null) {
+            this._queued = true; // one in flight at most; re-run with the latest end afterwards
+            return;
+        }
+        if (this._inFlightKey === key) return;
+        if (this._lastDoneKey === key && Date.now() - this._lastDoneAt < REFRESH_MS) return;
+        void this._refresh(key);
     }
 
     getRange(): IndicatorRange {
@@ -315,11 +348,12 @@ export class SpecialForcesIndicator extends OverlayIndicator {
         this._deniedStatus = null;
         const { symbol, exchange } = this._sfOptions;
         const timeframe = this._currentTimeframeGuess(this._sourceData);
+        const end = this._ctxEnd;
 
         try {
             const [levels, zones] = await Promise.all([
-                this._callProvider(SpecialForcesIndicator.defaultLevelsProvider, symbol, exchange, timeframe),
-                this._callProvider(SpecialForcesIndicator.defaultZonesProvider, symbol, exchange, timeframe),
+                this._callProvider(SpecialForcesIndicator.defaultLevelsProvider, symbol, exchange, timeframe, end),
+                this._callProvider(SpecialForcesIndicator.defaultZonesProvider, symbol, exchange, timeframe, end),
             ]);
             // Başka bir bağlama (sembol/timeframe) ait iptal edilmiş istek yenisini ezmesin.
             if (token !== this._fetchToken) return;
@@ -333,18 +367,23 @@ export class SpecialForcesIndicator extends OverlayIndicator {
             this._dataChanged.fire();
         } finally {
             if (token === this._fetchToken) this._inFlightKey = null;
+            if (this._queued) {
+                this._queued = false;
+                if (this._debounceTimer === null) this._debounceTimer = setTimeout(() => this._maybeRefresh(), 0);
+            }
         }
     }
 
     private async _callProvider<T>(
-        provider: ((symbol: string, exchange: string, timeframe: string) => Promise<T | null>) | null,
+        provider: ((symbol: string, exchange: string, timeframe: string, options?: { end?: number }) => Promise<T | null>) | null,
         symbol: string,
         exchange: string,
-        timeframe: string
+        timeframe: string,
+        end?: number
     ): Promise<T | null> {
         if (!provider) return null;
         try {
-            return await provider(symbol, exchange, timeframe);
+            return await provider(symbol, exchange, timeframe, { end });
         } catch (error) {
             const status = (error as { status?: number } | null)?.status;
             if (status === 401 || status === 403) {

@@ -54,6 +54,8 @@ import {
 } from '../data-providers';
 import { BistDataProvider } from '../data-providers/stocks/bist';
 import { OrderbookHeatmapRenderer } from '../renderers/orderbook-heatmap-renderer';
+import { ReplayController, ReplayChartAdapter } from '../replay/replay-controller';
+import { ReplayUI } from './replay';
 
 // Type for all orderbook providers
 type OrderbookProvider = BinanceSpotProvider | BinanceFuturesProvider |
@@ -194,6 +196,11 @@ export class ChartWidget implements Disposable {
     private _syncedLocalY: number | null = null;
     private _lastCrosshairKey = '';
     private readonly _timeframeChanged = new Delegate<string>();
+    /** Bar replay engine (see src/replay). Public through the `replay` getter. */
+    private readonly _replay: ReplayController = new ReplayController(this._createReplayAdapter());
+    /** TradingView-style replay UI (selection line + control bar). */
+    private _replayUI: ReplayUI | null = null;
+    private _replayStateWired = false;
     private readonly _wiredIndicators = new WeakSet<Indicator>();
 
     // Context menu
@@ -464,6 +471,7 @@ export class ChartWidget implements Disposable {
                 // Nesne agaci paneli yerlesim sirasinda varsayilan 'light' ile olusmustu
                 this._objectTreePanel?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
                 this._watchlistPanel?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+                this._replayUI?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
             }
         }
     }
@@ -641,6 +649,11 @@ export class ChartWidget implements Disposable {
         return this._timeframeChanged;
     }
 
+    /** Bar replay controller of this chart (start / step / play / stop, host hooks, state events). */
+    get replay(): ReplayController {
+        return this._replay;
+    }
+
     get chartType(): ChartType {
         return this._activeChartType;
     }
@@ -763,6 +776,15 @@ export class ChartWidget implements Disposable {
     }
 
     setData(series: CandlestickSeries | LineSeries | AreaSeries | HeikenAshiSeries, data: BarData[] | LineData[]): void {
+        // Replay: the primary series' data becomes the replay buffer, only revealed bars are shown
+        if (series === this._model.serieses[0] && this._replay.interceptData(data as BarData[])) {
+            return;
+        }
+        this._applyData(series, data);
+    }
+
+    /** Real data application (bypasses the replay interception). */
+    private _applyData(series: CandlestickSeries | LineSeries | AreaSeries | HeikenAshiSeries, data: BarData[] | LineData[]): void {
         series.setData(data as any);
 
         // Update timestamps
@@ -780,18 +802,73 @@ export class ChartWidget implements Disposable {
             this._pushIndicatorContext();
             this._syncSpot(data as BarData[]);
             this._indicatorManager.setData(indicatorData);
+        } else if (data.length === 0 && this._replay.active) {
+            // replay cursor before the first bar of the (new) data: indicators must not keep stale values
+            this._indicatorManager.setData([]);
         }
+    }
+
+    /** ReplayController <-> chart glue: all primary-series access of the replay engine goes through here. */
+    private _createReplayAdapter(): ReplayChartAdapter {
+        return {
+            getBars: () => (this._model.serieses[0]?.data ?? []) as readonly BarData[],
+            getTimeframe: () => this._model.timeframe,
+            getSymbol: () => this._model.symbol,
+            getExchange: () => this._currentExchange || this._model.exchange,
+            setBars: (bars) => {
+                const series = this._model.serieses[0] as any;
+                if (!series) return;
+                this._applyData(series, bars);
+                this._model.fullUpdate();
+            },
+            applyTail: (truncateTo, push) => this._replayApplyTail(truncateTo, push),
+            scrollToRightEdge: () => {
+                this._model.timeScale.scrollToPosition(0, false);
+                this._scheduleDraw();
+            },
+        };
+    }
+
+    /**
+     * Cheap incremental replay update, same way as the host's live tick path: mutate series.data
+     * (cut + push), setPointsCount, one fullUpdate. Keeps the user's scroll position.
+     */
+    private _replayApplyTail(truncateTo: number, push: BarData[]): void {
+        const series = this._model.serieses[0] as any;
+        if (!series) return;
+        const data = series.data as BarData[];
+        const before = data.length;
+        if (data.length > truncateTo) data.length = truncateTo;
+        for (const bar of push) data.push(bar);
+        // keep the timestamp array identity: time axis + drawing manager hold references to it
+        const ts = this._timestamps;
+        if (ts.length > truncateTo) ts.length = truncateTo;
+        for (const bar of push) ts.push(bar.time);
+        if (series instanceof HeikenAshiSeries) series.syncTail(truncateTo);
+
+        const timeScale = this._model.timeScale;
+        const delta = data.length - before;
+        timeScale.setPointsCount(data.length);
+        // user scrolled away from the right edge (into history OR into the future whitespace; scrollOffset is
+        // negative there): shift the offset so the visible bars do not move. Near the edge the view follows.
+        if (delta !== 0 && Math.abs(timeScale.scrollOffset) >= 1) {
+            timeScale.scrollToPosition(timeScale.scrollOffset + delta, false);
+        }
+        this._model.fullUpdate();
     }
 
     /** Sembol/zaman dilimi bilgisine ihtiyac duyan indikatorlere (ör. spot karsilastirma) guncel degeri verir. */
     private _pushIndicatorContext(): void {
+        // Replay: backend indicators only see bars closed by the cursor (epoch ms, exclusive)
+        const end = this._replay.remoteEndMs();
         for (const ind of this._indicatorManager.allIndicators) {
-            const withCtx = ind as unknown as { setContext?: (c: { symbol: string; timeframe: string; exchange?: string }) => void };
+            const withCtx = ind as unknown as { setContext?: (c: { symbol: string; timeframe: string; exchange?: string; end?: number }) => void };
             ind.setTimeframe(this._model.timeframe);
             withCtx.setContext?.({
                 symbol: this._model.symbol,
                 timeframe: this._model.timeframe,
                 exchange: this._currentExchange || this._model.exchange,
+                end,
             });
         }
     }
@@ -900,6 +977,7 @@ export class ChartWidget implements Disposable {
         if (this._toolbarWidget) {
             this._toolbarWidget.setTheme(theme);
         }
+        this._replayUI?.setTheme(theme === 'light' ? 'light' : 'dark');
 
         this._watchlistPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
         this._objectTreePanel?.setTheme(theme === 'light' ? 'light' : 'dark');
@@ -1395,6 +1473,51 @@ export class ChartWidget implements Disposable {
                 this._drawingSettingsModal.show(selectedDrawing);
             }
         });
+
+        this._createReplayUI();
+    }
+
+    /** Bar replay UI: selection line + control bar (the toolbar button is wired in _createTopToolbar). */
+    private _createReplayUI(): void {
+        if (!this._element) return;
+        this._replayUI?.dispose();
+        this._replayUI = new ReplayUI({
+            root: this._element,
+            controller: this._replay,
+            getPaneElement: () => this._paneWidget?.element ?? null,
+            getBars: () => (this._model.serieses[0]?.data ?? []) as readonly BarData[],
+            coordinateToIndex: (x) => this._model.timeScale.coordinateToIndex(x as any),
+            indexToCoordinate: (i) => this._model.timeScale.indexToCoordinate(i as any),
+            getTimeframe: () => this._model.timeframe,
+            getTimezone: () => this._timeAxisWidget?.timezone ?? '',
+            getTheme: () => (this._currentTheme === 'light' ? 'light' : 'dark'),
+        });
+        if (!this._replayStateWired) {
+            this._replayStateWired = true;
+            let wasActive = this._replay.active;
+            this._replay.onStateChange.subscribe((s) => {
+                this._toolbarWidget?.setReplayActive(s.active || s.selecting);
+                if (s.active !== wasActive) {
+                    wasActive = s.active;
+                    const data = this._model.serieses[0]?.data as BarData[] | undefined;
+                    this._syncSpot(data && data.length > 0 && 'open' in data[0] ? data : undefined);
+                    this._scheduleDraw();
+                }
+            });
+        }
+    }
+
+    /** Replay toolbar button: starts bar selection, or cancels it. While replaying it does nothing special. */
+    private _onReplayButton(): void {
+        const s = this._replay.state;
+        if (s.selecting) this._replay.cancelSelection();
+        else if (!s.active) this._replay.startSelection();
+        else this._replayUI?.refresh();
+    }
+
+    /** Multi-chart layouts: only the active chart shows the replay control bar. */
+    setReplayControlsEnabled(enabled: boolean): void {
+        this._replayUI?.setEnabled(enabled);
     }
 
     private _updateSize(): void {
@@ -1717,7 +1840,8 @@ export class ChartWidget implements Disposable {
 
         // Restore data
         if (data.length > 0) {
-            this.setData(newSeries as any, data as any);
+            // `data` is what is displayed (during replay: already truncated), so bypass replay interception
+            this._applyData(newSeries as any, data as any);
         }
     }
 
@@ -2147,6 +2271,7 @@ export class ChartWidget implements Disposable {
             selectTool: (tool: string) => this._selectToolByShortcut(tool),
             tools: this._interactionTools,
             getToolEnv: () => this._getToolEnv(),
+            replay: this._replay,
         };
     }
 
@@ -3107,7 +3232,8 @@ export class ChartWidget implements Disposable {
     /** Spot veri kaynagini grafik sembolu/zaman dilimi/verisiyle esitler, toolbar dugmesini gunceller. */
     private _syncSpot(data?: BarData[]): void {
         const pair = SpotPriceSource.pairFor(this._model.symbol);
-        this._spotSource.setContext(this._model.symbol, this._model.timeframe, this._spotMode && pair !== null);
+        // spot overlay has its own live data and ignores the replay cursor: suspended while replaying
+        this._spotSource.setContext(this._model.symbol, this._model.timeframe, this._spotMode && pair !== null && !this._replay.active);
         if (data) this._spotSource.setSourceData(data);
         const state = `${pair ? pair.exchange : ''}|${this._spotMode}`;
         if (state !== this._spotButtonState) {
@@ -3172,6 +3298,8 @@ export class ChartWidget implements Disposable {
     private _calculateCountdown(): string | null {
         const timeframe = this._model.timeframe;
         if (!timeframe) return null;
+        // bar replay: the live countdown is meaningless (history), hidden until replay stops
+        if (this._replay.active) return null;
 
         const now = Date.now();
         let remainingMs: number;
@@ -3828,6 +3956,9 @@ export class ChartWidget implements Disposable {
     dispose(): void {
         if (_keyboardActiveChart === this) _keyboardActiveChart = null;
         document.removeEventListener('keydown', this._boundKeyDown);
+        this._replayUI?.dispose();
+        this._replayUI = null;
+        this._replay.dispose();
         this._unsubscribeIndicatorAccess?.();
         this._unsubscribeIndicatorAccess = null;
         // Yarim kalan yeni Text (bos) model yok edilmeden kaldirilir; yazilmis metin kaydedilir
@@ -4178,6 +4309,9 @@ export class ChartWidget implements Disposable {
         this._createWatchlist();
         this._createObjectTree();
         this._initSpotToggle();
+
+        this._toolbarWidget.replayClicked.subscribe(() => this._onReplayButton());
+        this._toolbarWidget.setReplayActive(this._replay.state.active || this._replay.state.selecting);
 
         // Listen for language changes
         this._toolbarWidget.languageChanged.subscribe((lang: string) => {

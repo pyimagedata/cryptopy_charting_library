@@ -16,7 +16,9 @@ export type RemoteIndicatorProvider = (
     symbol: string,
     exchange: string,
     timeframe: string,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    /** `end` = epoch ms (exclusive) while bar replay is active: only bars with open + tf <= end may be used. */
+    options?: { end?: number }
 ) => Promise<unknown | null>;
 
 export class RemoteIndicators {
@@ -27,11 +29,15 @@ export interface RemoteContext {
     symbol: string;
     timeframe: string;
     exchange?: string;
+    /** Bar replay cursor (epoch ms, exclusive); undefined = live. Part of the request key. */
+    end?: number;
 }
 
 // Backend önbelleği 30 sn; aynı bağlam için bu süreden sık yeniden istenmez.
 const REFRESH_MS = 30_000;
 const DEBOUNCE_MS = 500;
+// Replay (ctx.end set): at most one request in flight, leading throttle, latest context wins.
+const REPLAY_THROTTLE_MS = 300;
 
 /** Sunucudan gelen `times` dizisini (ms) dizindeki yerine eşleyen tablo; panel indikatörleri için. */
 export function timeIndexMap(times: number[]): Map<number, number> {
@@ -52,6 +58,9 @@ export class RemoteCompute<T> {
     private _lastAt = 0;
     private _timer: ReturnType<typeof setTimeout> | null = null;
     private _denied: 401 | 403 | null = null;
+    private _params: Record<string, unknown> = {};
+    private _onDone: (() => void) | null = null;
+    private _queued = false;
 
     constructor(
         private readonly _indicatorId: string,
@@ -69,7 +78,12 @@ export class RemoteCompute<T> {
             !this._ctx ||
             this._ctx.symbol !== ctx.symbol ||
             this._ctx.timeframe !== ctx.timeframe ||
-            (this._ctx.exchange ?? '') !== (ctx.exchange ?? '');
+            (this._ctx.exchange ?? '') !== (ctx.exchange ?? '') ||
+            // entering / leaving replay clears the result (live result holds future data);
+            // moving the replay cursor does NOT (old result stays until the new one lands)
+            (this._ctx.end === undefined) !== (ctx.end === undefined) ||
+            // cursor moved backwards: a result computed for a later end holds future data
+            (this._ctx.end !== undefined && ctx.end !== undefined && ctx.end < this._ctx.end);
         this._ctx = ctx;
         if (changed) {
             // Eski sembolün/timeframe'in sonucu yenisinin üstünde çizilmesin.
@@ -77,6 +91,7 @@ export class RemoteCompute<T> {
             this._denied = null;
             this._token++;
             this._inFlightKey = null;
+            this._queued = false;
             this._onResult(null);
         }
     }
@@ -84,21 +99,38 @@ export class RemoteCompute<T> {
     /** Hesap parametreleri (yalnızca algoritmayı etkileyenler) ile sonucu ister; debounce'lu. */
     request(params: Record<string, unknown>, onDone: () => void): void {
         if (!this._ctx) return;
+        this._params = params;
+        this._onDone = onDone;
+        if (this._ctx.end !== undefined) {
+            // Replay: throttle instead of trailing debounce (a debounce would never fire at 10x speed).
+            if (this._timer === null) this._timer = setTimeout(() => this._fire(), REPLAY_THROTTLE_MS);
+            return;
+        }
         if (this._timer !== null) clearTimeout(this._timer);
-        this._timer = setTimeout(() => {
-            this._timer = null;
-            const ctx = this._ctx;
-            if (!ctx) return;
-            const key = `${ctx.symbol}|${ctx.exchange ?? ''}|${ctx.timeframe}|${JSON.stringify(params)}`;
-            if (this._inFlightKey === key) return;
-            if (this._lastKey === key && Date.now() - this._lastAt < REFRESH_MS) return;
-            void this._fetch(key, ctx, params, onDone);
-        }, DEBOUNCE_MS);
+        this._timer = setTimeout(() => this._fire(), DEBOUNCE_MS);
+    }
+
+    private _fire(): void {
+        this._timer = null;
+        const ctx = this._ctx;
+        const onDone = this._onDone;
+        if (!ctx || !onDone) return;
+        const params = this._params;
+        const key = `${ctx.symbol}|${ctx.exchange ?? ''}|${ctx.timeframe}|${JSON.stringify(params)}|${ctx.end ?? ''}`;
+        if (ctx.end !== undefined && this._inFlightKey !== null) {
+            // at most one in flight during replay: run once more (latest context) when it finishes
+            this._queued = true;
+            return;
+        }
+        if (this._inFlightKey === key) return;
+        if (this._lastKey === key && Date.now() - this._lastAt < REFRESH_MS) return;
+        void this._fetch(key, ctx, params, onDone);
     }
 
     destroy(): void {
         if (this._timer !== null) clearTimeout(this._timer);
         this._timer = null;
+        this._queued = false;
         this._token++;
     }
 
@@ -110,7 +142,7 @@ export class RemoteCompute<T> {
         try {
             const provider = RemoteIndicators.defaultProvider;
             if (provider) {
-                raw = (await provider(this._indicatorId, ctx.symbol, ctx.exchange ?? '', ctx.timeframe, params)) as T | null;
+                raw = (await provider(this._indicatorId, ctx.symbol, ctx.exchange ?? '', ctx.timeframe, params, { end: ctx.end })) as T | null;
             }
         } catch (error) {
             const status = (error as { status?: number } | null)?.status;
@@ -120,12 +152,22 @@ export class RemoteCompute<T> {
             if (token === this._token) this._inFlightKey = null;
         }
         // Bağlam değişmişse (yeni istek başladı) eski istek sonucu yenisini ezmesin.
-        if (token !== this._token) return;
+        if (token !== this._token) {
+            this._drainQueue();
+            return;
+        }
         this._denied = denied;
         this._lastKey = key;
         this._lastAt = Date.now();
         this._onResult(raw);
         onDone();
+        this._drainQueue();
+    }
+
+    private _drainQueue(): void {
+        if (!this._queued) return;
+        this._queued = false;
+        if (this._timer === null) this._timer = setTimeout(() => this._fire(), 0);
     }
 }
 

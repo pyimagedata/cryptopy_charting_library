@@ -61,6 +61,36 @@ export class HeikenAshiSeries extends Series<BarData> {
         return this._haData;
     }
 
+    /**
+     * Incremental refresh after the raw data array was changed at its tail (replay stepping): keeps
+     * haData[0..fromIndex) and recomputes the rest with the same formulas as _calculateHeikenAshi.
+     */
+    public syncTail(fromIndex: number): void {
+        const data = this._data;
+        const k = Math.max(0, Math.min(fromIndex, data.length, this._haData.length));
+        this._haData.length = k;
+        for (let i = k; i < data.length; i++) {
+            const bar = data[i];
+            const haClose = (bar.open + bar.high + bar.low + bar.close) / 4;
+            let haOpen: number;
+            if (i === 0) {
+                haOpen = (bar.open + bar.close) / 2;
+                this._haData.push({ time: bar.time, open: haOpen, high: bar.high, low: bar.low, close: (bar.open + bar.high + bar.low + bar.close) / 4, volume: bar.volume });
+                continue;
+            }
+            const prev = this._haData[i - 1];
+            haOpen = (prev.open + prev.close) / 2;
+            this._haData.push({
+                time: bar.time,
+                open: haOpen,
+                high: Math.max(bar.high, haOpen, haClose),
+                low: Math.min(bar.low, haOpen, haClose),
+                close: haClose,
+                volume: bar.volume,
+            });
+        }
+    }
+
     private _calculateHeikenAshi(data: BarData[]): void {
         this._haData = [];
         if (data.length === 0) return;

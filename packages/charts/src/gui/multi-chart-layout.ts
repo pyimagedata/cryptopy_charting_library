@@ -104,6 +104,8 @@ export class MultiChartLayout {
     private _slots: HTMLElement[] = [];
     private _activeIndex: number = 0;
     private _syncing: boolean = false;
+    private _replaySync: boolean = true;
+    private _replaySyncing: boolean = false;
     private _crosshairSync: boolean = MultiChartLayout.crosshairSyncPreferred();
 
     private static readonly CROSSHAIR_SYNC_STORAGE = 'chart.multi.crosshairSync';
@@ -116,6 +118,25 @@ export class MultiChartLayout {
             return true;
         }
     }
+
+    /**
+     * Bar replay sync across the charts of this layout. When `sync` is true (default), starting /
+     * stepping / playing replay on the ACTIVE chart drives every other chart to the same cursor
+     * (each chart reveals its own bars that are closed by that cursor, no forming bar, no own timer),
+     * and stopping replay on the active chart stops it on all charts. Per-chart hosts
+     * (`chart.replay.setHost`) are still used by followers (pauseRealtime / resumeRealtime).
+     */
+    readonly replay = ((self: MultiChartLayout) => ({
+        get sync(): boolean { return self._replaySync; },
+        set sync(v: boolean) { self._replaySync = v; },
+        /** true if any chart of the layout is in replay */
+        get active(): boolean { return self._charts.some((c) => c.replay.active); },
+        /** Stop replay on every chart. */
+        stop: (): Promise<void> => self._stopAllReplays(),
+        /** Start bar selection on the active chart (its control bar drives the others). */
+        startSelection: (): void => self.activeChart?.replay.startSelection(),
+        cancelSelection: (): void => self.activeChart?.replay.cancelSelection(),
+    }))(this);
 
     get crosshairSync(): boolean {
         return this._crosshairSync;
@@ -267,7 +288,11 @@ export class MultiChartLayout {
                 : 'none';
         });
 
+        // replay control bar only on the active chart (followers just follow the cursor)
+        this._charts.forEach((chart, chartIndex) => chart.setReplayControlsEnabled(chartIndex === index));
+
         this._syncToolbarStateFromActiveChart();
+        this._syncReplayButton();
         this._activeChartChanged.fire(index);
     }
 
@@ -348,6 +373,21 @@ export class MultiChartLayout {
                 chart.setDomEnabled(enabled);
             }
         });
+
+        // Replay button: starts / cancels bar selection on the active chart (its control bar drives the others)
+        this._toolbarWidget.replayClicked.subscribe(() => {
+            const chart = this.activeChart;
+            if (!chart) return;
+            const s = chart.replay.state;
+            if (s.selecting) chart.replay.cancelSelection();
+            else if (!s.active) chart.replay.startSelection();
+        });
+        this._syncReplayButton();
+    }
+
+    /** Highlight the shared toolbar's Replay button while replay is active / selecting on any chart. */
+    private _syncReplayButton(): void {
+        this._toolbarWidget?.setReplayActive(this._charts.some((c) => c.replay.active || c.replay.state.selecting));
     }
 
     private _buildLayout(slotOptions: MultiChartSlotOptions[]): void {
@@ -404,6 +444,10 @@ export class MultiChartLayout {
             chart.symbolChanged.subscribe((payload) => this._handleSymbolChanged(i, payload as any));
             chart.timeframeChanged.subscribe((timeframe) => this._handleTimeframeChanged(i, timeframe));
             chart.setCrosshairSyncEnabled(this._crosshairSync);
+            chart.replay.onStateChange.subscribe(() => {
+                this._handleReplayState(i);
+                this._syncReplayButton();
+            });
             chart.crosshairMoved.subscribe((info) => {
                 if (!this._crosshairSync) return;
                 this._charts.forEach((other) => {
@@ -652,6 +696,39 @@ export class MultiChartLayout {
             }
         } finally {
             this._syncing = false;
+        }
+    }
+
+    /** Replay sync: the active chart drives the others (see `replay`). */
+    private _handleReplayState(index: number): void {
+        if (this._replaySyncing || !this._replaySync || index !== this._activeIndex) return;
+        const source = this._charts[index];
+        if (!source) return;
+        const state = source.replay.state;
+        this._replaySyncing = true;
+        try {
+            if (state.active) {
+                const cursorMs = source.replay.cursorMs;
+                if (cursorMs === null) return;
+                for (let i = 0; i < this._charts.length; i++) {
+                    if (i !== index) this._charts[i].replay.syncCursor(cursorMs);
+                }
+            } else {
+                for (let i = 0; i < this._charts.length; i++) {
+                    if (i !== index && this._charts[i].replay.active) void this._charts[i].replay.stop();
+                }
+            }
+        } finally {
+            this._replaySyncing = false;
+        }
+    }
+
+    private async _stopAllReplays(): Promise<void> {
+        this._replaySyncing = true;
+        try {
+            await Promise.all(this._charts.map((c) => c.replay.stop()));
+        } finally {
+            this._replaySyncing = false;
         }
     }
 

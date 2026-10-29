@@ -79,6 +79,11 @@ export class TimeScale {
         return this._pointsCount;
     }
 
+    /** Current scroll offset in bars (0 = live edge, > 0 = scrolled back into history). */
+    get scrollOffset(): number {
+        return this._scrollOffset;
+    }
+
     get options(): Readonly<TimeScaleOptions> {
         return this._options;
     }

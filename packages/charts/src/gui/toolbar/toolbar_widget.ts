@@ -5,6 +5,7 @@
 import { Delegate } from '../../helpers/delegate';
 import { t, getCurrentLanguage } from '../../helpers/translations';
 import { displaySymbol } from '../../helpers/display-aliases';
+import { REPLAY_ICONS } from '../replay/replay-icons';
 
 // SVG Icons for toolbar
 const TOOLBAR_ICONS = {
@@ -126,6 +127,9 @@ export class ToolbarWidget {
     private readonly _timeframeChanged = new Delegate<string>();
     private readonly _chartTypeChanged = new Delegate<ChartType>();
     private readonly _indicatorsClicked = new Delegate<void>();
+    private readonly _replayClicked = new Delegate<void>();
+    private _replayBtn: HTMLButtonElement | null = null;
+    private _replayActive = false;
     private readonly _domToggled = new Delegate<boolean>();
     private readonly _languageChanged = new Delegate<string>();
     private readonly _themeToggled = new Delegate<'dark' | 'light'>();
@@ -181,6 +185,10 @@ export class ToolbarWidget {
 
     get indicatorsClicked(): Delegate<void> {
         return this._indicatorsClicked;
+    }
+
+    get replayClicked(): Delegate<void> {
+        return this._replayClicked;
     }
 
     get domToggled(): Delegate<boolean> {
@@ -327,6 +335,9 @@ export class ToolbarWidget {
 
         // Indicators button
         this._createIndicatorsButton();
+
+        // Bar replay button
+        this._createReplayButton();
 
         // DOM (Orderbook) toggle button
         this._createDomButton();
@@ -877,6 +888,39 @@ export class ToolbarWidget {
         this._element!.appendChild(btn);
     }
 
+    private _createReplayButton(): void {
+        const btn = document.createElement('button');
+        btn.className = 'toolbar-replay';
+        btn.title = t('Bar replay');
+        btn.style.cssText = `
+            display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+            border: none; border-radius: 4px; font-size: 13px; cursor: pointer;
+            transition: background 0.15s, color 0.15s; flex-shrink: 0;
+        `;
+        btn.innerHTML = `<span style="display:flex">${REPLAY_ICONS.replay}</span><span>${t('Replay')}</span>`;
+        btn.addEventListener('mouseenter', () => this._styleReplayButton(true));
+        btn.addEventListener('mouseleave', () => this._styleReplayButton(false));
+        btn.addEventListener('click', () => this._replayClicked.fire());
+        this._replayBtn = btn;
+        this._styleReplayButton(false);
+        this._element!.appendChild(btn);
+    }
+
+    private _styleReplayButton(hover: boolean): void {
+        const btn = this._replayBtn;
+        if (!btn) return;
+        const dark = this._currentTheme === 'dark';
+        btn.dataset.active = this._replayActive ? 'true' : 'false';
+        btn.style.background = this._replayActive ? 'rgba(41, 98, 255, 0.18)' : hover ? (dark ? '#2a2e39' : '#e0e3eb') : 'transparent';
+        btn.style.color = this._replayActive ? '#2962ff' : hover ? (dark ? '#d1d4dc' : '#131722') : '#787b86';
+    }
+
+    /** Replay aktif / bar secimi modundayken dugmeyi vurgular. */
+    setReplayActive(active: boolean): void {
+        this._replayActive = active;
+        this._styleReplayButton(false);
+    }
+
     /** Panel disaridan (ör. onceki oturumdan) acildiginda/kapandiginda dugmeyi senkronlar. */
     setWatchlistActive(active: boolean): void {
         this._watchlistEnabled = active;
@@ -1330,6 +1374,7 @@ export class ToolbarWidget {
         this._timeframeChanged.destroy();
         this._chartTypeChanged.destroy();
         this._indicatorsClicked.destroy();
+        this._replayClicked.destroy();
         this._domToggled.destroy();
         this._watchlistToggled.destroy();
         this._languageChanged.destroy();
