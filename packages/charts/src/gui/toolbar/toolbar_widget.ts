@@ -128,6 +128,7 @@ export class ToolbarWidget {
     private readonly _chartTypeChanged = new Delegate<ChartType>();
     private readonly _indicatorsClicked = new Delegate<void>();
     private readonly _replayClicked = new Delegate<void>();
+    private readonly _alertClicked = new Delegate<void>();
     private _replayBtn: HTMLButtonElement | null = null;
     private _replayActive = false;
     private readonly _domToggled = new Delegate<boolean>();
@@ -139,6 +140,11 @@ export class ToolbarWidget {
     private _watchlistEnabled: boolean = false;
     private _watchlistBtn: HTMLButtonElement | null = null;
     private readonly _watchlistToggled = new Delegate<boolean>();
+    private _alertsManagerEnabled: boolean = false;
+    private _alertsManagerBtn: HTMLButtonElement | null = null;
+    private _alertsBadge: HTMLSpanElement | null = null;
+    private _alertsUnread = 0;
+    private readonly _alertsManagerToggled = new Delegate<boolean>();
     private _spotActive = false;
     private _spotBtn: HTMLButtonElement | null = null;
     private readonly _spotToggled = new Delegate<boolean>();
@@ -191,6 +197,11 @@ export class ToolbarWidget {
         return this._replayClicked;
     }
 
+    /** "Alert" button: the host (ChartWidget / MultiChartLayout) opens the create-alert dialog for the active chart. */
+    get alertClicked(): Delegate<void> {
+        return this._alertClicked;
+    }
+
     get domToggled(): Delegate<boolean> {
         return this._domToggled;
     }
@@ -202,6 +213,11 @@ export class ToolbarWidget {
 
     get watchlistToggled(): Delegate<boolean> {
         return this._watchlistToggled;
+    }
+
+    /** Alerts manager ("Alarm yöneticisi") toggle button next to the watchlist button. */
+    get alertsManagerToggled(): Delegate<boolean> {
+        return this._alertsManagerToggled;
     }
 
     get languageChanged(): Delegate<string> {
@@ -339,11 +355,17 @@ export class ToolbarWidget {
         // Bar replay button
         this._createReplayButton();
 
+        // Alert button (Alt+A)
+        this._createAlertButton();
+
         // DOM (Orderbook) toggle button
         this._createDomButton();
 
         // Izleme listesi (watch list) toggle button
         this._createWatchlistButton();
+
+        // Alerts manager toggle (icon only, unread badge)
+        this._createAlertsManagerButton();
 
         // Fiyat eksenini spot karsiligina ceviren dugme (sadece GC1/SI1'de gorunur)
         this._createSpotButton();
@@ -435,6 +457,15 @@ export class ToolbarWidget {
 
     // --- Zaman dilimi: favori dugmeler + dropdown ---
 
+    /** Normal (idle) text colour of toolbar buttons in the current theme. */
+    private _btnColor(): string {
+        return this._currentTheme === 'dark' ? '#d1d4dc' : '#131722';
+    }
+
+    private _btnHoverBg(): string {
+        return this._currentTheme === 'dark' ? '#2a2e39' : '#e0e3eb';
+    }
+
     private _inactiveColor(): string {
         return this._currentTheme === 'dark' ? '#787b86' : '#5d606b';
     }
@@ -488,7 +519,7 @@ export class ToolbarWidget {
         for (const tf of favorites) {
             const isActive = tf === this._activeTimeframe;
             const btn = this._createButton(this._tfShortLabel(tf), isActive);
-            if (!isActive) btn.style.color = this._inactiveColor();
+            if (!isActive) btn.style.color = this._btnColor();
             btn.dataset.timeframe = tf;
             btn.dataset.active = isActive.toString();
             btn.addEventListener('click', () => this.setTimeframe(tf));
@@ -505,7 +536,7 @@ export class ToolbarWidget {
         trigger.style.display = 'flex';
         trigger.style.alignItems = 'center';
         trigger.style.gap = '4px';
-        if (!activeHidden) trigger.style.color = this._inactiveColor();
+        if (!activeHidden) trigger.style.color = this._btnColor();
         trigger.innerHTML = (activeHidden ? `<span>${this._tfShortLabel(this._activeTimeframe)}</span>` : '') + CHEVRON_ICON;
         trigger.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -857,7 +888,7 @@ export class ToolbarWidget {
             background: transparent;
             border: none;
             border-radius: 4px;
-            color: #787b86;
+            color: ${this._btnColor()};
             font-size: 13px;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
@@ -874,12 +905,12 @@ export class ToolbarWidget {
         btn.appendChild(label);
 
         btn.addEventListener('mouseenter', () => {
-            btn.style.background = '#2a2e39';
-            btn.style.color = '#d1d4dc';
+            btn.style.background = this._btnHoverBg();
+            btn.style.color = this._btnColor();
         });
         btn.addEventListener('mouseleave', () => {
             btn.style.background = 'transparent';
-            btn.style.color = '#787b86';
+            btn.style.color = this._btnColor();
         });
         btn.addEventListener('click', () => {
             this._indicatorsClicked.fire();
@@ -906,13 +937,35 @@ export class ToolbarWidget {
         this._element!.appendChild(btn);
     }
 
+    private _createAlertButton(): void {
+        const btn = document.createElement('button');
+        btn.className = 'toolbar-alert';
+        btn.title = t('Create alert (Alt+A)');
+        btn.style.cssText = `
+            display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+            border: none; border-radius: 4px; font-size: 13px; cursor: pointer;
+            transition: background 0.15s, color 0.15s; flex-shrink: 0; background: transparent; color: ${this._btnColor()};
+        `;
+        btn.innerHTML = `<span style="display:flex">${TOOLBAR_ICONS.alert}</span><span>${t('Alert')}</span>`;
+        btn.addEventListener('mouseenter', () => {
+            btn.style.background = this._btnHoverBg();
+            btn.style.color = this._btnColor();
+        });
+        btn.addEventListener('mouseleave', () => {
+            btn.style.background = 'transparent';
+            btn.style.color = this._btnColor();
+        });
+        btn.addEventListener('click', () => this._alertClicked.fire());
+        this._element!.appendChild(btn);
+    }
+
     private _styleReplayButton(hover: boolean): void {
         const btn = this._replayBtn;
         if (!btn) return;
         const dark = this._currentTheme === 'dark';
         btn.dataset.active = this._replayActive ? 'true' : 'false';
         btn.style.background = this._replayActive ? 'rgba(41, 98, 255, 0.18)' : hover ? (dark ? '#2a2e39' : '#e0e3eb') : 'transparent';
-        btn.style.color = this._replayActive ? '#2962ff' : hover ? (dark ? '#d1d4dc' : '#131722') : '#787b86';
+        btn.style.color = this._replayActive ? '#2962ff' : this._btnColor();
     }
 
     /** Replay aktif / bar secimi modundayken dugmeyi vurgular. */
@@ -930,8 +983,8 @@ export class ToolbarWidget {
     private _styleWatchlistButton(hover: boolean): void {
         const btn = this._watchlistBtn;
         if (!btn) return;
-        btn.style.background = this._watchlistEnabled ? 'rgba(0, 212, 170, 0.15)' : hover ? '#2a2e39' : 'transparent';
-        btn.style.color = this._watchlistEnabled ? '#00d4aa' : hover ? '#d1d4dc' : '#787b86';
+        btn.style.background = this._watchlistEnabled ? 'rgba(0, 212, 170, 0.15)' : hover ? this._btnHoverBg() : 'transparent';
+        btn.style.color = this._watchlistEnabled ? '#00d4aa' : this._btnColor();
     }
 
     private _createWatchlistButton(): void {
@@ -962,6 +1015,66 @@ export class ToolbarWidget {
         this._element!.appendChild(btn);
     }
 
+    /** Syncs the alerts manager button with the panel state (e.g. restored from the previous session). */
+    setAlertsManagerActive(active: boolean): void {
+        this._alertsManagerEnabled = active;
+        this._styleAlertsManagerButton(false);
+    }
+
+    /** Unread fired-alerts count shown as a small badge (0 hides it). */
+    setAlertsUnread(count: number): void {
+        this._alertsUnread = count;
+        const b = this._alertsBadge;
+        if (!b) return;
+        b.textContent = count > 99 ? '99+' : String(count);
+        b.style.display = count > 0 ? 'flex' : 'none';
+    }
+
+    private _styleAlertsManagerButton(hover: boolean): void {
+        const btn = this._alertsManagerBtn;
+        if (!btn) return;
+        const dark = this._currentTheme === 'dark';
+        btn.dataset.active = this._alertsManagerEnabled ? 'true' : 'false';
+        btn.style.background = this._alertsManagerEnabled ? 'rgba(0, 212, 170, 0.15)' : hover ? (dark ? '#2a2e39' : '#e0e3eb') : 'transparent';
+        btn.style.color = this._alertsManagerEnabled ? '#00d4aa' : this._btnColor();
+    }
+
+    private _createAlertsManagerButton(): void {
+        const btn = document.createElement('button');
+        btn.className = 'toolbar-alerts-manager';
+        btn.title = t('Alert manager');
+        btn.setAttribute('aria-label', t('Alert manager'));
+        btn.style.cssText = `
+            position: relative; display: flex; align-items: center; justify-content: center; padding: 6px 8px;
+            border: none; border-radius: 4px; cursor: pointer;
+            transition: background 0.15s, color 0.15s; flex-shrink: 0;
+        `;
+        const icon = document.createElement('span');
+        icon.style.display = 'flex';
+        icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="15" r="7"/><path d="M12 11.5V15l2.4 1.6"/><path d="M5.2 7.2 8 4.6M18.8 7.2 16 4.6"/><path d="M22 16h2M22 19.5h2M22 12.5h2"/></svg>`;
+        btn.appendChild(icon);
+        const badge = document.createElement('span');
+        badge.className = 'toolbar-alerts-badge';
+        badge.style.cssText = `
+            position: absolute; top: 0; right: 0; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box;
+            border-radius: 7px; background: #f23645; color: #fff; font-size: 9px; font-weight: 700; line-height: 14px;
+            align-items: center; justify-content: center; display: none; pointer-events: none;
+        `;
+        btn.appendChild(badge);
+        this._alertsBadge = badge;
+        this._alertsManagerBtn = btn;
+        this.setAlertsUnread(this._alertsUnread);
+        this._styleAlertsManagerButton(false);
+        btn.addEventListener('mouseenter', () => this._styleAlertsManagerButton(true));
+        btn.addEventListener('mouseleave', () => this._styleAlertsManagerButton(false));
+        btn.addEventListener('click', () => {
+            this._alertsManagerEnabled = !this._alertsManagerEnabled;
+            this._styleAlertsManagerButton(true);
+            this._alertsManagerToggled.fire(this._alertsManagerEnabled);
+        });
+        this._element!.appendChild(btn);
+    }
+
     /**
      * Spot dugmesini gunceller: `label` null ise (sembolun spot karsiligi yok)
      * dugme gizlenir.
@@ -982,8 +1095,8 @@ export class ToolbarWidget {
     private _styleSpotButton(hover: boolean): void {
         const btn = this._spotBtn;
         if (!btn) return;
-        btn.style.background = this._spotActive ? 'rgba(245, 166, 35, 0.16)' : hover ? '#2a2e39' : 'transparent';
-        btn.style.color = this._spotActive ? '#f5a623' : hover ? '#d1d4dc' : '#787b86';
+        btn.style.background = this._spotActive ? 'rgba(245, 166, 35, 0.16)' : hover ? this._btnHoverBg() : 'transparent';
+        btn.style.color = this._spotActive ? '#f5a623' : this._btnColor();
     }
 
     private _createSpotButton(): void {
@@ -1007,6 +1120,15 @@ export class ToolbarWidget {
         this._element!.appendChild(btn);
     }
 
+    private _domBtn: HTMLButtonElement | null = null;
+
+    private _styleDomButton(): void {
+        const btn = this._domBtn;
+        if (!btn) return;
+        btn.style.background = this._domEnabled ? 'rgba(0, 212, 170, 0.15)' : 'transparent';
+        btn.style.color = this._domEnabled ? '#00d4aa' : this._btnColor();
+    }
+
     private _createDomButton(): void {
         const btn = document.createElement('button');
         btn.className = 'toolbar-dom';
@@ -1019,7 +1141,7 @@ export class ToolbarWidget {
             background: ${this._domEnabled ? 'rgba(0, 212, 170, 0.15)' : 'transparent'};
             border: none;
             border-radius: 4px;
-            color: ${this._domEnabled ? '#00d4aa' : '#787b86'};
+            color: ${this._domEnabled ? '#00d4aa' : this._btnColor()};
             font-size: 13px;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
@@ -1034,21 +1156,18 @@ export class ToolbarWidget {
         const label = document.createElement('span');
         label.textContent = 'DOM';
         btn.appendChild(label);
+        this._domBtn = btn;
 
         btn.addEventListener('mouseenter', () => {
             if (!this._domEnabled) {
-                btn.style.background = '#2a2e39';
-                btn.style.color = '#d1d4dc';
+                btn.style.background = this._btnHoverBg();
+                btn.style.color = this._btnColor();
             }
         });
-        btn.addEventListener('mouseleave', () => {
-            btn.style.background = this._domEnabled ? 'rgba(0, 212, 170, 0.15)' : 'transparent';
-            btn.style.color = this._domEnabled ? '#00d4aa' : '#787b86';
-        });
+        btn.addEventListener('mouseleave', () => this._styleDomButton());
         btn.addEventListener('click', () => {
             this._domEnabled = !this._domEnabled;
-            btn.style.background = this._domEnabled ? 'rgba(0, 212, 170, 0.15)' : 'transparent';
-            btn.style.color = this._domEnabled ? '#00d4aa' : '#787b86';
+            this._styleDomButton();
             this._domToggled.fire(this._domEnabled);
         });
 
@@ -1206,7 +1325,7 @@ export class ToolbarWidget {
             background: ${active ? '#2962ff' : 'transparent'};
             border: none;
             border-radius: 4px;
-            color: ${active ? '#fff' : '#787b86'};
+            color: ${active ? '#fff' : this._btnColor()};
             font-size: 13px;
             font-weight: ${active ? '500' : '400'};
             cursor: pointer;
@@ -1225,7 +1344,7 @@ export class ToolbarWidget {
             const isActive = btn.dataset.active === 'true' || btn.style.background === 'rgb(41, 98, 255)';
             if (!isActive) {
                 btn.style.background = 'transparent';
-                btn.style.color = this._inactiveColor();
+                btn.style.color = this._btnColor();
             } else {
                 // Ensure active style is maintained
                 btn.style.background = '#2962ff';
@@ -1249,7 +1368,7 @@ export class ToolbarWidget {
             background: ${active ? '#2962ff' : 'transparent'};
             border: none;
             border-radius: 4px;
-            color: ${active ? '#fff' : '#787b86'};
+            color: ${active ? '#fff' : this._btnColor()};
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
         `;
@@ -1266,7 +1385,7 @@ export class ToolbarWidget {
             const isActive = btn.dataset.active === 'true' || btn.style.background === 'rgb(41, 98, 255)';
             if (!isActive) {
                 btn.style.background = 'transparent';
-                btn.style.color = this._inactiveColor();
+                btn.style.color = this._btnColor();
             } else {
                 // Ensure active style is maintained
                 btn.style.background = '#2962ff';
@@ -1296,7 +1415,7 @@ export class ToolbarWidget {
             const isActive = htmlBtn.dataset.scaleMode === this._activePriceScaleMode;
             htmlBtn.dataset.active = isActive.toString();
             htmlBtn.style.background = isActive ? '#2962ff' : 'transparent';
-            htmlBtn.style.color = isActive ? '#fff' : '#787b86';
+            htmlBtn.style.color = isActive ? '#fff' : this._btnColor();
             htmlBtn.style.fontWeight = isActive ? '500' : '400';
         });
     }
@@ -1321,6 +1440,13 @@ export class ToolbarWidget {
         buttons.forEach(btn => {
             (btn as HTMLElement).style.color = isDark ? '#d1d4dc' : '#131722';
         });
+
+        // Stateful buttons: restore active colours / theme-aware idle colours.
+        this._styleReplayButton(false);
+        this._styleWatchlistButton(false);
+        this._styleAlertsManagerButton(false);
+        this._styleSpotButton(false);
+        this._styleDomButton();
 
         this._closeMenu();
         this._renderTimeframeButtons();
@@ -1377,8 +1503,10 @@ export class ToolbarWidget {
         this._chartTypeChanged.destroy();
         this._indicatorsClicked.destroy();
         this._replayClicked.destroy();
+        this._alertClicked.destroy();
         this._domToggled.destroy();
         this._watchlistToggled.destroy();
+        this._alertsManagerToggled.destroy();
         this._languageChanged.destroy();
         this._themeToggled.destroy();
         this._priceScaleModeChanged.destroy();

@@ -346,7 +346,8 @@ export class PaneWidget implements Disposable {
         }
 
         // Draw crosshair
-        if (this._crosshairX !== null) {
+        // x === null with a y set = horizontal-only crosshair (pointer over the price axis).
+        if (this._crosshairX !== null || this._crosshairY !== null) {
             const ctx = scope.context;
             const opts = this._model.options.crosshair;
             const hRatio = scope.horizontalPixelRatio;
@@ -355,7 +356,7 @@ export class PaneWidget implements Disposable {
             ctx.save();
 
             // Vertical line
-            if (opts.vertLine.visible) {
+            if (opts.vertLine.visible && this._crosshairX !== null) {
                 ctx.beginPath();
                 ctx.strokeStyle = opts.vertLine.color;
                 ctx.lineWidth = Math.max(1, Math.floor(opts.vertLine.width * hRatio));

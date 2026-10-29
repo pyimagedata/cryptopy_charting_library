@@ -1,6 +1,7 @@
 import { CandlestickSeriesOptions } from '../model/candlestick-series';
 import { HeikenAshiSeriesOptions } from '../series/heiken-ashi-series';
 import { ThemeType } from '../helpers/themes';
+import { getAlertSettings, setAlertSetting, AlertSettingKey } from '../alerts/alert-settings';
 import { CanvasChartApi, CanvasSnapshot, buildCanvasTab, restoreCanvas, snapshotCanvas } from './chart_settings/canvas-tab';
 
 export interface CandlestickAppearanceSettings extends Pick<
@@ -30,7 +31,7 @@ const SIDEBAR_TABS: SidebarTab[] = [
     { id: 'scales', label: 'Ölçekler ve çizgiler', icon: '↕' },
     { id: 'canvas', label: 'Tuval', icon: '✎' },
     { id: 'trading', label: 'İşlem', icon: '≈' },
-    { id: 'alerts', label: 'Uyarılar', icon: '◷' },
+    { id: 'alerts', label: 'Alarmlar', icon: '◷' },
     { id: 'events', label: 'Etkinlikler', icon: '◫' },
 ];
 
@@ -360,7 +361,7 @@ export class ChartSettingsModal {
         this._activeTab = 'symbol';
         this._pendingApply = null;
         this._renderContent = () => {
-            if (this._renderCanvas()) return;
+            if (this._renderCanvas() || this._renderAlerts()) return;
             this._content.innerHTML = '';
             const empty = document.createElement('div');
             empty.textContent = message;
@@ -407,8 +408,37 @@ export class ChartSettingsModal {
         return true;
     }
 
+    /** Alarmlar tab: line / axis label / toast / sound switches (applied live, persisted by alert-settings). */
+    private _renderAlerts(): boolean {
+        if (this._activeTab !== 'alerts') return false;
+        this._content.innerHTML = '';
+        this._content.appendChild(this._createSectionTitle('ALARMLAR'));
+        const rows: Array<[AlertSettingKey, string]> = [
+            ['lines', 'Alarm çizgilerini göster'],
+            ['axisLabels', 'Fiyat ekseninde alarm etiketlerini göster'],
+            ['toast', 'Alarm açılır penceresini göster'],
+            ['sound', 'Alarm sesini çal'],
+        ];
+        for (const [key, text] of rows) {
+            const row = document.createElement('label');
+            row.className = `chart-settings-alert-${key}`;
+            row.style.cssText = 'display: flex; align-items: center; gap: 12px; margin-bottom: 16px; cursor: pointer; font-size: 16px; user-select: none;';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = getAlertSettings()[key];
+            box.style.cssText = 'width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: #2962ff;';
+            box.addEventListener('change', () => setAlertSetting(key, box.checked));
+            const span = document.createElement('span');
+            span.textContent = text;
+            row.appendChild(box);
+            row.appendChild(span);
+            this._content.appendChild(row);
+        }
+        return true;
+    }
+
     private _renderPlaceholder(): void {
-        if (this._renderCanvas()) return;
+        if (this._renderCanvas() || this._renderAlerts()) return;
         this._content.innerHTML = '';
         const title = document.createElement('div');
         title.textContent = this._activeTab === 'symbol' ? 'SEMBOL' : 'YAKINDA';

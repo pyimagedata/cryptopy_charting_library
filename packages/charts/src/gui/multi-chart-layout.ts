@@ -7,6 +7,7 @@ import { DrawingToolbarWidget } from './drawing_toolbar';
 import { DrawingToolbarBinding } from './drawing_toolbar/drawing_toolbar_binding';
 import { ToolbarWidget } from './toolbar';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
+import { AlertsPanel, AlertsPanelChart } from './alerts/alerts-panel';
 import {
     LayoutId,
     LayoutSizes,
@@ -150,6 +151,10 @@ export class MultiChartLayout {
     /** Row holding the grid and the layout-wide watchlist sidebar (right edge). */
     private readonly _body: HTMLElement;
     private _watchlistPanel: WatchlistPanel | null = null;
+    /** Page-level alerts manager (one instance in the shared right sidebar, drives the ACTIVE chart). */
+    private _alertsPanel: AlertsPanel | null = null;
+    /** Unread fired-alert count, kept here so a layout rebuild (new panel instance) does not reset the badge. */
+    private _alertsUnread = 0;
     private _toolbarWidget: ToolbarWidget | null = null;
     /** One drawing toolbar for the whole layout (far left); drives the active chart. */
     private _drawingToolbar: DrawingToolbarWidget | null = null;
@@ -358,6 +363,7 @@ export class MultiChartLayout {
         this._rebuildSplitters();
         this._relayout();
         this._createWatchlist();
+        this._createAlertsPanel();
         this._createToolbar();
         this.setActiveChart(Math.min(this._activeIndex, this._charts.length - 1));
 
@@ -671,6 +677,7 @@ export class MultiChartLayout {
         this._toolbarWidget?.setTheme(theme);
         this._drawingToolbar?.setTheme(theme);
         this._watchlistPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
+        this._alertsPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
         for (const chart of this._charts) chart.setTheme(theme); // also persists 'tv-chart-theme'
         this._menu.refresh();
         this._themeChanged.fire(theme);
@@ -706,6 +713,8 @@ export class MultiChartLayout {
         window.removeEventListener('keypress', this._onKeyPress);
         this._watchlistPanel?.destroy();
         this._watchlistPanel = null;
+        this._alertsPanel?.destroy();
+        this._alertsPanel = null;
         for (const chart of this._charts) {
             chart.dispose();
         }
@@ -752,6 +761,8 @@ export class MultiChartLayout {
         });
         this._toolbarWidget.setTheme(this._theme);
         this._toolbarWidget.setWatchlistActive(this._watchlistPanel?.visible ?? false);
+        this._toolbarWidget.setAlertsManagerActive(this._alertsPanel?.visible ?? false);
+        this._toolbarWidget.setAlertsUnread(this._alertsPanel?.unreadCount ?? 0);
         // layout menu button: right end of the shared toolbar
         this._toolbarWidget.element?.appendChild(this._menu.createTrigger());
 
@@ -793,6 +804,10 @@ export class MultiChartLayout {
             this._watchlistPanel?.setVisible(enabled);
         });
 
+        this._toolbarWidget.alertsManagerToggled.subscribe((enabled) => {
+            this._alertsPanel?.setVisible(enabled);
+        });
+
         this._toolbarWidget.languageChanged.subscribe((locale) => {
             this._options = { ...this._options, locale };
             for (const chart of this._charts) {
@@ -810,6 +825,11 @@ export class MultiChartLayout {
             for (const chart of this._charts) {
                 chart.setDomEnabled(enabled);
             }
+        });
+
+        // Alert button: create-alert dialog for the active chart's symbol at its last price
+        this._toolbarWidget.alertClicked.subscribe(() => {
+            this.activeChart?.openAlertDialogAt();
         });
 
         // Replay button: starts / cancels bar selection on the active chart (its control bar drives the others)
@@ -854,7 +874,8 @@ export class MultiChartLayout {
         if (active) panel.setActiveSymbol(active.symbol);
 
         panel.visibilityChanged.subscribe((visible) => {
-            // Same exclusion as the single chart: watchlist and object tree share the right edge.
+            // Same exclusion as the single chart: watchlist, alerts panel and object tree share the right edge.
+            if (visible) this._alertsPanel?.setVisible(false, { persist: false });
             this._syncObjectTrees();
             this._toolbarWidget?.setWatchlistActive(visible);
             this._applyWatchlistInset();
@@ -875,14 +896,39 @@ export class MultiChartLayout {
         if (WatchlistPanel.wasOpen()) panel.setVisible(true);
     }
 
+    private _createAlertsPanel(): void {
+        this._alertsPanel?.destroy();
+        const panel = new AlertsPanel(this._body, 0, () => this.activeChart as AlertsPanelChart | null);
+        this._alertsPanel = panel;
+        panel.setTheme(this._theme === 'light' ? 'light' : 'dark');
+        panel.restoreUnread(this._alertsUnread);
+
+        panel.unreadChanged.subscribe((n) => { this._alertsUnread = n; this._toolbarWidget?.setAlertsUnread(n); });
+        panel.visibilityChanged.subscribe((visible) => {
+            if (visible) this._watchlistPanel?.setVisible(false);
+            this._syncObjectTrees();
+            this._toolbarWidget?.setAlertsManagerActive(visible);
+            this._applyWatchlistInset();
+        });
+        panel.widthChanged.subscribe(() => this._applyWatchlistInset());
+
+        if (AlertsPanel.wasOpen() && !this._watchlistPanel?.visible) panel.setVisible(true);
+    }
+
     /**
-     * Right sidebar of the layout is shared: watchlist OR the ACTIVE chart's object tree (never both).
+     * Right sidebar of the layout is shared: watchlist OR alerts panel OR the ACTIVE chart's object tree (never two).
      * Every chart's tree lives in the layout body; only the active chart's may be open.
      */
     private _syncObjectTrees(): void {
         const watchlistOpen = this._watchlistPanel?.visible ?? false;
+        // Watchlist closed while the alerts panel was open in the previous session / before: it takes the slot back.
+        if (!watchlistOpen && !(this._alertsPanel?.visible ?? false) && this._alertsPanel && AlertsPanel.wasOpen()) {
+            this._alertsPanel.setVisible(true);
+            return;
+        }
+        const sidebarOpen = watchlistOpen || (this._alertsPanel?.visible ?? false);
         this._charts.forEach((chart, i) => {
-            if (i === this._activeIndex && !watchlistOpen) chart.restoreObjectTree();
+            if (i === this._activeIndex && !sidebarOpen) chart.restoreObjectTree();
             else chart.hideObjectTree();
         });
         this._applyWatchlistInset();
@@ -891,6 +937,7 @@ export class MultiChartLayout {
     private _applyWatchlistInset(): void {
         const panel = this._watchlistPanel;
         let width = panel && panel.visible ? panel.width : 0;
+        if (!width && this._alertsPanel?.visible) width = this._alertsPanel.width;
         if (!width) {
             const tree = this._charts.find((c) => c.objectTreeVisible);
             if (tree) width = tree.objectTreeWidth;
@@ -995,6 +1042,7 @@ export class MultiChartLayout {
         chart.objectTreeVisibilityChanged.subscribe((visible) => {
             if (visible) {
                 this._watchlistPanel?.setVisible(false);
+                this._alertsPanel?.setVisible(false);
                 if (chart !== this.activeChart) chart.hideObjectTree();
             }
             this._applyWatchlistInset();
@@ -1197,6 +1245,7 @@ export class MultiChartLayout {
         const spot = this.activeChart.getSpotState();
         this._toolbarWidget.setSpotButton(spot.label, spot.active);
         this._watchlistPanel?.setActiveSymbol(this.activeChart.symbol);
+        this._alertsPanel?.notifyActiveChartChanged();
     }
 
     // --- sync handlers ---

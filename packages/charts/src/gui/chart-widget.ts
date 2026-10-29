@@ -15,9 +15,13 @@ import { coordinate } from '../model/coordinate';
 import { SpotPriceSource } from '../model/spot-price-source';
 import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ContextMenuItem, ICONS } from './context_menu';
+import { openAlertDialog, AlertDialogChart } from './alerts/alert-dialog';
+import { AlertLinesController } from './alerts/alert-lines';
+import { alertTicker, exactPrice, makeAlertSymbolId, snapAlertPrice } from '../alerts/alert-text';
 import { LegendAction, LegendPoint, LEGEND_ICONS } from './indicator_legend';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
 import { ObjectTreePanel } from './object_tree/object_tree_panel';
+import { AlertsPanel, AlertsPanelChart } from './alerts/alerts-panel';
 import { indicatorRowSignature } from './object_tree/object_tree_model';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
@@ -65,6 +69,7 @@ type OrderbookProvider = BinanceSpotProvider | BinanceFuturesProvider |
     OkxSpotProvider | OkxFuturesProvider | BistDataProvider;
 import {
     ChartWidgetContext,
+    isTypingTarget,
     handleWheel as handleWheelEvent,
     handleMouseDown as handleMouseDownEvent,
     handleMouseMove as handleMouseMoveEvent,
@@ -133,6 +138,8 @@ function writeSpotMode(enabled: boolean): void {
 }
 
 /** Klavye kisayollarini alacak aktif grafik (cok grafikli sayfada tek grafik tepki verir) */
+const ALERT_MENU_ICON = `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M9 2.5a4.5 4.5 0 0 0-4.5 4.5c0 3-1.5 4.5-1.5 4.5h12s-1.5-1.5-1.5-4.5A4.5 4.5 0 0 0 9 2.5z"/><path d="M7.6 14a1.5 1.5 0 0 0 2.8 0"/></svg>`;
+
 let _keyboardActiveChart: ChartWidget | null = null;
 
 export class ChartWidget implements Disposable {
@@ -144,6 +151,7 @@ export class ChartWidget implements Disposable {
     private _chartRow: HTMLElement | null = null;
     private _watchlistPanel: WatchlistPanel | null = null;
     private _objectTreePanel: ObjectTreePanel | null = null;
+    private _alertsPanel: AlertsPanel | null = null;
     /** Object tree lives in a host-owned sidebar (multi-chart layout): it must not squeeze this chart. */
     private _objectTreeExternal: HTMLElement | null = null;
     private _timeAxisRow: HTMLElement | null = null;
@@ -482,6 +490,7 @@ export class ChartWidget implements Disposable {
                 // Nesne agaci paneli yerlesim sirasinda varsayilan 'light' ile olusmustu
                 this._objectTreePanel?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
                 this._watchlistPanel?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+                this._alertsPanel?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
                 this._replayUI?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
             }
         }
@@ -818,6 +827,161 @@ export class ChartWidget implements Disposable {
      */
     setIndicatorAccess(access: IndicatorAccess | null): void {
         setIndicatorAccess(access);
+    }
+
+    // --- Alerts -------------------------------------------------------------------------------
+
+    /**
+     * Display text of a price in the chart's own price format. The axis format rounds (2 decimals from 1 up), so when
+     * it would lose digits of `price` the exact decimal text is used instead (display only; the input seeds from the value).
+     */
+    formatAlertPrice(price: number): string {
+        const axis = this._model.rightPriceScale.formatPrice(price);
+        const exact = exactPrice(price);
+        return exact !== '' && Number(axis) !== Number(exact) ? exact : axis;
+    }
+
+    /** Tick size (10^-precision from the loaded bars) or null when there is no data yet. */
+    alertPriceStep(): number | null {
+        const data = this._model.serieses[0]?.data;
+        if (!data || data.length === 0) return null;
+        const env = this._getToolEnv();
+        return env ? Math.pow(10, -env.precision) : null;
+    }
+
+    alertTheme(): 'light' | 'dark' {
+        return this._currentTheme === 'light' ? 'light' : 'dark';
+    }
+
+    /** Close of the last bar (or the line value); null without data. */
+    getLastPrice(): number | null {
+        const data = this._model.serieses[0]?.data;
+        if (!data || data.length === 0) return null;
+        const last: any = data[data.length - 1];
+        const v = 'close' in last ? last.close : last.value;
+        return typeof v === 'number' && isFinite(v) ? v : null;
+    }
+
+    /** Price under the crosshair when the mouse is over the main pane, else null. */
+    private _hoverPrice(): number | null {
+        const crosshair = this._visibleCrosshair();
+        const el = this._paneWidget?.element;
+        if (!crosshair || !crosshair.visible || !el || !this._pointerInside || this._lastMouseY === 0) return null;
+        const rect = el.getBoundingClientRect();
+        if (this._lastMouseY < rect.top || this._lastMouseY > rect.bottom) return null;
+        const price = this._model.rightPriceScale.coordinateToPrice(coordinate(this._lastMouseY - rect.top)) as number;
+        return isFinite(price) ? price : null;
+    }
+
+    private _addAlertLabel(price: number): string {
+        return t('Add alert for {symbol} at {price}...')
+            .replace('{symbol}', alertTicker(this.symbol))
+            .replace('{price}', this.formatAlertPrice(snapAlertPrice(price, this.alertPriceStep())));
+    }
+
+    /** Full identity of this chart's symbol for alerts: "EXCHANGE:CODE" (e.g. "BINANCE:BTCUSDT", "BINANCE-FUTURES:BTCUSDT"). */
+    alertSymbolId(): string {
+        return makeAlertSymbolId(this._model.exchange || this._currentExchange, this._model.symbol);
+    }
+
+    /** Opens the create-alert dialog for this chart's symbol at `price` (default: the last price). */
+    openAlertDialogAt(price?: number): void {
+        const raw = price ?? this.getLastPrice();
+        const p = raw !== null && isFinite(raw) ? snapAlertPrice(raw, this.alertPriceStep()) : raw;
+        openAlertDialog({ chart: this as AlertDialogChart, symbol: this.alertSymbolId(), price: p ?? NaN });
+    }
+
+    /** Alt+A / toolbar entry: crosshair price while hovering the chart, else the last price. */
+    openAlertDialogAtCursor(): void {
+        this.openAlertDialogAt(this._hoverPrice() ?? this.getLastPrice() ?? undefined);
+    }
+
+    /** Adds a horizontal line drawing at `price` on the main pane. */
+    addHorizontalLineAtPrice(price: number): void {
+        this._drawingManager.addHorizontalLineAt(price);
+        this._scheduleDraw();
+    }
+
+    private _alertLines: AlertLinesController | null = null;
+
+    /** Alert lines / pills on the main pane (listeners are added before the chart's own pane listeners). */
+    private _setupAlertLines(): void {
+        if (this._alertLines || !this._paneWidget) return;
+        this._alertLines = new AlertLinesController({
+            paneElement: () => this._paneWidget?.element ?? null,
+            paneCanvas: () => this._paneWidget?.canvas ?? null,
+            symbol: () => this.alertSymbolId(),
+            priceToY: (price) => {
+                const y = this._model.rightPriceScale.priceToCoordinate(price) as number;
+                return Number.isFinite(y) ? y : null;
+            },
+            yToPrice: (y) => {
+                const p = this._model.rightPriceScale.coordinateToPrice(coordinate(y)) as number;
+                return Number.isFinite(p) ? p : null;
+            },
+            formatPrice: (price) => this.formatAlertPrice(price),
+            priceStep: () => this.alertPriceStep(),
+            theme: () => this.alertTheme(),
+            paneHeight: () => this._model.rightPriceScale.height,
+            requestDraw: () => this._scheduleDraw(),
+            blocked: () => this._drawingManager.mode !== 'none' || this._interactionTools.mode !== 'none'
+                || this._drawingManager.activeDrawing !== null || this._isDragging || this._isDraggingDrawing,
+            openEdit: (alert) => openAlertDialog({ chart: this as AlertDialogChart, symbol: alert.symbol, price: alert.price, alert }),
+        });
+        this._alertLines.attach();
+    }
+
+    private _alertAxisMenu: ContextMenu | null = null;
+    private _alertAxisPrice: number | null = null;
+    /** Local y (price-axis coordinates) while the pointer is over the main pane's price axis, else null. */
+    private _axisHoverY: number | null = null;
+
+    /** Axis-hover y if it is usable for a price-only crosshair (inside the main pane, not drawing / dragging). */
+    private _axisHoverCrosshairY(): number | null {
+        const y = this._axisHoverY;
+        if (y === null || this._drawingManager.mode !== 'none' || this._interactionTools.mode !== 'none'
+            || this._isDragging || this._isDraggingDrawing || this._isPriceScaleDragging || this._alertLines?.dragging) return null;
+        return y >= 0 && y <= this._model.rightPriceScale.height ? y : null;
+    }
+
+    private _wireAlertAxisButton(): void {
+        const axis = this._priceAxisWidget;
+        if (!axis) return;
+        axis.onHover = (y) => {
+            if (this._axisHoverY === y) return;
+            this._axisHoverY = y;
+            this._scheduleDraw();
+        };
+        axis.onAddButtonClick = (x, y) => {
+            const price = this._alertAxisPrice;
+            if (price === null) return;
+            this._alertAxisMenu?.dispose();
+            this._alertAxisMenu = new ContextMenu({
+                items: [
+                    { id: 'add-alert', label: this._addAlertLabel(price), icon: ALERT_MENU_ICON, action: () => this.openAlertDialogAt(price) },
+                    {
+                        id: 'add-hline',
+                        label: t('Draw horizontal line at {price}').replace('{price}', this.formatAlertPrice(snapAlertPrice(price, this.alertPriceStep()))),
+                        action: () => this.addHorizontalLineAtPrice(price),
+                    },
+                ],
+                theme: this._currentTheme === 'light' ? 'light' : 'dark',
+            });
+            this._alertAxisMenu.show(x, y);
+        };
+    }
+
+    /** Called every draw: "+" button next to the crosshair label (hidden when the crosshair is off / drawing). */
+    private _syncAlertAxisButton(): void {
+        if (!this._priceAxisWidget) return;
+        const axisY = this._axisHoverCrosshairY();
+        const price = axisY !== null
+            ? (() => { const p = this._model.rightPriceScale.coordinateToPrice(coordinate(axisY)) as number; return isFinite(p) ? p : null; })()
+            : this._drawingManager.mode === 'none' && !this._isDragging && !this._alertLines?.dragging ? this._hoverPrice() : null;
+        if (price !== null) this._alertAxisPrice = price;
+        this._priceAxisWidget.setAddButtonEnabled(price !== null, t('Add alert for {symbol} at {price}...')
+            .replace('{symbol}', alertTicker(this.symbol))
+            .replace('{price}', price !== null ? this.formatAlertPrice(snapAlertPrice(price, this.alertPriceStep())) : ''));
     }
 
     showIndicatorSearch(): void {
@@ -1343,6 +1507,7 @@ export class ChartWidget implements Disposable {
         this._replayUI?.setTheme(theme === 'light' ? 'light' : 'dark');
 
         this._watchlistPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
+        this._alertsPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
         this._objectTreePanel?.setTheme(theme === 'light' ? 'light' : 'dark');
 
         // Update drawing settings modal if open
@@ -1775,6 +1940,7 @@ export class ChartWidget implements Disposable {
             backgroundColor: this._model.options.layout.backgroundColor,
             textColor: this._model.options.layout.textColor,
         });
+        this._wireAlertAxisButton();
         this._timeAxisWidget = new TimeAxisWidget(this._timeAxisRow, this._model.timeScale, this._timestamps, {
             backgroundColor: this._model.options.layout.backgroundColor,
             textColor: this._model.options.layout.textColor,
@@ -1910,6 +2076,7 @@ export class ChartWidget implements Disposable {
         // Nesne agaci paneli de ayni sag kenari kullanir (ikisi ayni anda acik olmaz).
         const watchlistWidth = this._watchlistPanel?.visible
             ? this._watchlistPanel.width
+            : this._alertsPanel?.visible ? this._alertsPanel.width
             : this._objectTreePanel?.visible && !this._objectTreeExternal ? this._objectTreePanel.width : 0;
         const usableWidth = this._width - watchlistWidth;
         this._technicalRatingBadge?.setRightOffset(watchlistWidth);
@@ -2252,8 +2419,10 @@ export class ChartWidget implements Disposable {
         panel.visibilityChanged.subscribe((visible) => {
             // Izleme listesi acilinca agac gecici kapanir (tercih yazilmaz); liste kapaninca agac,
             // kullanici onu onceden acik biraktiysa (wasOpen) yeniden acilir.
-            if (visible) this._objectTreePanel?.setVisible(false, { persist: false });
-            else if (ObjectTreePanel.wasOpen()) this._objectTreePanel?.setVisible(true);
+            if (visible) {
+                this._alertsPanel?.setVisible(false, { persist: false });
+                this._objectTreePanel?.setVisible(false, { persist: false });
+            } else this._restoreRightPanel();
             this._toolbarWidget?.setWatchlistActive(visible);
             this._updateLayout();
             this._scheduleDraw();
@@ -2278,6 +2447,41 @@ export class ChartWidget implements Disposable {
         if (WatchlistPanel.wasOpen()) panel.setVisible(true);
     }
 
+    /** Right slot freed: re-open the alerts panel or the object tree if the user left it open (never both). */
+    private _restoreRightPanel(): void {
+        if (this._watchlistPanel?.visible || this._alertsPanel?.visible) return;
+        if (AlertsPanel.wasOpen() && this._alertsPanel) this._alertsPanel.setVisible(true);
+        else if (ObjectTreePanel.wasOpen()) this._objectTreePanel?.setVisible(true);
+    }
+
+    /** Alerts manager panel ("Alarm yoneticisi"): same right slot as the watchlist / object tree (only one open). */
+    private _createAlertsPanel(): void {
+        if (!this._element || !this._toolbarWidget) return;
+        this._alertsPanel?.destroy();
+        const panel = new AlertsPanel(this._element, this._toolbarWidget.height, () => this as AlertsPanelChart);
+        this._alertsPanel = panel;
+        panel.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+
+        this._toolbarWidget.alertsManagerToggled.subscribe((enabled) => panel.setVisible(enabled));
+        panel.unreadChanged.subscribe((n) => this._toolbarWidget?.setAlertsUnread(n));
+        panel.visibilityChanged.subscribe((visible) => {
+            if (visible) {
+                this._watchlistPanel?.setVisible(false);
+                this._objectTreePanel?.setVisible(false, { persist: false });
+            } else this._restoreRightPanel();
+            this._toolbarWidget?.setAlertsManagerActive(visible);
+            this._updateLayout();
+            this._scheduleDraw();
+        });
+        panel.widthChanged.subscribe(() => {
+            if (!panel.visible) return;
+            this._updateLayout();
+            this._scheduleDraw();
+        });
+
+        if (AlertsPanel.wasOpen() && !this._watchlistPanel?.visible) panel.setVisible(true);
+    }
+
     /** Nesne agaci: sag kenarda yerlesir (izleme listesiyle ayni anda acik olmaz). */
     private _createObjectTree(): void {
         if (!this._element) return;
@@ -2296,13 +2500,16 @@ export class ChartWidget implements Disposable {
         if (this._objectTreeExternal) panel.mountIn(this._objectTreeExternal, 0);
         panel.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
         panel.visibilityChanged.subscribe((visible) => {
-            if (visible) this._watchlistPanel?.setVisible(false);
+            if (visible) {
+                this._watchlistPanel?.setVisible(false);
+                this._alertsPanel?.setVisible(false);
+            }
             this._drawingToolbarWidget?.setObjectTreeActive(visible);
             this._updateLayout();
             this._scheduleDraw();
             this._objectTreeVisibilityChanged.fire(visible);
         });
-        if (ObjectTreePanel.wasOpen() && !this._watchlistPanel?.visible && !this._objectTreeExternal) panel.setVisible(true);
+        if (ObjectTreePanel.wasOpen() && !this._watchlistPanel?.visible && !this._alertsPanel?.visible && !this._objectTreeExternal) panel.setVisible(true);
         this._drawingToolbarWidget?.setObjectTreeActive(panel.visible);
     }
 
@@ -2364,6 +2571,7 @@ export class ChartWidget implements Disposable {
     private _onSymbolChange(symbol: SymbolInfo): void {
         this._textEditor?.close(true);
         this._watchlistPanel?.setActiveSymbol(symbol.symbol);
+        this._alertsPanel?.notifyActiveChartChanged();
         console.log('🔍 Symbol changed to:', symbol.symbol, '@ Exchange:', symbol.exchange);
 
         // Update state manager - this saves current symbol's drawings and loads new symbol's drawings
@@ -2468,6 +2676,7 @@ export class ChartWidget implements Disposable {
             if (this._crosshairSyncEnabled) this._emitCrosshair(null);
         });
 
+        this._setupAlertLines();
         const paneCanvas = this._paneWidget?.canvas;
         if (paneCanvas) {
             paneCanvas.addEventListener('wheel', this._onWheel.bind(this), { passive: false });
@@ -2606,6 +2815,13 @@ export class ChartWidget implements Disposable {
     }
 
     private _onKeyDown(e: KeyboardEvent): void {
+        // Alt+A: create an alert (crosshair price while the mouse is over the chart, else the last price)
+        if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyA'
+            && !isTypingTarget(e.target) && (_keyboardActiveChart === null || _keyboardActiveChart === this)) {
+            e.preventDefault();
+            this.openAlertDialogAtCursor();
+            return;
+        }
         handleKeyDownEvent(e, this._getEventContextForPane(this._interactionPaneId, this._interactionPaneCanvas));
     }
 
@@ -3471,7 +3687,13 @@ export class ChartWidget implements Disposable {
         }
 
         // Gizli imlec (visible=false, x=0) eskiden sol kenarda dikey cizgi olarak kaliyordu.
-        if (crosshair && crosshair.visible) {
+        const axisHoverY = this._axisHoverCrosshairY();
+        if (axisHoverY !== null) {
+            // pointer over the price axis: price-only (horizontal) crosshair + axis label + "+" button
+            this._paneWidget?.setCrosshair(null, axisHoverY);
+            this._priceAxisWidget?.setCrosshair(axisHoverY, true);
+            this._timeAxisWidget?.setCrosshair(0, false);
+        } else if (crosshair && crosshair.visible) {
             this._paneWidget?.setCrosshair(crosshair.x, mainPaneLocalY);
             this._priceAxisWidget?.setCrosshair(mainPaneLocalY ?? 0, mainPaneLocalY !== null);
             this._timeAxisWidget?.setCrosshair(crosshair.x, crosshair.visible);
@@ -3482,6 +3704,7 @@ export class ChartWidget implements Disposable {
         }
 
         this._updateLastPriceLabel();
+        this._syncAlertAxisButton();
         this._applySpotAxis(crosshair?.visible ? crosshair.x : null, mainPaneLocalY);
         // Trend Line ailesi "Price labels": uc noktalarin fiyatlari eksende.
         // Eksen genisligi etiketlere gore hesaplandigi icin updateWidth()'ten ONCE verilir.
@@ -3514,6 +3737,7 @@ export class ChartWidget implements Disposable {
         }
         this._timeAxisWidget?.setDrawingLabels(timeLabels);
         this._priceAxisWidget?.setDrawingLabels(axisLabels);
+        this._priceAxisWidget?.setAlertLabels(this._alertLines?.sync() ?? []);
         if (this._priceAxisWidget?.updateWidth()) {
             this._updateLayout();
         }
@@ -4425,6 +4649,8 @@ export class ChartWidget implements Disposable {
 
         this._watchlistPanel?.destroy();
         this._watchlistPanel = null;
+        this._alertsPanel?.destroy();
+        this._alertsPanel = null;
         this._objectTreePanel?.destroy();
         this._objectTreePanel = null;
         this._toolbarWidget?.dispose();
@@ -4440,6 +4666,9 @@ export class ChartWidget implements Disposable {
         this._timeAxisWidget?.dispose();
         this._contextMenu?.dispose();
         this._drawingContextMenu?.dispose();
+        this._alertAxisMenu?.dispose();
+        this._alertLines?.dispose();
+        this._alertLines = null;
 
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);
@@ -4468,8 +4697,18 @@ export class ChartWidget implements Disposable {
     }
 
     /** Bos alan (grafik) baglam menusu ogeleri; Paste/Undo/Redo durumu her acilista yenilenir */
-    private _buildChartMenuItems(): ContextMenuItem[] {
+    private _buildChartMenuItems(price?: number): ContextMenuItem[] {
         const mod = ChartWidget._modKey();
+        const alertItems: ContextMenuItem[] = price !== undefined && isFinite(price) ? [
+            {
+                id: 'add-alert',
+                label: this._addAlertLabel(price),
+                icon: ALERT_MENU_ICON,
+                shortcut: '\u2325 A',
+                action: () => this.openAlertDialogAt(price),
+            },
+            { id: 'sep-alert', label: '', separator: true },
+        ] : [];
         const dm = this._drawingManager;
         const hiddenCount = dm.hiddenDrawingCount;
         const showHiddenItems: ContextMenuItem[] = hiddenCount > 0 ? [{
@@ -4478,6 +4717,7 @@ export class ChartWidget implements Disposable {
             action: () => { dm.showHiddenDrawings(); this._scheduleDraw(); }
         }] : [];
         return [
+                ...alertItems,
                 {
                     id: 'reset',
                     label: t('Reset chart view'),
@@ -4547,7 +4787,7 @@ export class ChartWidget implements Disposable {
     private _showChartContextMenu(clientX: number, clientY: number, price: number): void {
         this._drawingContextMenu?.hide();
         this._drawingManager.setActivePaneId(null);
-        this._contextMenu?.setItems(this._buildChartMenuItems());
+        this._contextMenu?.setItems(this._buildChartMenuItems(price));
         this._contextMenu?.setCurrentPrice(price);
         this._contextMenu?.show(clientX, clientY);
     }
@@ -4749,10 +4989,12 @@ export class ChartWidget implements Disposable {
         });
 
         this._createWatchlist();
+        this._createAlertsPanel();
         this._createObjectTree();
         this._initSpotToggle();
 
         this._toolbarWidget.replayClicked.subscribe(() => this._onReplayButton());
+        this._toolbarWidget.alertClicked.subscribe(() => this.openAlertDialogAt());
         this._toolbarWidget.setReplayActive(this._replay.state.active || this._replay.state.selecting);
 
         // Listen for language changes

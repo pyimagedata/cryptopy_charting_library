@@ -33,6 +33,9 @@ export interface PriceAxisWidgetOptions {
     accentColor?: string;
 }
 
+/** Extra label width for the alert bell glyph. */
+const ALERT_GLYPH_W = 14;
+
 const defaultPriceAxisOptions: PriceAxisWidgetOptions = {
     width: 52,
     backgroundColor: '#16213e',  // Darker navy (original panel bg)
@@ -168,6 +171,13 @@ export class PriceAxisWidget implements Disposable {
             this._drawLabel(y, label.text, label.color, false);
         }
 
+        // Alarm etiketleri (zil + fiyat): son fiyatin altinda, imlecin ustunde
+        for (const label of this._alertLabels) {
+            const y = this._priceScale.priceToCoordinate(label.price);
+            if (y < 0 || y > this._height) continue;
+            this._drawLabel(y, label.text, label.color, false, true);
+        }
+
         // Draw last value label
         if (this._lastValue) {
             const y = this._priceScale.priceToCoordinate(this._lastValue.price);
@@ -178,7 +188,10 @@ export class PriceAxisWidget implements Disposable {
             const text = this._crosshairText
                 ?? this._priceScale.formatPrice(this._priceScale.coordinateToPrice(coordinate(this._crosshairY)));
             this._drawLabel(this._crosshairY, text, this._options.accentColor ?? '#2962ff', false);
+            this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+            this._crosshairBoxWidth = Math.ceil(this._ctx.measureText(text).width + 4);
         }
+        this._positionAddButton();
 
         if (this._options.title) {
             this._drawTitle(this._options.title);
@@ -225,10 +238,17 @@ export class PriceAxisWidget implements Disposable {
             }
         }
 
+        if (this._alertLabels.length) {
+            this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+            for (const label of this._alertLabels) {
+                maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(label.text).width + ALERT_GLYPH_W);
+            }
+        }
+
         return Math.ceil(Math.max(44, maxTextWidth + 12));
     }
 
-    private _drawLabel(y: number, text: string, color: string, isLastValue: boolean): void {
+    private _drawLabel(y: number, text: string, color: string, isLastValue: boolean, glyph = false): void {
         if (!this._ctx || !this._element) return;
         const width = this._width;
         const height = this._height;
@@ -243,7 +263,8 @@ export class PriceAxisWidget implements Disposable {
         // Calculate box dimensions - taller if countdown is shown
         const hasCountdown = isLastValue && this._countdown;
         const boxHeight = hasCountdown ? 34 : 20;
-        const boxWidth = Math.ceil(textWidth + (horizontalPadding * 2));
+        const glyphW = glyph ? ALERT_GLYPH_W : 0;
+        const boxWidth = Math.ceil(textWidth + (horizontalPadding * 2) + glyphW);
         const boxY = y - (boxHeight / 2);
         const boxX = width - boxWidth;
 
@@ -255,7 +276,14 @@ export class PriceAxisWidget implements Disposable {
         this._ctx.fillStyle = '#ffffff';
         this._ctx.textAlign = 'center';
         const priceY = hasCountdown ? boxY + 11 : y;
-        this._ctx.fillText(text, boxX + (boxWidth / 2), priceY);
+        this._ctx.fillText(text, boxX + glyphW + ((boxWidth - glyphW) / 2), priceY);
+        if (glyph) {
+            // small bell glyph (12x12 box) left of the price
+            this._ctx.save();
+            this._ctx.translate(boxX + 3, y - 6);
+            this._ctx.fill(new Path2D('M6 1.2a3.2 3.2 0 0 0-3.2 3.2c0 2.2-1.1 3.3-1.1 3.3h8.6s-1.1-1.1-1.1-3.3A3.2 3.2 0 0 0 6 1.2z M5 9.2a1 1 0 0 0 2 0z'));
+            this._ctx.restore();
+        }
 
         // Countdown text (below price)
         if (hasCountdown && this._countdown) {
@@ -277,6 +305,13 @@ export class PriceAxisWidget implements Disposable {
         }
     }
 
+    private _alertLabels: { price: number; text: string; color: string }[] = [];
+
+    /** Alarm fiyat etiketleri (bell + price, alert colour); every draw. */
+    setAlertLabels(labels: { price: number; text: string; color: string }[]): void {
+        this._alertLabels = labels;
+    }
+
     private _lastValue: { price: number; text: string; color: string } | null = null;
     private _drawingLabels: { price: number; text: string; color: string }[] = [];
 
@@ -285,6 +320,14 @@ export class PriceAxisWidget implements Disposable {
         this._drawingLabels = labels;
     }
     private _crosshairY: number | null = null;
+    private _crosshairBoxWidth = 0;
+    private _addBtn: HTMLButtonElement | null = null;
+    private _addEnabled = false;
+    private _addHover = false;
+    /** Click handler of the round "+" button next to the crosshair label (viewport coords of the button). */
+    onAddButtonClick: ((clientX: number, clientY: number) => void) | null = null;
+    /** Pointer over the axis canvas (or its "+" button): local y, or null when it left. */
+    onHover: ((y: number | null) => void) | null = null;
     private _crosshairText: string | null = null;
     private _countdown: string | null = null;
 
@@ -304,6 +347,65 @@ export class PriceAxisWidget implements Disposable {
     setCrosshair(y: number, visible: boolean, text: string | null = null): void {
         this._crosshairY = visible ? y : null;
         this._crosshairText = text;
+    }
+
+    /**
+     * Shows / hides the round "+" button just left of the crosshair price label (TradingView style).
+     * While the pointer is on the button itself it stays where it is so it can be clicked.
+     */
+    setAddButtonEnabled(enabled: boolean, title?: string): void {
+        this._addEnabled = enabled;
+        if (title !== undefined && this._addBtn) this._addBtn.title = title;
+        this._positionAddButton();
+    }
+
+    private _ensureAddButton(): HTMLButtonElement | null {
+        if (this._addBtn) return this._addBtn;
+        if (!this._element) return null;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'chart-price-axis-add';
+        btn.style.cssText = `
+            position: absolute; display: none; width: 18px; height: 18px; padding: 0; margin: 0;
+            border-radius: 50%; border: 1px solid ${this._options.accentColor ?? '#2962ff'};
+            background: ${this._options.backgroundColor}; color: ${this._options.accentColor ?? '#2962ff'};
+            font: 600 14px/16px ${this._options.fontFamily}; text-align: center; cursor: pointer; z-index: 3;
+        `;
+        btn.textContent = '+';
+        btn.addEventListener('mouseenter', () => { this._addHover = true; });
+        btn.addEventListener('mouseleave', (e) => {
+            this._addHover = false;
+            this._positionAddButton();
+            // leaving the button to anywhere but the axis canvas ends the axis hover
+            if (e.relatedTarget !== this._canvas) this.onHover?.(null);
+        });
+        btn.addEventListener('mousedown', (e) => e.stopPropagation());
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const r = btn.getBoundingClientRect();
+            this.onAddButtonClick?.(r.left, r.bottom + 4);
+        });
+        this._element.appendChild(btn);
+        this._addBtn = btn;
+        return btn;
+    }
+
+    private _positionAddButton(): void {
+        if (!this._addEnabled && !this._addHover) {
+            if (this._addBtn) this._addBtn.style.display = 'none';
+            return;
+        }
+        const btn = this._ensureAddButton();
+        if (!btn) return;
+        if (this._crosshairY === null) {
+            // pointer moved from the chart onto the button: keep it where it was
+            if (!this._addHover) btn.style.display = 'none';
+            return;
+        }
+        btn.style.background = this._options.backgroundColor;
+        btn.style.left = `${this._width - this._crosshairBoxWidth - 22}px`;
+        btn.style.top = `${this._crosshairY - 9}px`;
+        btn.style.display = 'block';
     }
 
     /** Eksenin ustundeki kisa ad; null verilirse baslik ve vurgu rengi kalkar. */
@@ -343,6 +445,9 @@ export class PriceAxisWidget implements Disposable {
         this._element = null;
         this._canvas = null;
         this._ctx = null;
+        this._addBtn = null;
+        this.onAddButtonClick = null;
+        this.onHover = null;
     }
 
     private _createElement(container: HTMLElement): void {
@@ -380,6 +485,15 @@ export class PriceAxisWidget implements Disposable {
                 },
             );
             e.preventDefault();
+        });
+
+        this._canvas.addEventListener('mousemove', (e: MouseEvent) => {
+            if (endScaleSession) return;
+            this.onHover?.(e.clientY - (e.currentTarget as HTMLElement).getBoundingClientRect().top);
+        });
+        this._canvas.addEventListener('mouseleave', (e: MouseEvent) => {
+            if (e.relatedTarget === this._addBtn) return;
+            this.onHover?.(null);
         });
 
         this._element.appendChild(this._canvas);

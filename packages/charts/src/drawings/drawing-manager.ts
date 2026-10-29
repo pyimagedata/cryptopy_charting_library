@@ -2142,6 +2142,19 @@ export class DrawingManager {
         return copy;
     }
 
+    /** Programmatically adds a horizontal line at `price` on the main pane (selects it, one history step). */
+    addHorizontalLineAt(price: number): Drawing | null {
+        if (!isFinite(price)) return null;
+        const drawing: Drawing = new HorizontalLineDrawing();
+        const time = this._timestamps.length > 0 ? this._timestamps[this._timestamps.length - 1] : Date.now();
+        drawing.points = [{ time, price }];
+        drawing.paneId = null;
+        this._selectNew(drawing);
+        drawing.state = 'selected';
+        this.commitHistory();
+        return drawing;
+    }
+
     /** Cizimi en uste (en son cizilen) tasir */
     bringToFront(id: string): void {
         const drawing = this._drawings.get(id);
