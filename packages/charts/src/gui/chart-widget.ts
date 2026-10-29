@@ -731,6 +731,25 @@ export class ChartWidget implements Disposable {
         this._symbolSearch?.show();
     }
 
+    private _createSymbolSearch(): SymbolSearch {
+        const search = new SymbolSearch({
+            getActiveSymbol: () => ({ symbol: this._model.symbol, exchange: this._model.exchange }),
+            getTheme: () => (this._currentTheme === 'light' ? 'light' : 'dark'),
+        });
+        search.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
+        search.symbolSelected.subscribe((symbol: SymbolInfo) => {
+            this._onSymbolChange(symbol);
+        });
+        return search;
+    }
+
+    /** Type-to-open: a printable key pressed on the (active) chart opens the symbol search prefilled. */
+    private readonly _boundKeyPress: (e: KeyboardEvent) => void = (e) => {
+        if (!this._showToolbar || !this._symbolSearch) return;
+        if (_keyboardActiveChart !== null && _keyboardActiveChart !== this) return;
+        this._symbolSearch.handleTypeToOpen(e);
+    };
+
     /**
      * Plan-based indicator access. `null` (default) = everything allowed. Locked indicators
      * show a lock in the indicator dialog, cannot be added by any path and are removed from
@@ -994,6 +1013,7 @@ export class ChartWidget implements Disposable {
         this._indicatorSettingsModal?.setTheme(theme === 'light' ? 'light' : 'dark');
 
         this._indicatorSearchModal?.setTheme(theme === 'light' ? 'light' : 'dark');
+        this._symbolSearch?.setTheme(theme === 'light' ? 'light' : 'dark');
 
         // Update drawing toolbar
         if (this._drawingToolbarWidget) {
@@ -1395,10 +1415,7 @@ export class ChartWidget implements Disposable {
         }
 
         // Initialize Symbol Search Modal
-        this._symbolSearch = new SymbolSearch();
-        this._symbolSearch.symbolSelected.subscribe((symbol: SymbolInfo) => {
-            this._onSymbolChange(symbol);
-        });
+        this._symbolSearch = this._createSymbolSearch();
 
         // Create widgets
         this._paneWidget = new PaneWidget(this._chartRow, this._model);
@@ -2064,6 +2081,7 @@ export class ChartWidget implements Disposable {
 
         // Keyboard shortcuts for drawings (Delete/Backspace to delete selected)
         document.addEventListener('keydown', this._boundKeyDown);
+        window.addEventListener('keypress', this._boundKeyPress);
 
         // Aktif grafik: son tiklanan / uzerine gelinen grafik (ilk olusturulan varsayilan)
         if (_keyboardActiveChart === null) _keyboardActiveChart = this;
@@ -3956,6 +3974,7 @@ export class ChartWidget implements Disposable {
     dispose(): void {
         if (_keyboardActiveChart === this) _keyboardActiveChart = null;
         document.removeEventListener('keydown', this._boundKeyDown);
+        window.removeEventListener('keypress', this._boundKeyPress);
         this._replayUI?.dispose();
         this._replayUI = null;
         this._replay.dispose();
@@ -4277,12 +4296,9 @@ export class ChartWidget implements Disposable {
         // Re-create symbol search modal
         if (this._symbolSearch) {
             const oldSearch = this._symbolSearch;
-            this._symbolSearch = new SymbolSearch();
-            this._symbolSearch.symbolSelected.subscribe((symbol: SymbolInfo) => {
-                this._onSymbolChange(symbol);
-            });
+            this._symbolSearch = this._createSymbolSearch();
             // Remove old modal from DOM if it exists
-            oldSearch.hide();
+            oldSearch.dispose();
         }
 
         // Re-apply current theme to ensure new widgets match the theme

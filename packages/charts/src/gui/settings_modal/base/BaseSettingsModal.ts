@@ -147,6 +147,7 @@ export abstract class BaseSettingsModal {
 
         // Modal
         this._element = document.createElement('div');
+        this._element.setAttribute('role', 'dialog');
         this._element.style.cssText = `
             position: fixed;
             top: 50%;

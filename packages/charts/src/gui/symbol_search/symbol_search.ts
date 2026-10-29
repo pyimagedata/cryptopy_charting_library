@@ -1,141 +1,166 @@
 /**
- * Symbol Search Modal - TradingView-style symbol search with category tabs
- * 
- * Features:
- * - Category tabs (All, Stocks, Futures, Forex, Crypto, Indices, etc.)
- * - Dropdown filters (Country, Type, Sector)
- * - Real-time search
- * - Integration with data providers
+ * Symbol Search dialog - TradingView Supercharts style.
+ *
+ * Modules: symbol_model (DOM-free data/filter/rank/recents), symbol_data (exchange
+ * fetchers + shared catalog), symbol_row (rows/logos), sources_screen, symbol_style.
  */
 
 import { Delegate } from '../../helpers/delegate';
-import { t } from '../../helpers/translations';
-import { displaySymbol, displayExchange } from '../../helpers/display-aliases';
+import { t, getCurrentLanguage } from '../../helpers/translations';
+import {
+    Filters,
+    IndexedSymbol,
+    PrefsStore,
+    RecentsStore,
+    SearchPrefs,
+    SourceInfo,
+    SymbolInfo,
+    SymbolMarket,
+    SymbolType,
+    availableCategories,
+    availableMarkets,
+    buildSources,
+    explainEmpty,
+    indexSymbol,
+    indexSymbols,
+    mergeRecents,
+    parseQuery,
+    runSearch,
+    sourceLabel,
+} from './symbol_model';
+import { exchangeLogoUrl, symbolCatalog } from './symbol_data';
+import { createIcon } from './symbol_icons';
+import { createLogo, createRow } from './symbol_row';
+import { SourcesScreen } from './sources_screen';
+import { SearchTheme, applyThemeVars, ensureStyles } from './symbol_style';
 
-// ============================================================================
-// Types
-// ============================================================================
-
-export type SymbolType = 'all' | 'stocks' | 'funds' | 'futures' | 'forex' | 'crypto' | 'indices' | 'bonds' | 'economy' | 'options';
-
-export interface SymbolInfo {
-    symbol: string;
-    full_name: string;
-    description: string;
-    exchange: string;
-    type: SymbolType;
-    logo_url?: string;
-    logo_color?: string;
-    country?: string;
-    sector?: string;
-    provider?: string;  // 'binance', 'dxfeed', etc.
-}
+export type { SymbolInfo, SymbolType, SymbolMarket } from './symbol_model';
 
 export interface SymbolSearchConfig {
     categories?: SymbolType[];
     defaultCategory?: SymbolType;
+    /** Returns the chart's current symbol (marked as active in the list) */
+    getActiveSymbol?: () => { symbol: string; exchange?: string } | null;
+    /** Returns the current UI theme (applied every time the dialog opens) */
+    getTheme?: () => SearchTheme;
 }
 
-const DEFAULT_CONFIG: Required<SymbolSearchConfig> = {
-    categories: ['all', 'crypto', 'forex', 'stocks'],
-    defaultCategory: 'all'
-};
+const PAGE_SIZE = 50;
+const LOADING_DELAY_MS = 500;
 
-// ============================================================================
-// Mock Data (to be replaced with real data provider)
-// ============================================================================
-
-const MOCK_SYMBOLS: SymbolInfo[] = [
-    // Crypto - Binance Spot
-    { symbol: 'BTCUSDT', full_name: 'Bitcoin / TetherUS', description: 'Bitcoin', exchange: 'BINANCE', type: 'crypto', logo_color: '#F7931A', provider: 'binance' },
-    { symbol: 'ETHUSDT', full_name: 'Ethereum / TetherUS', description: 'Ethereum', exchange: 'BINANCE', type: 'crypto', logo_color: '#627EEA', provider: 'binance' },
-    { symbol: 'SOLUSDT', full_name: 'Solana / TetherUS', description: 'Solana', exchange: 'BINANCE', type: 'crypto', logo_color: '#14F195', provider: 'binance' },
-    { symbol: 'BNBUSDT', full_name: 'BNB / TetherUS', description: 'BNB', exchange: 'BINANCE', type: 'crypto', logo_color: '#F3BA2F', provider: 'binance' },
-    { symbol: 'XRPUSDT', full_name: 'XRP / TetherUS', description: 'XRP', exchange: 'BINANCE', type: 'crypto', logo_color: '#23292F', provider: 'binance' },
-    { symbol: 'ADAUSDT', full_name: 'Cardano / TetherUS', description: 'Cardano', exchange: 'BINANCE', type: 'crypto', logo_color: '#0033AD', provider: 'binance' },
-    { symbol: 'AVAXUSDT', full_name: 'Avalanche / TetherUS', description: 'Avalanche', exchange: 'BINANCE', type: 'crypto', logo_color: '#E84142', provider: 'binance' },
-    { symbol: 'DOTUSDT', full_name: 'Polkadot / TetherUS', description: 'Polkadot', exchange: 'BINANCE', type: 'crypto', logo_color: '#E6007A', provider: 'binance' },
-    { symbol: 'MATICUSDT', full_name: 'Polygon / TetherUS', description: 'Polygon', exchange: 'BINANCE', type: 'crypto', logo_color: '#8247E5', provider: 'binance' },
-    { symbol: 'LINKUSDT', full_name: 'Chainlink / TetherUS', description: 'Chainlink', exchange: 'BINANCE', type: 'crypto', logo_color: '#2A5ADA', provider: 'binance' },
-    { symbol: 'DOGEUSDT', full_name: 'Dogecoin / TetherUS', description: 'Dogecoin', exchange: 'BINANCE', type: 'crypto', logo_color: '#C2A633', provider: 'binance' },
-    { symbol: 'LTCUSDT', full_name: 'Litecoin / TetherUS', description: 'Litecoin', exchange: 'BINANCE', type: 'crypto', logo_color: '#345D9D', provider: 'binance' },
-
-    // Crypto - Binance Futures (Perpetual)
-    { symbol: 'BTCUSDT', full_name: 'Bitcoin Perpetual', description: 'BTC Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#F7931A', provider: 'binance-futures' },
-    { symbol: 'ETHUSDT', full_name: 'Ethereum Perpetual', description: 'ETH Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#627EEA', provider: 'binance-futures' },
-    { symbol: 'SOLUSDT', full_name: 'Solana Perpetual', description: 'SOL Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#14F195', provider: 'binance-futures' },
-    { symbol: 'BNBUSDT', full_name: 'BNB Perpetual', description: 'BNB Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#F3BA2F', provider: 'binance-futures' },
-    { symbol: 'XRPUSDT', full_name: 'XRP Perpetual', description: 'XRP Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#23292F', provider: 'binance-futures' },
-    { symbol: 'ADAUSDT', full_name: 'Cardano Perpetual', description: 'ADA Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#0033AD', provider: 'binance-futures' },
-    { symbol: 'AVAXUSDT', full_name: 'Avalanche Perpetual', description: 'AVAX Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#E84142', provider: 'binance-futures' },
-    { symbol: 'DOTUSDT', full_name: 'Polkadot Perpetual', description: 'DOT Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#E6007A', provider: 'binance-futures' },
-    { symbol: 'LINKUSDT', full_name: 'Chainlink Perpetual', description: 'LINK Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#2A5ADA', provider: 'binance-futures' },
-    { symbol: 'DOGEUSDT', full_name: 'Dogecoin Perpetual', description: 'DOGE Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#C2A633', provider: 'binance-futures' },
-    { symbol: 'LTCUSDT', full_name: 'Litecoin Perpetual', description: 'LTC Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#345D9D', provider: 'binance-futures' },
-    { symbol: 'ARBUSDT', full_name: 'Arbitrum Perpetual', description: 'ARB Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#28A0F0', provider: 'binance-futures' },
-    { symbol: 'OPUSDT', full_name: 'Optimism Perpetual', description: 'OP Perp', exchange: 'BINANCE-FUTURES', type: 'crypto', logo_color: '#FF0420', provider: 'binance-futures' },
-
-    // Stocks - NASDAQ
-    { symbol: 'TSLA', full_name: 'Tesla, Inc.', description: 'Tesla', exchange: 'NASDAQ', type: 'stocks', logo_color: '#CC0000', country: 'US', sector: 'Automotive', provider: 'dxfeed' },
-    { symbol: 'NVDA', full_name: 'NVIDIA Corporation', description: 'NVIDIA', exchange: 'NASDAQ', type: 'stocks', logo_color: '#76B900', country: 'US', sector: 'Technology', provider: 'dxfeed' },
-    { symbol: 'AAPL', full_name: 'Apple Inc.', description: 'Apple', exchange: 'NASDAQ', type: 'stocks', logo_color: '#A2AAAD', country: 'US', sector: 'Technology', provider: 'dxfeed' },
-    { symbol: 'AMZN', full_name: 'Amazon.com, Inc.', description: 'Amazon', exchange: 'NASDAQ', type: 'stocks', logo_color: '#FF9900', country: 'US', sector: 'E-Commerce', provider: 'dxfeed' },
-    { symbol: 'AMD', full_name: 'Advanced Micro Devices, Inc.', description: 'AMD', exchange: 'NASDAQ', type: 'stocks', logo_color: '#ED1C24', country: 'US', sector: 'Technology', provider: 'dxfeed' },
-    { symbol: 'META', full_name: 'Meta Platforms, Inc.', description: 'Meta', exchange: 'NASDAQ', type: 'stocks', logo_color: '#0866FF', country: 'US', sector: 'Technology', provider: 'dxfeed' },
-    { symbol: 'MSFT', full_name: 'Microsoft Corporation', description: 'Microsoft', exchange: 'NASDAQ', type: 'stocks', logo_color: '#00A4EF', country: 'US', sector: 'Technology', provider: 'dxfeed' },
-    { symbol: 'GOOGL', full_name: 'Alphabet Inc.', description: 'Google', exchange: 'NASDAQ', type: 'stocks', logo_color: '#4285F4', country: 'US', sector: 'Technology', provider: 'dxfeed' },
-
-    // BIST Stocks
-    { symbol: 'THYAO', full_name: 'Türk Hava Yolları A.O.', description: 'THY', exchange: 'BIST', type: 'stocks', logo_color: '#C8102E', country: 'TR', sector: 'Airlines', provider: 'dxfeed' },
-    { symbol: 'GARAN', full_name: 'Türkiye Garanti Bankası A.Ş.', description: 'Garanti', exchange: 'BIST', type: 'stocks', logo_color: '#00965E', country: 'TR', sector: 'Banking', provider: 'dxfeed' },
-    { symbol: 'ASELS', full_name: 'Aselsan Elektronik Sanayi ve Ticaret A.Ş.', description: 'Aselsan', exchange: 'BIST', type: 'stocks', logo_color: '#003087', country: 'TR', sector: 'Defense', provider: 'dxfeed' },
-    { symbol: 'SISE', full_name: 'Türkiye Şişe ve Cam Fabrikaları A.Ş.', description: 'Şişecam', exchange: 'BIST', type: 'stocks', logo_color: '#00529B', country: 'TR', sector: 'Manufacturing', provider: 'dxfeed' },
-];
-
-// ============================================================================
-// Tab Labels
-// ============================================================================
-
-// Tab Labels - Dynamic function for localization
-function getTabLabels(): Record<SymbolType, string> {
-    return {
-        'all': t('All'),
-        'stocks': t('Stocks'),
-        'funds': t('Funds'),
-        'futures': t('Futures'),
-        'forex': t('Forex'),
-        'crypto': t('Crypto'),
-        'indices': t('Indices'),
-        'bonds': t('Bonds'),
-        'economy': t('Economy'),
-        'options': t('Options')
-    };
+interface MenuItem {
+    label: string;
+    selected: boolean;
+    onClick: () => void;
 }
 
-// ============================================================================
-// Symbol Search Modal
-// ============================================================================
+function categoryLabel(c: SymbolType): string {
+    switch (c) {
+        case 'all': return t('All');
+        case 'stocks': return t('Stocks');
+        case 'funds': return t('Funds');
+        case 'futures': return t('Futures');
+        case 'forex': return t('Forex');
+        case 'crypto': return t('Crypto');
+        case 'cfd': return t('CFD');
+        case 'indices': return t('Indices');
+        case 'bonds': return t('Bonds');
+        case 'economy': return t('Economy');
+        case 'options': return t('Options');
+    }
+    return c;
+}
+
+function marketLabel(m: SymbolMarket): string {
+    return m === 'spot' ? t('Spot') : m === 'swap' ? t('Swap') : t('Futures');
+}
+
+function getStorage(): Storage | null {
+    try { return window.localStorage; } catch { return null; }
+}
+
+function isBlockedTypeTarget(el: Element | null): boolean {
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if ((el as HTMLElement).isContentEditable) return true;
+    return !!el.closest('[role="listbox"]');
+}
+
+/** True when some other dialog (settings, indicator search, ...) is visible. */
+function otherDialogOpen(): boolean {
+    const found = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+    for (let i = 0; i < found.length; i++) {
+        if (found[i].getClientRects().length > 0) return true;
+    }
+    return false;
+}
 
 export class SymbolSearch {
-    private _config: Required<SymbolSearchConfig>;
+    /** Single instance: the dialog that is currently open */
+    private static _open: SymbolSearch | null = null;
+
+    private readonly _config: SymbolSearchConfig;
+    private readonly _symbolSelected = new Delegate<SymbolInfo>();
+    private readonly _recents = new RecentsStore(getStorage());
+    private readonly _prefsStore = new PrefsStore(getStorage());
+    private _theme: SearchTheme = 'dark';
+
+    // Data
+    private _provided: SymbolInfo[] = [];
+    private _replaceCatalog = false;
+    private _index: IndexedSymbol[] = [];
+    private _byId = new Map<string, IndexedSymbol>();
+    private _sources: SourceInfo[] = [];
+
+    // State
+    private _filters: Filters;
+    private _prefs: SearchPrefs;
+    private _results: IndexedSymbol[] = [];
+    private _query = '';
+    private _rendered = 0;
+    private _selected = -1;
+    private _isLoading = false;
+
+    // DOM (exists only while open)
     private _overlay: HTMLElement | null = null;
     private _dialog: HTMLElement | null = null;
-    private _tabsContainer: HTMLElement | null = null;
-    private _listContainer: HTMLElement | null = null;
-    private _searchInput: HTMLInputElement | null = null;
-    private _symbols: SymbolInfo[] = [];
-    private _activeCategory: SymbolType = 'all';
-    private _cryptoExchange: string = 'all';  // 'all', 'BINANCE', 'BINANCE-FUTURES'
-    private _exchangeDropdown: HTMLSelectElement | null = null;
-    private _isLoading: boolean = false;
-    private _symbolsFetched: boolean = false;  // Cache flag
-    private readonly _symbolSelected = new Delegate<SymbolInfo>();
+    private _titleEl: HTMLElement | null = null;
+    private _backBtn: HTMLElement | null = null;
+    private _searchScreen: HTMLElement | null = null;
+    private _sourcesScreen: SourcesScreen | null = null;
+    private _input: HTMLInputElement | null = null;
+    private _clearBtn: HTMLElement | null = null;
+    private _filterHost: HTMLElement | null = null;
+    private _feed: HTMLElement | null = null;
+    private _feedWrap: HTMLElement | null = null;
+    private _spinner: HTMLElement | null = null;
+    private _sentinel: HTMLElement | null = null;
+    private _observer: IntersectionObserver | null = null;
+    private _resizeObs: ResizeObserver | null = null;
+    private _menu: HTMLElement | null = null;
+    private _suppressClick = false;
+    private _loadingTimer: ReturnType<typeof setTimeout> | null = null;
+    private _unsubCatalog: (() => void) | null = null;
+    private _tabEls: HTMLElement[] = [];
+    private _moreBtn: HTMLElement | null = null;
+    private _tabsHost: HTMLElement | null = null;
 
     constructor(config: SymbolSearchConfig = {}) {
-        this._config = { ...DEFAULT_CONFIG, ...config };
-        this._activeCategory = this._config.defaultCategory;
-        this._createUI();
+        this._config = config;
+        this._prefs = this._prefsStore.load();
+        this._filters = {
+            category: this._prefs.category,
+            source: this._prefs.source,
+            market: this._prefs.category !== 'all' ? (this._prefs.tabs[this._prefs.category]?.market ?? null) : null,
+        };
+        if (config.defaultCategory && !this._prefsStoredCategory()) this._filters.category = config.defaultCategory;
+        this._syncIndex();
     }
+
+    // ========================================================================
+    // Public API
+    // ========================================================================
 
     get symbolSelected(): Delegate<SymbolInfo> {
         return this._symbolSelected;
@@ -145,868 +170,786 @@ export class SymbolSearch {
         return this._isLoading;
     }
 
-    /**
-     * Set symbols to display (connect with data provider)
-     */
+    get isOpen(): boolean {
+        return this._overlay !== null;
+    }
+
+    /** Replace the symbol list (disables the built-in exchange fetch) */
     setSymbols(symbols: SymbolInfo[]): void {
-        this._symbols = symbols;
-        this._applyFilters();
+        this._provided = symbols;
+        this._replaceCatalog = true;
+        this._syncIndex();
+        if (this.isOpen) this._refresh();
     }
 
-    /**
-     * Add symbols to the list
-     */
+    /** Add symbols to the list */
     addSymbols(symbols: SymbolInfo[]): void {
-        this._symbols = [...this._symbols, ...symbols];
-        this._applyFilters();
+        this._provided = this._provided.concat(symbols);
+        this._syncIndex();
+        if (this.isOpen) this._refresh();
     }
 
-    show(): void {
+    setTheme(theme: SearchTheme): void {
+        this._theme = theme;
+        if (this._overlay) applyThemeVars(this._overlay, theme);
+    }
+
+    /** Opens the dialog. `initialText` pre-fills the input (type-to-open). */
+    show(initialText: string = ''): void {
+        if (SymbolSearch._open && SymbolSearch._open !== this) return;
         if (this._overlay) {
-            this._overlay.style.display = 'flex';
-            this._searchInput?.focus();
-
-            // Fetch symbols on first open
-            if (!this._symbolsFetched) {
-                this._fetchAllSymbols();
-            } else {
-                this._applyFilters();
-            }
+            this._input?.focus();
+            return;
         }
-    }
+        SymbolSearch._open = this;
+        const theme = this._config.getTheme?.();
+        if (theme) this._theme = theme;
+        ensureStyles();
+        this._syncIndex();
+        this._buildDom();
+        document.body.appendChild(this._overlay!);
 
-    // ========================================================================
-    // Exchange Logos (TradingView CDN)
-    // ========================================================================
+        document.addEventListener('keydown', this._onDocKeyDown, true);
+        document.addEventListener('mousedown', this._onDocMouseDown, true);
+        window.addEventListener('resize', this._onResize);
 
-    private static readonly EXCHANGE_LOGOS: Record<string, string> = {
-        'BINANCE': 'https://s3-symbol-logo.tradingview.com/provider/binance.svg',
-        'BINANCE-FUTURES': 'https://s3-symbol-logo.tradingview.com/provider/binance.svg',
-        'OKX': 'https://s3-symbol-logo.tradingview.com/provider/okx.svg',
-        'OKX-FUTURES': 'https://s3-symbol-logo.tradingview.com/provider/okx.svg',
-        'BYBIT': 'https://s3-symbol-logo.tradingview.com/provider/bybit.svg',
-        'BYBIT-FUTURES': 'https://s3-symbol-logo.tradingview.com/provider/bybit.svg',
-    };
-
-    // ========================================================================
-    // Multi-Exchange API Integration
-    // ========================================================================
-
-    private async _fetchAllSymbols(): Promise<void> {
-        this._isLoading = true;
-        this._showLoading();
-
-        try {
-            // Fetch all exchanges in parallel
-            const results = await Promise.allSettled([
-                this._fetchBinanceSpotSymbols(),
-                this._fetchBinanceFuturesSymbols(),
-                this._fetchBybitSpotSymbols(),
-                this._fetchBybitFuturesSymbols(),
-                this._fetchOkxSpotSymbols(),
-                this._fetchOkxFuturesSymbols(),
-                this._fetchForexSymbols(),
-            ]);
-
-            // Collect successful results
-            const allSymbols: SymbolInfo[] = [];
-            const stats: string[] = [];
-
-            results.forEach((result, index) => {
-                const names = ['Binance Spot', 'Binance Futures', 'Bybit Spot', 'Bybit Futures', 'OKX Spot', 'OKX Futures', 'Forex'];
-                if (result.status === 'fulfilled') {
-                    allSymbols.push(...result.value);
-                    stats.push(`${names[index]}: ${result.value.length}`);
-                } else {
-                    console.warn(`Failed to fetch ${names[index]}:`, result.reason);
-                    stats.push(`${names[index]}: ❌`);
-                }
-            });
-
-            this._symbols = allSymbols;
-            this._symbolsFetched = true;
-            console.log(`📈 Total symbols loaded: ${this._symbols.length}`);
-            console.log(`   ${stats.join(' | ')}`);
-        } catch (error) {
-            console.error('Failed to fetch symbols:', error);
-            this._symbols = MOCK_SYMBOLS;
-        } finally {
-            this._isLoading = false;
-            this._applyFilters();
+        if (!this._replaceCatalog) {
+            this._unsubCatalog = symbolCatalog.subscribe(() => this._onCatalogChunk());
+            symbolCatalog.ensureLoaded();
         }
-    }
+        this._updateLoading();
 
-    // ========================================================================
-    // BINANCE
-    // ========================================================================
-
-    private async _fetchBinanceSpotSymbols(): Promise<SymbolInfo[]> {
-        const response = await fetch('https://api.binance.com/api/v3/exchangeInfo');
-        if (!response.ok) throw new Error('Binance Spot API error');
-        const data = await response.json();
-
-        return data.symbols
-            .filter((s: any) => s.status === 'TRADING' && s.quoteAsset === 'USDT' && s.isSpotTradingAllowed)
-            .map((s: any): SymbolInfo => ({
-                symbol: s.symbol,
-                full_name: `${s.baseAsset} / ${s.quoteAsset}`,
-                description: s.baseAsset,
-                exchange: 'BINANCE',
-                type: 'crypto',
-                logo_url: SymbolSearch.EXCHANGE_LOGOS['BINANCE'],
-                logo_color: this._getRandomColor(s.baseAsset),
-                provider: 'binance'
-            }));
-    }
-
-    private async _fetchBinanceFuturesSymbols(): Promise<SymbolInfo[]> {
-        const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
-        if (!response.ok) throw new Error('Binance Futures API error');
-        const data = await response.json();
-
-        return data.symbols
-            .filter((s: any) => s.status === 'TRADING' && s.contractType === 'PERPETUAL' && s.quoteAsset === 'USDT')
-            .map((s: any): SymbolInfo => ({
-                symbol: s.symbol,
-                full_name: `${s.baseAsset} Perpetual`,
-                description: `${s.baseAsset} Perp`,
-                exchange: 'BINANCE-FUTURES',
-                type: 'crypto',
-                logo_url: SymbolSearch.EXCHANGE_LOGOS['BINANCE-FUTURES'],
-                logo_color: this._getRandomColor(s.baseAsset),
-                provider: 'binance-futures'
-            }));
-    }
-
-    // ========================================================================
-    // OKX
-    // ========================================================================
-
-    private async _fetchOkxSpotSymbols(): Promise<SymbolInfo[]> {
-        const response = await fetch('https://www.okx.com/api/v5/public/instruments?instType=SPOT');
-        if (!response.ok) throw new Error('OKX Spot API error');
-        const data = await response.json();
-
-        if (!data.data) return [];
-
-        return data.data
-            .filter((s: any) => s.state === 'live' && s.quoteCcy === 'USDT')
-            .map((s: any): SymbolInfo => ({
-                symbol: s.instId,  // Keep original format: BTC-USDT
-                full_name: `${s.baseCcy} / ${s.quoteCcy}`,
-                description: s.baseCcy,
-                exchange: 'OKX',
-                type: 'crypto',
-                logo_url: SymbolSearch.EXCHANGE_LOGOS['OKX'],
-                logo_color: this._getRandomColor(s.baseCcy),
-                provider: 'okx'
-            }));
-    }
-
-    private async _fetchOkxFuturesSymbols(): Promise<SymbolInfo[]> {
-        const response = await fetch('https://www.okx.com/api/v5/public/instruments?instType=SWAP');
-        if (!response.ok) throw new Error('OKX Futures API error');
-        const data = await response.json();
-
-        if (!data.data) return [];
-
-        return data.data
-            .filter((s: any) => s.state === 'live' && s.settleCcy === 'USDT')
-            .map((s: any): SymbolInfo => ({
-                symbol: s.instId,  // Keep original format: BTC-USDT-SWAP
-                full_name: `${s.ctValCcy} Perpetual`,
-                description: `${s.ctValCcy} Perp`,
-                exchange: 'OKX-FUTURES',
-                type: 'crypto',
-                logo_url: SymbolSearch.EXCHANGE_LOGOS['OKX-FUTURES'],
-                logo_color: this._getRandomColor(s.ctValCcy),
-                provider: 'okx-futures'
-            }));
-    }
-
-    // ========================================================================
-    // FOREX (EvoTrading'in kendi Django backend'i -- /api/symbols/)
-    // ========================================================================
-    // Onceden ayri, yerel bir "forex_service.py" mikroservisinden
-    // (127.0.0.1:8792) cekiliyordu -- ama bu dosya projede hicbir zaman var
-    // olmadi/deploy edilmedi. Promise.allSettled hatayi sessizce yuttugu
-    // icin bu, developer'in KENDI makinesi disinda (production'daki
-    // GERCEK kullanicilar dahil) forex sembol aramasinin HER ZAMAN
-    // "Sembol bulunamadi" ile sessizce basarisiz olmasina yol aciyordu --
-    // canli olarak dogrulandi (farkli bir tarayicidan XAU aramasi bos
-    // dondu). Artik candle/OHLCV verisinin de tek kaynagi olan AYNI Django
-    // backend'i kullaniliyor; istek Django'ya degil ayni origin'deki Next
-    // route'una (app/api/market) gider: oturum token'i httpOnly cerezde, JS
-    // okuyamaz, route token'i iletir (bkz. demo-ts.html MARKET_API_URL).
-
-    private static readonly MARKET_API_URL =
-        (typeof window !== 'undefined' && (window as any).MARKET_API_URL) || '/api/market';
-
-    private static readonly FOREX_DESCRIPTIONS: Record<string, string> = {
-        XAUUSD: 'Gold', XAGUSD: 'Silver', XPTUSD: 'Platinum', XPDUSD: 'Palladium',
-        GC1: 'Gold Futures', SI1: 'Silver Futures',
-        USOIL: 'WTI Crude Oil', UKOIL: 'Brent Crude Oil',
-    };
-
-    private async _fetchForexSymbols(): Promise<SymbolInfo[]> {
-        const response = await fetch(`${SymbolSearch.MARKET_API_URL}/symbols`);
-        if (!response.ok) throw new Error('Symbols API error');
-        const data: Array<{ code: string; exchange: string; asset_class: string }> = await response.json();
-
-        return data
-            .filter(s => s.asset_class !== 'crypto')
-            .map((s): SymbolInfo => {
-                const isCommodity = s.asset_class === 'metal' || s.asset_class === 'energy';
-                const description = SymbolSearch.FOREX_DESCRIPTIONS[s.code] || s.code;
-                return {
-                    symbol: s.code,
-                    full_name: isCommodity ? description : `${s.code.slice(0, 3)} / ${s.code.slice(3)}`,
-                    description,
-                    exchange: s.exchange,
-                    type: 'forex',
-                    logo_color: this._getRandomColor(s.code),
-                    provider: (s.exchange || 'fxcm').toLowerCase(),
-                };
-            });
-    }
-
-    // ========================================================================
-    // BYBIT
-    // ========================================================================
-
-    private async _fetchBybitSpotSymbols(): Promise<SymbolInfo[]> {
-        const response = await fetch('https://api.bybit.com/v5/market/instruments-info?category=spot');
-        if (!response.ok) throw new Error('Bybit Spot API error');
-        const data = await response.json();
-
-        if (!data.result?.list) return [];
-
-        return data.result.list
-            .filter((s: any) => s.status === 'Trading' && s.quoteCoin === 'USDT')
-            .map((s: any): SymbolInfo => ({
-                symbol: s.symbol,
-                full_name: `${s.baseCoin} / ${s.quoteCoin}`,
-                description: s.baseCoin,
-                exchange: 'BYBIT',
-                type: 'crypto',
-                logo_url: SymbolSearch.EXCHANGE_LOGOS['BYBIT'],
-                logo_color: this._getRandomColor(s.baseCoin),
-                provider: 'bybit'
-            }));
-    }
-
-    private async _fetchBybitFuturesSymbols(): Promise<SymbolInfo[]> {
-        const response = await fetch('https://api.bybit.com/v5/market/instruments-info?category=linear');
-        if (!response.ok) throw new Error('Bybit Futures API error');
-        const data = await response.json();
-
-        if (!data.result?.list) return [];
-
-        return data.result.list
-            .filter((s: any) => s.status === 'Trading' && s.quoteCoin === 'USDT' && s.contractType === 'LinearPerpetual')
-            .map((s: any): SymbolInfo => ({
-                symbol: s.symbol,
-                full_name: `${s.baseCoin} Perpetual`,
-                description: `${s.baseCoin} Perp`,
-                exchange: 'BYBIT-FUTURES',
-                type: 'crypto',
-                logo_url: SymbolSearch.EXCHANGE_LOGOS['BYBIT-FUTURES'],
-                logo_color: this._getRandomColor(s.baseCoin),
-                provider: 'bybit-futures'
-            }));
-    }
-
-    // ========================================================================
-    // Helpers
-    // ========================================================================
-
-    private _getRandomColor(seed: string): string {
-        const colors = [
-            '#F7931A', '#627EEA', '#14F195', '#F3BA2F', '#23292F',
-            '#0033AD', '#E84142', '#E6007A', '#8247E5', '#2A5ADA',
-            '#C2A633', '#345D9D', '#28A0F0', '#FF0420', '#00D395'
-        ];
-        let hash = 0;
-        for (let i = 0; i < seed.length; i++) {
-            hash = seed.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        return colors[Math.abs(hash) % colors.length];
-    }
-
-    private _showLoading(): void {
-        if (!this._listContainer) return;
-        this._listContainer.innerHTML = `
-            <div style="padding: 48px; text-align: center; color: #787b86;">
-                <div style="margin-bottom: 12px; font-size: 24px;">⏳ ${t('Loading...')}</div>
-                <div style="font-size: 13px;">${t('Fetching symbols from all exchanges')}</div>
-                <div style="font-size: 11px; margin-top: 8px; color: #555;">Binance · OKX · Bybit</div>
-            </div>
-        `;
+        const input = this._input!;
+        input.value = initialText;
+        this._updateClear();
+        this._renderFilterArea();
+        this._refresh();
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+        this._layoutTabsSoon();
     }
 
     hide(): void {
-        if (this._overlay) {
-            this._overlay.style.display = 'none';
-            if (this._searchInput) this._searchInput.value = '';
+        if (!this._overlay) return;
+        this._closeMenu();
+        this._clearLoadingTimer();
+        this._observer?.disconnect();
+        this._observer = null;
+        this._resizeObs?.disconnect();
+        this._resizeObs = null;
+        this._unsubCatalog?.();
+        this._unsubCatalog = null;
+        document.removeEventListener('keydown', this._onDocKeyDown, true);
+        document.removeEventListener('mousedown', this._onDocMouseDown, true);
+        window.removeEventListener('resize', this._onResize);
+        this._overlay.remove();
+        this._overlay = null;
+        this._dialog = null;
+        this._sourcesScreen = null;
+        this._input = null;
+        this._feed = null;
+        this._filterHost = null;
+        this._spinner = null;
+        this._sentinel = null;
+        this._results = [];
+        this._selected = -1;
+        if (SymbolSearch._open === this) SymbolSearch._open = null;
+    }
+
+    dispose(): void {
+        this.hide();
+        this._symbolSelected.destroy();
+    }
+
+    /**
+     * Type-to-open: call from a keypress listener. Returns true when the dialog was opened.
+     * Ignores modifier combos, control chars, digits (reserved), text inputs, listboxes and other dialogs.
+     */
+    handleTypeToOpen(e: KeyboardEvent): boolean {
+        if (SymbolSearch._open || e.defaultPrevented) return false;
+        if (e.ctrlKey || e.metaKey || e.altKey) return false;
+        const code = e.which || e.keyCode || e.charCode || 0;
+        if (code <= 32) return false;
+        const ch = e.key && e.key.length === 1 ? e.key : String.fromCharCode(code);
+        if (!ch || /[0-9]/.test(ch)) return false;
+        const target = e.target instanceof Element ? e.target : null;
+        if (isBlockedTypeTarget(target) || isBlockedTypeTarget(document.activeElement)) return false;
+        if (otherDialogOpen()) return false;
+        e.preventDefault();
+        this.show(ch);
+        return true;
+    }
+
+    // ========================================================================
+    // Data
+    // ========================================================================
+
+    private _prefsStoredCategory(): boolean {
+        const st = getStorage();
+        try { return !!st && st.getItem('tv-symbol-search-prefs-v1') !== null; } catch { return false; }
+    }
+
+    private _syncIndex(): void {
+        const catalogSymbols = this._replaceCatalog ? [] : symbolCatalog.symbols;
+        const seen = new Set<string>();
+        const merged: SymbolInfo[] = [];
+        for (const list of [catalogSymbols, this._provided]) {
+            for (const s of list) {
+                const id = `${s.exchange}:${s.symbol}`;
+                if (seen.has(id)) continue;
+                seen.add(id);
+                merged.push(s);
+            }
         }
+        this._index = indexSymbols(merged);
+        this._byId = new Map(this._index.map(s => [s.id, s]));
+        this._sources = buildSources(this._index);
+        this._validateFilters();
+    }
+
+    /** Drop persisted filters that no longer exist in the data (once everything is loaded). */
+    private _validateFilters(): void {
+        if (!this._replaceCatalog && symbolCatalog.loading) return;
+        if (this._index.length === 0) return;
+        const f = this._filters;
+        let changed = false;
+        if (f.category !== 'all' && availableCategories(this._index).indexOf(f.category) < 0) {
+            f.category = 'all';
+            f.market = null;
+            changed = true;
+        }
+        if (f.source !== null && !this._sources.some(s => s.id === f.source)) {
+            f.source = null;
+            changed = true;
+        }
+        if (f.market !== null && availableMarkets(this._index, f.category).indexOf(f.market) < 0) {
+            f.market = null;
+            changed = true;
+        }
+        if (changed) this._persist();
+    }
+
+    private _persist(): void {
+        const f = this._filters;
+        const tabs = { ...this._prefs.tabs };
+        if (f.category !== 'all') tabs[f.category] = { market: f.market };
+        this._prefs = { category: f.category, source: f.source, tabs };
+        this._prefsStore.save(this._prefs);
+    }
+
+    private _onCatalogChunk(): void {
+        this._syncIndex();
+        this._updateLoading();
+        if (this._sourcesScreen) return;
+        this._renderFilterArea();
+        this._refresh();
+    }
+
+    private _isActive(item: IndexedSymbol): boolean {
+        const a = this._config.getActiveSymbol?.();
+        if (!a) return false;
+        return item.info.symbol === a.symbol && (!a.exchange || item.info.exchange === a.exchange);
     }
 
     // ========================================================================
-    // UI Creation
+    // DOM construction
     // ========================================================================
 
-    private _createUI(): void {
-        // Overlay
-        this._overlay = document.createElement('div');
-        this._overlay.className = 'symbol-search-overlay';
-        this._overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.6);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 10000;
-            font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
-        `;
+    private _buildDom(): void {
+        const overlay = document.createElement('div');
+        overlay.className = 'ss-overlay symbol-search-overlay';
+        overlay.lang = getCurrentLanguage();
+        applyThemeVars(overlay, this._theme);
 
-        // Dialog
-        this._dialog = document.createElement('div');
-        this._dialog.className = 'symbol-search-dialog';
-        this._dialog.style.cssText = `
-            width: 680px;
-            max-height: 85vh;
-            background: #1e222d;
-            border: 1px solid #363a45;
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
-            overflow: hidden;
-        `;
-
-        this._createHeader();
-        this._createTabs();
-        this._createExchangeFilter();
-        this._createList();
-
-        this._overlay.appendChild(this._dialog);
-        document.body.appendChild(this._overlay);
-
-        // Close on click outside
-        this._overlay.addEventListener('click', (e) => {
-            if (e.target === this._overlay) this.hide();
+        let downOnOverlay = false;
+        overlay.addEventListener('mousedown', (e) => { downOnOverlay = e.target === overlay; });
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay && downOnOverlay) this.hide();
         });
 
-        // Close on Escape
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') this.hide();
-        });
-    }
+        const dialog = document.createElement('div');
+        dialog.className = 'ss-dialog symbol-search-dialog';
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        dialog.setAttribute('aria-label', t('Symbol search'));
 
-    private _createHeader(): void {
+        // Header
         const header = document.createElement('div');
-        header.style.cssText = `
-            padding: 16px 20px;
-            border-bottom: 1px solid #363a45;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        `;
-
+        header.className = 'ss-header';
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.className = 'ss-btn-icon ss-back';
+        back.setAttribute('aria-label', t('Back'));
+        back.title = t('Back');
+        back.appendChild(createIcon('back', 24));
+        back.style.display = 'none';
+        back.addEventListener('click', () => this._showSearchScreen());
         const title = document.createElement('h2');
-        title.textContent = t('Symbol Search');
-        title.style.cssText = `
-            margin: 0;
-            font-size: 18px;
-            font-weight: 600;
-            color: #d1d4dc;
-        `;
-        header.appendChild(title);
+        title.className = 'ss-title';
+        title.textContent = t('Symbol search');
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'ss-btn-icon';
+        close.setAttribute('aria-label', t('Close menu'));
+        close.title = t('Close menu');
+        close.appendChild(createIcon('close', 24));
+        close.addEventListener('click', () => this.hide());
+        header.append(back, title, close);
+        dialog.appendChild(header);
 
-        const closeBtn = document.createElement('button');
-        closeBtn.innerHTML = '×';
-        closeBtn.style.cssText = `
-            background: transparent;
-            border: none;
-            cursor: pointer;
-            font-size: 24px;
-            color: #787b86;
-            line-height: 1;
-            padding: 0;
-            width: 28px;
-            height: 28px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 4px;
-            transition: all 0.15s;
-        `;
-        closeBtn.onmouseenter = () => { closeBtn.style.background = '#363a45'; closeBtn.style.color = '#d1d4dc'; };
-        closeBtn.onmouseleave = () => { closeBtn.style.background = 'transparent'; closeBtn.style.color = '#787b86'; };
-        closeBtn.onclick = () => this.hide();
-        header.appendChild(closeBtn);
+        // Search screen
+        const screen = document.createElement('div');
+        screen.className = 'ss-screen';
 
-        this._dialog!.appendChild(header);
-
-        // Search input row
-        const searchRow = document.createElement('div');
-        searchRow.style.cssText = `
-            padding: 12px 20px;
-            border-bottom: 1px solid #363a45;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        `;
-
-        const searchIcon = document.createElement('span');
-        searchIcon.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="#787b86"><path d="M14.386 12.972l4.857 4.856a1 1 0 01-1.414 1.415l-4.856-4.857a8 8 0 111.413-1.414zM8 14A6 6 0 108 2a6 6 0 000 12z"/></svg>`;
-        searchRow.appendChild(searchIcon);
-
-        this._searchInput = document.createElement('input');
-        this._searchInput.type = 'text';
-        this._searchInput.placeholder = t('Symbol, ISIN, or CUSIP');
-        this._searchInput.style.cssText = `
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: #d1d4dc;
-            font-size: 15px;
-            outline: none;
-            font-family: inherit;
-        `;
-        this._searchInput.addEventListener('input', () => this._applyFilters());
-        searchRow.appendChild(this._searchInput);
-
-        this._dialog!.appendChild(searchRow);
-    }
-
-    private _createTabs(): void {
-        this._tabsContainer = document.createElement('div');
-        this._tabsContainer.style.cssText = `
-            display: flex;
-            gap: 4px;
-            padding: 12px 20px;
-            border-bottom: 1px solid #363a45;
-            overflow-x: auto;
-        `;
-
-        this._config.categories.forEach(cat => {
-            const tab = document.createElement('button');
-            tab.textContent = getTabLabels()[cat];
-            tab.dataset.category = cat;
-            tab.style.cssText = `
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: 500;
-                cursor: pointer;
-                border: none;
-                transition: all 0.15s;
-                white-space: nowrap;
-                font-family: inherit;
-                ${cat === this._activeCategory
-                    ? 'background: #2962ff; color: white;'
-                    : 'background: #2a2e39; color: #787b86;'}
-            `;
-
-            tab.onmouseenter = () => {
-                if (cat !== this._activeCategory) {
-                    tab.style.background = '#363a45';
-                    tab.style.color = '#d1d4dc';
-                }
-            };
-            tab.onmouseleave = () => {
-                if (cat !== this._activeCategory) {
-                    tab.style.background = '#2a2e39';
-                    tab.style.color = '#787b86';
-                }
-            };
-
-            tab.onclick = () => this._selectCategory(cat);
-            this._tabsContainer!.appendChild(tab);
+        const inputRow = document.createElement('div');
+        inputRow.className = 'ss-input-row';
+        const box = document.createElement('div');
+        box.className = 'ss-input-box';
+        box.appendChild(createIcon('search', 28));
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'ss-input';
+        input.lang = 'en'; // sembol kodu: tr buyuk harf kurali uygulanmasin
+        input.setAttribute('role', 'searchbox');
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        input.placeholder = t('Symbol or name');
+        input.addEventListener('input', () => {
+            this._updateClear();
+            this._refresh();
         });
-
-        this._dialog!.appendChild(this._tabsContainer);
-    }
-
-    private _createExchangeFilter(): void {
-        const filterRow = document.createElement('div');
-        filterRow.id = 'exchange-filter-row';
-        filterRow.style.cssText = `
-            display: ${this._activeCategory === 'crypto' || this._activeCategory === 'all' ? 'flex' : 'none'};
-            gap: 8px;
-            padding: 12px 20px;
-            border-bottom: 1px solid #363a45;
-            align-items: center;
-            flex-wrap: wrap;
-        `;
-
-        const label = document.createElement('span');
-        label.textContent = t('Exchange:');
-        label.style.cssText = `
-            font-size: 13px;
-            color: #787b86;
-        `;
-        filterRow.appendChild(label);
-
-        // Custom dropdown container
-        const dropdownContainer = document.createElement('div');
-        dropdownContainer.style.cssText = `position: relative;`;
-
-        // Selected button
-        const selectedBtn = document.createElement('button');
-        selectedBtn.id = 'exchange-selected-btn';
-        selectedBtn.style.cssText = `
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            background: #2a2e39;
-            border: 1px solid #363a45;
-            border-radius: 4px;
-            color: #d1d4dc;
-            padding: 6px 12px;
-            font-size: 13px;
-            cursor: pointer;
-            font-family: inherit;
-            min-width: 200px;
-            justify-content: space-between;
-        `;
-
-        const updateSelectedBtn = (value: string, logoUrl: string | null, text: string) => {
-            selectedBtn.innerHTML = '';
-            const leftPart = document.createElement('span');
-            leftPart.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-
-            if (logoUrl) {
-                const img = document.createElement('img');
-                img.src = logoUrl;
-                img.style.cssText = 'width: 16px; height: 16px; border-radius: 2px;';
-                img.crossOrigin = 'anonymous';
-                leftPart.appendChild(img);
-            } else {
-                // Globe icon for "All Exchanges"
-                const globeIcon = document.createElement('span');
-                globeIcon.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="#2962ff"><circle cx="12" cy="12" r="10" stroke="#2962ff" stroke-width="2" fill="none"/><ellipse cx="12" cy="12" rx="4" ry="10" stroke="#2962ff" stroke-width="1.5" fill="none"/><line x1="2" y1="12" x2="22" y2="12" stroke="#2962ff" stroke-width="1.5"/></svg>`;
-                leftPart.appendChild(globeIcon);
-            }
-
-            const textSpan = document.createElement('span');
-            textSpan.textContent = text;
-            leftPart.appendChild(textSpan);
-            selectedBtn.appendChild(leftPart);
-
-            const arrow = document.createElement('span');
-            arrow.innerHTML = '▼';
-            arrow.style.cssText = 'font-size: 10px; color: #787b86;';
-            selectedBtn.appendChild(arrow);
-        };
-
-        updateSelectedBtn('all', null, t('All Exchanges'));
-
-        // Dropdown menu
-        const dropdownMenu = document.createElement('div');
-        dropdownMenu.style.cssText = `
-            display: none;
-            position: absolute;
-            top: 100%;
-            left: 0;
-            background: #1e222d;
-            border: 1px solid #363a45;
-            border-radius: 4px;
-            min-width: 220px;
-            max-height: 300px;
-            overflow-y: auto;
-            z-index: 1000;
-            margin-top: 4px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-        `;
-
-        const exchangeOptions = [
-            { value: 'all', label: t('All Exchanges'), logo: null },
-            { value: 'BINANCE', label: 'Binance (Spot)', logo: SymbolSearch.EXCHANGE_LOGOS['BINANCE'] },
-            { value: 'BINANCE-FUTURES', label: 'Binance Futures', logo: SymbolSearch.EXCHANGE_LOGOS['BINANCE-FUTURES'] },
-            { value: 'BYBIT', label: 'Bybit (Spot)', logo: SymbolSearch.EXCHANGE_LOGOS['BYBIT'] },
-            { value: 'BYBIT-FUTURES', label: 'Bybit Futures', logo: SymbolSearch.EXCHANGE_LOGOS['BYBIT-FUTURES'] },
-            { value: 'OKX', label: 'OKX (Spot)', logo: SymbolSearch.EXCHANGE_LOGOS['OKX'] },
-            { value: 'OKX-FUTURES', label: 'OKX Futures', logo: SymbolSearch.EXCHANGE_LOGOS['OKX-FUTURES'] },
-        ];
-
-        exchangeOptions.forEach(opt => {
-            const item = document.createElement('div');
-            item.style.cssText = `
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                padding: 10px 14px;
-                cursor: pointer;
-                transition: background 0.15s;
-            `;
-
-            if (opt.logo) {
-                const img = document.createElement('img');
-                img.src = opt.logo;
-                img.style.cssText = 'width: 20px; height: 20px; border-radius: 3px;';
-                img.crossOrigin = 'anonymous';
-                item.appendChild(img);
-            } else {
-                const globeIcon = document.createElement('span');
-                globeIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="#2962ff"><circle cx="12" cy="12" r="10" stroke="#2962ff" stroke-width="2" fill="none"/><ellipse cx="12" cy="12" rx="4" ry="10" stroke="#2962ff" stroke-width="1.5" fill="none"/><line x1="2" y1="12" x2="22" y2="12" stroke="#2962ff" stroke-width="1.5"/></svg>`;
-                item.appendChild(globeIcon);
-            }
-
-            const text = document.createElement('span');
-            text.textContent = opt.label;
-            text.style.cssText = 'color: #d1d4dc; font-size: 13px;';
-            item.appendChild(text);
-
-            item.addEventListener('mouseenter', () => { item.style.background = '#2a2e39'; });
-            item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
-
-            item.addEventListener('click', () => {
-                this._cryptoExchange = opt.value;
-                updateSelectedBtn(opt.value, opt.logo, opt.label);
-                dropdownMenu.style.display = 'none';
-                this._applyFilters();
-            });
-
-            dropdownMenu.appendChild(item);
+        input.addEventListener('keydown', (e) => this._onInputKeyDown(e));
+        const clear = document.createElement('button');
+        clear.type = 'button';
+        clear.className = 'ss-btn-icon';
+        clear.setAttribute('aria-label', t('Clear'));
+        clear.title = t('Clear');
+        clear.appendChild(createIcon('close', 20));
+        clear.style.display = 'none';
+        clear.addEventListener('click', () => {
+            input.value = '';
+            this._updateClear();
+            this._refresh();
+            input.focus();
         });
+        box.append(input, clear);
+        inputRow.appendChild(box);
+        screen.appendChild(inputRow);
 
-        // Toggle dropdown
-        selectedBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            dropdownMenu.style.display = dropdownMenu.style.display === 'none' ? 'block' : 'none';
-        });
+        const filterHost = document.createElement('div');
+        filterHost.style.flexShrink = '0';
+        screen.appendChild(filterHost);
 
-        // Close on outside click
-        document.addEventListener('click', () => {
-            dropdownMenu.style.display = 'none';
-        });
+        const feedWrap = document.createElement('div');
+        feedWrap.className = 'ss-feed-wrap';
+        const feed = document.createElement('div');
+        feed.className = 'ss-feed';
+        feed.setAttribute('role', 'listbox');
+        feed.addEventListener('click', (e) => this._onFeedClick(e));
+        feedWrap.appendChild(feed);
+        screen.appendChild(feedWrap);
 
-        dropdownContainer.appendChild(selectedBtn);
-        dropdownContainer.appendChild(dropdownMenu);
-        filterRow.appendChild(dropdownContainer);
-        this._dialog!.appendChild(filterRow);
-    }
+        dialog.appendChild(screen);
+        overlay.appendChild(dialog);
 
-    private _updateExchangeFilterVisibility(): void {
-        const filterRow = this._dialog?.querySelector('#exchange-filter-row') as HTMLElement;
-        if (filterRow) {
-            // Show for crypto and all categories
-            filterRow.style.display = (this._activeCategory === 'crypto' || this._activeCategory === 'all') ? 'flex' : 'none';
+        this._overlay = overlay;
+        this._dialog = dialog;
+        this._titleEl = title;
+        this._backBtn = back;
+        this._searchScreen = screen;
+        this._input = input;
+        this._clearBtn = clear;
+        this._filterHost = filterHost;
+        this._feed = feed;
+        this._feedWrap = feedWrap;
+
+        if (typeof ResizeObserver !== 'undefined') {
+            this._resizeObs = new ResizeObserver(() => this._layoutTabs());
+            this._resizeObs.observe(dialog);
         }
     }
 
-    private _createList(): void {
-        this._listContainer = document.createElement('div');
-        this._listContainer.style.cssText = `
-            flex: 1;
-            overflow-y: auto;
-            min-height: 300px;
-            max-height: 400px;
-        `;
-        this._dialog!.appendChild(this._listContainer);
+    private _updateClear(): void {
+        if (this._clearBtn && this._input) this._clearBtn.style.display = this._input.value ? 'inline-flex' : 'none';
     }
 
     // ========================================================================
-    // Category Selection
+    // Tabs / filter row
     // ========================================================================
 
-    private _selectCategory(category: SymbolType): void {
-        this._activeCategory = category;
-
-        // Update tab styles
-        const tabs = this._tabsContainer?.querySelectorAll('button');
-        tabs?.forEach(tab => {
-            const el = tab as HTMLButtonElement;
-            const cat = el.dataset.category;
-            if (cat === category) {
-                el.style.background = '#2962ff';
-                el.style.color = 'white';
-            } else {
-                el.style.background = '#2a2e39';
-                el.style.color = '#787b86';
-            }
-        });
-
-        // Show/hide exchange filter based on category
-        this._updateExchangeFilterVisibility();
-
-        this._applyFilters();
+    private _renderFilterArea(): void {
+        const host = this._filterHost;
+        if (!host) return;
+        this._closeMenu();
+        host.textContent = '';
+        this._tabEls = [];
+        this._moreBtn = null;
+        this._tabsHost = null;
+        host.appendChild(this._buildTabs());
+        const filterRow = this._buildFilterRow();
+        if (filterRow) host.appendChild(filterRow);
+        this._layoutTabsSoon();
     }
 
-    // ========================================================================
-    // Filtering & Rendering
-    // ========================================================================
-
-    private _applyFilters(): void {
-        const query = this._searchInput?.value.toLowerCase() || '';
-
-        let filtered = this._symbols;
-
-        // Category filter
-        if (this._activeCategory !== 'all') {
-            filtered = filtered.filter(s => s.type === this._activeCategory);
+    private _setCategory(cat: SymbolType): void {
+        const f = this._filters;
+        f.category = cat;
+        if (cat === 'all') {
+            f.market = null;
+        } else {
+            const saved = this._prefs.tabs[cat]?.market ?? null;
+            f.market = saved && availableMarkets(this._index, cat).indexOf(saved) >= 0 ? saved : null;
         }
-
-        // Exchange filter (for crypto)
-        if (this._cryptoExchange !== 'all') {
-            filtered = filtered.filter(s => s.exchange === this._cryptoExchange);
-        }
-
-        // Search filter
-        if (query) {
-            filtered = filtered.filter(s =>
-                s.symbol.toLowerCase().includes(query) ||
-                displaySymbol(s.symbol).toLowerCase().includes(query) ||
-                displayExchange(s.exchange).toLowerCase().includes(query) ||
-                s.description.toLowerCase().includes(query) ||
-                s.full_name.toLowerCase().includes(query)
-            );
-        }
-
-        this._renderList(filtered);
+        this._persist();
+        this._renderFilterArea();
+        this._refresh();
     }
 
-    private _renderList(symbols: SymbolInfo[]): void {
-        if (!this._listContainer) return;
-        this._listContainer.innerHTML = '';
-
-        if (symbols.length === 0) {
-            const empty = document.createElement('div');
-            empty.textContent = t('No symbols found');
-            empty.style.cssText = `
-                padding: 48px;
-                text-align: center;
-                color: #787b86;
-                font-size: 14px;
-            `;
-            this._listContainer.appendChild(empty);
-            return;
-        }
-
-        symbols.forEach(symbol => {
-            const row = this._createSymbolRow(symbol);
-            this._listContainer!.appendChild(row);
-        });
-    }
-
-    private _createSymbolRow(symbol: SymbolInfo): HTMLElement {
+    private _buildTabs(): HTMLElement {
         const row = document.createElement('div');
-        row.style.cssText = `
-            display: flex;
-            align-items: center;
-            padding: 10px 20px;
-            cursor: pointer;
-            transition: background 0.1s;
-            gap: 14px;
-        `;
-
-        // Logo
-        const logo = document.createElement('div');
-        logo.style.cssText = `
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background: ${symbol.logo_color || '#363a45'};
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 11px;
-            font-weight: bold;
-            flex-shrink: 0;
-        `;
-        logo.textContent = displaySymbol(symbol.symbol).substring(0, 2);
-        row.appendChild(logo);
-
-        // Info
-        const info = document.createElement('div');
-        info.style.cssText = `flex: 1; min-width: 0;`;
-
-        const mainLine = document.createElement('div');
-        mainLine.style.cssText = `display: flex; align-items: center; gap: 8px;`;
-
-        const symbolName = document.createElement('span');
-        symbolName.textContent = displaySymbol(symbol.symbol);
-        symbolName.style.cssText = `font-weight: 600; color: #d1d4dc; font-size: 14px;`;
-        mainLine.appendChild(symbolName);
-
-        const description = document.createElement('span');
-        description.textContent = symbol.description;
-        description.style.cssText = `color: #787b86; font-size: 13px;`;
-        mainLine.appendChild(description);
-
-        info.appendChild(mainLine);
-        row.appendChild(info);
-
-        // Type badge
-        const type = document.createElement('span');
-        type.textContent = symbol.type;
-        type.style.cssText = `
-            font-size: 11px;
-            color: #787b86;
-            text-transform: lowercase;
-        `;
-        row.appendChild(type);
-
-        // Exchange badge
-        const exchange = document.createElement('span');
-        exchange.textContent = displayExchange(symbol.exchange);
-        exchange.style.cssText = `
-            font-size: 11px;
-            color: #787b86;
-            background: #2a2e39;
-            padding: 2px 6px;
-            border-radius: 3px;
-        `;
-        row.appendChild(exchange);
-
-        // Exchange logo icon
-        if (symbol.logo_url) {
-            const logoImg = document.createElement('img');
-            logoImg.src = symbol.logo_url;
-            logoImg.alt = symbol.exchange;
-            logoImg.title = symbol.provider || symbol.exchange;
-            logoImg.style.cssText = `
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-            `;
-            logoImg.crossOrigin = 'anonymous';
-            row.appendChild(logoImg);
+        row.className = 'ss-tabs';
+        row.setAttribute('role', 'tablist');
+        const cats: SymbolType[] = ['all', ...availableCategories(this._index)];
+        for (const c of cats) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'ss-pill';
+            b.setAttribute('role', 'tab');
+            b.dataset.category = c;
+            b.textContent = categoryLabel(c);
+            if (c === this._filters.category) {
+                b.classList.add('is-active');
+                b.setAttribute('aria-selected', 'true');
+            }
+            b.addEventListener('click', () => this._setCategory(c));
+            row.appendChild(b);
+            this._tabEls.push(b);
         }
-
-        // Hover effects
-        row.addEventListener('mouseenter', () => {
-            row.style.background = '#2a2e39';
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'ss-pill';
+        more.style.display = 'none';
+        more.appendChild(document.createTextNode(t('More')));
+        more.appendChild(createIcon('chevron', 18));
+        more.addEventListener('click', () => {
+            if (this._suppressClick) return;
+            const hidden = this._tabEls.filter(el => el.style.display === 'none');
+            this._openMenu(more, hidden.map(el => ({
+                label: el.textContent || '',
+                selected: el.classList.contains('is-active'),
+                onClick: () => this._setCategory(el.dataset.category as SymbolType),
+            })));
         });
-        row.addEventListener('mouseleave', () => {
-            row.style.background = 'transparent';
-        });
-
-        // Click
-        row.addEventListener('click', () => {
-            this._symbolSelected.fire(symbol);
-            this.hide();
-        });
-
+        row.appendChild(more);
+        this._moreBtn = more;
+        this._tabsHost = row;
         return row;
     }
 
+    private _layoutTabsSoon(): void {
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => this._layoutTabs());
+        else this._layoutTabs();
+    }
+
+    /** Overflowing tabs collapse into "More" (desktop) or scroll horizontally (touch). */
+    private _layoutTabs(): void {
+        const host = this._tabsHost;
+        const more = this._moreBtn;
+        if (!host || !more || !host.isConnected) return;
+        const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+        for (const el of this._tabEls) el.style.display = '';
+        more.style.display = 'none';
+        if (coarse) {
+            host.classList.add('ss-scroll-x');
+            return;
+        }
+        host.classList.remove('ss-scroll-x');
+        const cs = getComputedStyle(host);
+        const avail = host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const gap = 8;
+        const widths = this._tabEls.map(el => el.offsetWidth);
+        const total = widths.reduce((a, w) => a + w, 0) + gap * (widths.length - 1);
+        if (total <= avail) return;
+        more.style.display = '';
+        const reserve = more.offsetWidth + gap;
+        let used = 0;
+        let fit = 0;
+        for (let i = 0; i < widths.length; i++) {
+            const next = used + widths[i] + (i > 0 ? gap : 0);
+            if (next + reserve > avail) break;
+            used = next;
+            fit = i + 1;
+        }
+        for (let i = fit; i < this._tabEls.length; i++) this._tabEls[i].style.display = 'none';
+    }
+
+    private _buildFilterRow(): HTMLElement | null {
+        const row = document.createElement('div');
+        row.className = 'ss-filters';
+        const f = this._filters;
+
+        // Sources pill (switches to the Sources screen); shown when there is a choice or a filter is active
+        const srcSet = new Set<string>();
+        for (const s of this._index) if (f.category === 'all' || s.category === f.category) srcSet.add(s.source);
+        if (f.source !== null || srcSet.size > 1) {
+            const srcPill = document.createElement('button');
+            srcPill.type = 'button';
+            srcPill.className = 'ss-pill ss-sm';
+            if (f.source) {
+                srcPill.classList.add('is-active');
+                srcPill.appendChild(createLogo(exchangeLogoUrl(f.source), sourceLabel(f.source), 18));
+                srcPill.appendChild(document.createTextNode(sourceLabel(f.source)));
+                srcPill.appendChild(this._pillClear(() => this._setSource(null, false)));
+            } else {
+                srcPill.appendChild(document.createTextNode(t('All sources')));
+                srcPill.appendChild(createIcon('chevron', 16));
+        }
+        srcPill.title = t('Sources');
+        srcPill.addEventListener('click', () => {
+            if (this._suppressClick) return;
+            this._showSourcesScreen();
+        });
+        row.appendChild(srcPill);
+        }
+
+        // Per-tab select pills (Crypto: Spot / Swap / Futures)
+        const markets = f.category === 'all' ? [] : availableMarkets(this._index, f.category);
+        if (markets.length > 1) {
+            const typeSel = document.createElement('button');
+            typeSel.type = 'button';
+            typeSel.className = 'ss-pill ss-sm';
+            if (f.market) {
+                typeSel.classList.add('is-active');
+                typeSel.appendChild(document.createTextNode(marketLabel(f.market)));
+                typeSel.appendChild(this._pillClear(() => this._setMarket(null)));
+            } else {
+                typeSel.appendChild(document.createTextNode(t('All types')));
+                typeSel.appendChild(createIcon('chevron', 16));
+            }
+            typeSel.addEventListener('click', () => {
+                if (this._suppressClick) return;
+                const items: MenuItem[] = [{ label: t('All types'), selected: f.market === null, onClick: () => this._setMarket(null) }];
+                for (const m of markets) items.push({ label: marketLabel(m), selected: f.market === m, onClick: () => this._setMarket(m) });
+                this._openMenu(typeSel, items);
+            });
+            row.appendChild(typeSel);
+        }
+        return row.childElementCount > 0 ? row : null;
+    }
+
+    private _pillClear(onClear: () => void): HTMLElement {
+        const x = document.createElement('span');
+        x.className = 'ss-pill-x';
+        x.setAttribute('role', 'button');
+        x.setAttribute('aria-label', t('Clear'));
+        x.title = t('Clear');
+        x.appendChild(createIcon('close', 14));
+        x.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onClear();
+        });
+        return x;
+    }
+
+    private _setMarket(m: SymbolMarket | null): void {
+        this._filters.market = m;
+        this._persist();
+        this._renderFilterArea();
+        this._refresh();
+    }
+
+    private _setSource(id: string | null, backToSearch: boolean): void {
+        this._filters.source = id;
+        this._persist();
+        if (backToSearch) this._showSearchScreen();
+        else {
+            this._renderFilterArea();
+            this._refresh();
+        }
+    }
+
     // ========================================================================
-    // Cleanup
+    // Menus
     // ========================================================================
 
-    dispose(): void {
-        this._symbolSelected.destroy();
-        if (this._overlay && this._overlay.parentNode) {
-            this._overlay.parentNode.removeChild(this._overlay);
+    private _openMenu(anchor: HTMLElement, items: MenuItem[]): void {
+        this._closeMenu();
+        const dialog = this._dialog;
+        if (!dialog || items.length === 0) return;
+        const menu = document.createElement('div');
+        menu.className = 'ss-menu';
+        menu.setAttribute('role', 'menu');
+        for (const it of items) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'ss-menu-item';
+            if (it.selected) b.classList.add('is-selected');
+            const label = document.createElement('span');
+            label.textContent = it.label;
+            b.appendChild(label);
+            if (it.selected) b.appendChild(createIcon('check', 18));
+            b.addEventListener('click', () => {
+                this._closeMenu();
+                it.onClick();
+            });
+            menu.appendChild(b);
         }
-        this._overlay = null;
+        dialog.appendChild(menu);
+        const a = anchor.getBoundingClientRect();
+        const d = dialog.getBoundingClientRect();
+        const left = Math.max(8, Math.min(a.left - d.left, d.width - menu.offsetWidth - 8));
+        menu.style.left = `${left}px`;
+        menu.style.top = `${a.bottom - d.top + 4}px`;
+        this._menu = menu;
+    }
+
+    private _closeMenu(): void {
+        this._menu?.remove();
+        this._menu = null;
+    }
+
+    private readonly _onDocMouseDown = (e: MouseEvent): void => {
+        if (!this._menu) return;
+        const target = e.target as Node | null;
+        if (target && this._menu.contains(target)) return;
+        this._closeMenu();
+        // The click that follows on a pill must not re-open its menu
+        this._suppressClick = true;
+        setTimeout(() => { this._suppressClick = false; }, 0);
+    };
+
+    // ========================================================================
+    // Sources screen
+    // ========================================================================
+
+    private _showSourcesScreen(): void {
+        if (!this._dialog || this._sourcesScreen) return;
+        this._closeMenu();
+        const screen = new SourcesScreen({
+            sources: this._sources,
+            selected: this._filters.source,
+            onSelect: (id) => this._setSource(id, true),
+        });
+        this._sourcesScreen = screen;
+        if (this._searchScreen) this._searchScreen.style.display = 'none';
+        this._dialog.appendChild(screen.element);
+        if (this._titleEl) this._titleEl.textContent = t('Sources');
+        if (this._backBtn) this._backBtn.style.display = 'inline-flex';
+        screen.focus();
+    }
+
+    private _showSearchScreen(): void {
+        if (!this._sourcesScreen) return;
+        this._sourcesScreen.element.remove();
+        this._sourcesScreen = null;
+        if (this._searchScreen) this._searchScreen.style.display = '';
+        if (this._titleEl) this._titleEl.textContent = t('Symbol search');
+        if (this._backBtn) this._backBtn.style.display = 'none';
+        this._renderFilterArea();
+        this._refresh();
+        this._input?.focus();
+    }
+
+    // ========================================================================
+    // Results
+    // ========================================================================
+
+    private _recentItems(): IndexedSymbol[] {
+        return this._recents.list().map(info => this._byId.get(`${info.exchange}:${info.symbol}`) ?? indexSymbol(info));
+    }
+
+    /** Filter + rank once per input, then render the first page. */
+    private _refresh(): void {
+        const input = this._input;
+        const feed = this._feed;
+        if (!input || !feed) return;
+        const raw = input.value;
+        const parsed = parseQuery(raw, this._sources);
+        let results = runSearch(this._index, parsed.text, this._filters, parsed.exchanges);
+        if (raw.trim() === '') results = mergeRecents(results, this._recentItems(), this._filters);
+        this._results = results;
+        this._query = parsed.text;
+        this._selected = -1;
+        input.removeAttribute('aria-activedescendant');
+        this._observer?.disconnect();
+        this._observer = null;
+        this._sentinel = null;
+        feed.textContent = '';
+        feed.scrollTop = 0;
+        this._rendered = 0;
+
+        if (results.length === 0) {
+            if (!this._replaceCatalog && symbolCatalog.loading) return;
+            this._renderEmpty(parsed.text, parsed.exchanges);
+            return;
+        }
+        this._renderMore();
+    }
+
+    private _renderMore(): void {
+        const feed = this._feed;
+        if (!feed) return;
+        this._sentinel?.remove();
+        const end = Math.min(this._results.length, this._rendered + PAGE_SIZE);
+        const frag = document.createDocumentFragment();
+        const tab = this._filters.category;
+        for (let i = this._rendered; i < end; i++) {
+            const item = this._results[i];
+            const row = createRow(item, { query: this._query, tab, active: this._isActive(item) });
+            row.dataset.idx = String(i);
+            row.id = `ss-row-${i}`;
+            if (i === this._selected) row.dataset.selected = 'true';
+            frag.appendChild(row);
+        }
+        feed.appendChild(frag);
+        this._rendered = end;
+        if (end < this._results.length) {
+            const sentinel = document.createElement('div');
+            sentinel.className = 'ss-sentinel';
+            feed.appendChild(sentinel);
+            this._sentinel = sentinel;
+            if (typeof IntersectionObserver !== 'undefined') {
+                this._observer?.disconnect();
+                this._observer = new IntersectionObserver((entries) => {
+                    if (entries.some(e => e.isIntersecting)) this._renderMore();
+                }, { root: feed, rootMargin: '200px' });
+                this._observer.observe(sentinel);
+            } else {
+                this._renderMore();
+            }
+        }
+    }
+
+    private _renderEmpty(text: string, restrict: string[] | null): void {
+        const feed = this._feed;
+        if (!feed) return;
+        const f = this._filters;
+        const why = explainEmpty(this._index, text, f, restrict);
+        const box = document.createElement('div');
+        box.className = 'ss-empty';
+        const msg = document.createElement('div');
+        let btn: { label: string; onClick: () => void } | null = null;
+        if (why.kind === 'show-all') {
+            msg.textContent = t('There are also {count} symbols in other markets').replace('{count}', String(why.count));
+            btn = { label: t('Show me'), onClick: () => this._setCategory('all') };
+        } else if (why.kind === 'reset') {
+            const typeName = f.category !== 'all' ? categoryLabel(f.category) : (f.source ? sourceLabel(f.source) : categoryLabel('all'));
+            msg.textContent = t('Symbols not found in {type} with such criteria').replace('{type}', typeName);
+            btn = {
+                label: t('Reset all filters'),
+                onClick: () => {
+                    f.source = null;
+                    f.market = null;
+                    this._persist();
+                    this._renderFilterArea();
+                    this._refresh();
+                },
+            };
+        } else {
+            msg.textContent = t('No symbols match your criteria');
+        }
+        box.appendChild(msg);
+        if (btn) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'ss-empty-btn';
+            b.textContent = btn.label;
+            b.addEventListener('click', btn.onClick);
+            box.appendChild(b);
+        }
+        feed.appendChild(box);
+    }
+
+    // ========================================================================
+    // Loading overlay (only if loading takes > 500 ms)
+    // ========================================================================
+
+    private _clearLoadingTimer(): void {
+        if (this._loadingTimer !== null) clearTimeout(this._loadingTimer);
+        this._loadingTimer = null;
+    }
+
+    private _updateLoading(): void {
+        const loading = !this._replaceCatalog && symbolCatalog.loading;
+        this._isLoading = loading;
+        if (!loading) {
+            this._clearLoadingTimer();
+            this._spinner?.remove();
+            this._spinner = null;
+            return;
+        }
+        if (this._loadingTimer !== null || this._spinner || !this._feedWrap) return;
+        this._loadingTimer = setTimeout(() => {
+            this._loadingTimer = null;
+            if (!symbolCatalog.loading || !this._feedWrap || this._spinner) return;
+            const ov = document.createElement('div');
+            ov.className = 'ss-loading';
+            const sp = document.createElement('div');
+            sp.className = 'ss-spinner';
+            ov.appendChild(sp);
+            this._feedWrap.appendChild(ov);
+            this._spinner = ov;
+        }, LOADING_DELAY_MS);
+    }
+
+    // ========================================================================
+    // Keyboard / selection
+    // ========================================================================
+
+    private readonly _onResize = (): void => this._layoutTabs();
+
+    private readonly _onDocKeyDown = (e: KeyboardEvent): void => {
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (this._menu) this._closeMenu();
+        else if (this._sourcesScreen) this._showSearchScreen();
+        else this.hide();
+    };
+
+    private _onInputKeyDown(e: KeyboardEvent): void {
+        if (e.isComposing) return;
+        const n = this._results.length;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (n > 0) this._setSelected(Math.min(this._selected + 1, n - 1));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (this._selected > 0) this._setSelected(this._selected - 1);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (this._selected >= 0 && this._selected < n) this._choose(this._results[this._selected]);
+            else if (this._input && this._input.value.trim() !== '' && n > 0) this._choose(this._results[0]);
+        }
+    }
+
+    private _setSelected(i: number): void {
+        const feed = this._feed;
+        if (!feed) return;
+        while (i >= this._rendered && this._rendered < this._results.length) this._renderMore();
+        feed.querySelector('.ss-row[data-selected="true"]')?.removeAttribute('data-selected');
+        this._selected = i;
+        const row = document.getElementById(`ss-row-${i}`);
+        if (!row) return;
+        row.dataset.selected = 'true';
+        this._input?.setAttribute('aria-activedescendant', row.id);
+        row.scrollIntoView({ block: 'nearest' });
+    }
+
+    private _onFeedClick(e: MouseEvent): void {
+        const target = e.target as Element | null;
+        const row = target?.closest('.ss-row') as HTMLElement | null;
+        if (!row || row.dataset.idx === undefined) return;
+        const item = this._results[Number(row.dataset.idx)];
+        if (item) this._choose(item);
+    }
+
+    private _choose(item: IndexedSymbol): void {
+        this._recents.add(item.info);
+        try {
+            this._symbolSelected.fire(item.info);
+        } finally {
+            this.hide();
+        }
     }
 }

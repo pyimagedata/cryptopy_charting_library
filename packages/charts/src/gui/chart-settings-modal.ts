@@ -63,6 +63,7 @@ export class ChartSettingsModal {
         `;
 
         this._panel = document.createElement('div');
+        this._panel.setAttribute('role', 'dialog');
         this._panel.style.cssText = `
             width: min(900px, calc(100% - 32px));
             min-height: min(640px, calc(100% - 32px));

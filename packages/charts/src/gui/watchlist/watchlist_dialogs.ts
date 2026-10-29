@@ -13,6 +13,7 @@ function backdrop(host: HTMLElement): HTMLElement {
 function box(theme: WatchlistTheme, title: string): HTMLElement {
     const c = WL_COLORS[theme];
     const el = document.createElement('div');
+    el.setAttribute('role', 'dialog');
     el.style.cssText = `width:300px;max-width:90%;background:${c.menu};color:${c.text};border:1px solid ${c.border};border-radius:8px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,0.45);font-size:13px;height:fit-content;`;
     const h = document.createElement('div');
     h.textContent = title;

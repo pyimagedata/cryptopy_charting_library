@@ -212,6 +212,7 @@ export class IndicatorSettingsModal {
 
         this._element = document.createElement('div');
         this._element.className = 'tvs-dialog';
+        this._element.setAttribute('role', 'dialog');
         this._element.style.cssText = `
             border: 1px solid; border-radius: ${TV_SIZES.radius}px;
             width: ${TV_SIZES.dialogWidth}px; max-width: ${TV_SIZES.dialogMaxWidthVw}vw; max-height: ${TV_SIZES.dialogMaxHeightVh}vh;
