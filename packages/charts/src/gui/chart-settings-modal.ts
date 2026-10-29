@@ -1,6 +1,7 @@
 import { CandlestickSeriesOptions } from '../model/candlestick-series';
 import { HeikenAshiSeriesOptions } from '../series/heiken-ashi-series';
 import { ThemeType } from '../helpers/themes';
+import { CanvasChartApi, CanvasSnapshot, buildCanvasTab, restoreCanvas, snapshotCanvas } from './chart_settings/canvas-tab';
 
 export interface CandlestickAppearanceSettings extends Pick<
     CandlestickSeriesOptions,
@@ -48,6 +49,8 @@ export class ChartSettingsModal {
     private _activeTab: SettingsTabId = 'symbol';
     private _renderContent: (() => void) | null = null;
     private _pendingApply: (() => void) | null = null;
+    private _chart: CanvasChartApi | null = null;
+    private _canvasSnapshot: CanvasSnapshot | null = null;
 
     constructor(container: HTMLElement) {
         this._overlay = document.createElement('div');
@@ -213,6 +216,7 @@ export class ChartSettingsModal {
         this._okButton.style.cssText = this._actionButtonStyle(true);
         this._okButton.addEventListener('click', () => {
             this._pendingApply?.();
+            this._canvasSnapshot = null; // keep the live canvas changes
             this.hide();
         });
 
@@ -245,6 +249,15 @@ export class ChartSettingsModal {
         this._panel.style.background = isDark ? '#111827' : '#ffffff';
         this._panel.style.borderColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)';
         this._panel.style.color = isDark ? '#f3f4f6' : '#111827';
+        // variables used by the shared colour popover and swatch styles
+        const vars: Record<string, string> = isDark
+            ? { '--modal-bg': '#1e222d', '--text-primary': '#d1d4dc', '--text-secondary': '#787b86', '--border-color': '#363a45',
+                '--hover-bg': '#2a2e39', '--shadow': '0 8px 32px rgba(0, 0, 0, 0.4)', '--input-bg': '#131722',
+                '--tvs-input-border': '#434651', '--tvs-muted': '#787b86' }
+            : { '--modal-bg': '#ffffff', '--text-primary': '#131722', '--text-secondary': '#6a6d78', '--border-color': '#e0e3eb',
+                '--hover-bg': '#f0f3fa', '--shadow': '0 8px 32px rgba(0, 0, 0, 0.18)', '--input-bg': '#ffffff',
+                '--tvs-input-border': '#c9ccd3', '--tvs-muted': '#6a6d78' };
+        for (const [k, v] of Object.entries(vars)) this._panel.style.setProperty(k, v);
         this._sidebar.style.borderRightColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)';
         this._footer.style.borderTopColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)';
         (this._panel.firstElementChild as HTMLElement).style.borderBottomColor = isDark
@@ -254,6 +267,11 @@ export class ChartSettingsModal {
         this._cancelButton.style.cssText = this._actionButtonStyle(false);
         this._okButton.style.cssText = this._actionButtonStyle(true);
         this._updateSidebarState();
+    }
+
+    /** Chart used by the Canvas tab (grid, background, crosshair...); set by ChartWidget */
+    setChart(chart: CanvasChartApi | null): void {
+        this._chart = chart;
     }
 
     showCandlestick(
@@ -342,6 +360,7 @@ export class ChartSettingsModal {
         this._activeTab = 'symbol';
         this._pendingApply = null;
         this._renderContent = () => {
+            if (this._renderCanvas()) return;
             this._content.innerHTML = '';
             const empty = document.createElement('div');
             empty.textContent = message;
@@ -359,10 +378,15 @@ export class ChartSettingsModal {
     }
 
     show(): void {
+        // Snapshot for preview revert; kept if the dialog was already open
+        if (this._chart && !this._canvasSnapshot) this._canvasSnapshot = snapshotCanvas(this._chart);
         this._overlay.style.display = 'flex';
     }
 
+    /** Closes the dialog; unconfirmed live canvas changes are reverted (OK clears the snapshot first) */
     hide(): void {
+        if (this._chart && this._canvasSnapshot) restoreCanvas(this._chart, this._canvasSnapshot);
+        this._canvasSnapshot = null;
         this._overlay.style.display = 'none';
     }
 
@@ -370,7 +394,21 @@ export class ChartSettingsModal {
         this._overlay.remove();
     }
 
+    private _renderCanvas(): boolean {
+        if (this._activeTab !== 'canvas' || !this._chart) return false;
+        this._content.innerHTML = '';
+        this._content.appendChild(buildCanvasTab({
+            chart: this._chart,
+            selectStyle: this._selectStyle(),
+            isDark: this._theme === 'dark',
+            rerender: () => this._renderContent?.(),
+            sectionTitle: (text) => this._createSectionTitle(text),
+        }));
+        return true;
+    }
+
     private _renderPlaceholder(): void {
+        if (this._renderCanvas()) return;
         this._content.innerHTML = '';
         const title = document.createElement('div');
         title.textContent = this._activeTab === 'symbol' ? 'SEMBOL' : 'YAKINDA';

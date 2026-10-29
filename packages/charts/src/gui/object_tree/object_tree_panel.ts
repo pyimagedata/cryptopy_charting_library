@@ -143,6 +143,12 @@ export class ObjectTreePanel {
         this._applyStaticTexts();
     }
 
+    /** Moves the panel into a host-owned container (layout-wide right sidebar); same right-edge geometry. */
+    mountIn(parent: HTMLElement, top: number): void {
+        this._el.style.top = `${top}px`;
+        parent.appendChild(this._el);
+    }
+
     get visible(): boolean { return this._visible; }
     get width(): number { return PANEL_WIDTH; }
 

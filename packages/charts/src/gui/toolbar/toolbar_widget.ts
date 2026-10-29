@@ -1311,6 +1311,8 @@ export class ToolbarWidget {
         if (!this._element) return;
 
         const isDark = theme === 'dark';
+        // Hook for host-injected controls (CSS: .chart-toolbar[data-theme="light"] ...).
+        this._element.dataset.theme = theme;
         this._element.style.background = isDark ? '#131722' : '#f8f9fa';
         this._element.style.borderBottomColor = isDark ? '#2a2e39' : '#e0e3eb';
 

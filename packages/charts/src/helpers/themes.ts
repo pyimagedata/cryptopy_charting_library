@@ -51,7 +51,7 @@ export const THEMES: Record<ThemeType, ThemeColors> = {
             textColor: 'rgba(255, 255, 255, 0.7)',
         },
         grid: {
-            color: 'rgba(255, 255, 255, 0.06)',
+            color: 'rgba(242, 242, 242, 0.06)',
         },
         crosshair: {
             lineColor: 'rgba(255, 255, 255, 0.3)',
@@ -90,7 +90,7 @@ export const THEMES: Record<ThemeType, ThemeColors> = {
             textColor: '#131722',
         },
         grid: {
-            color: 'rgba(0, 0, 0, 0.06)',
+            color: 'rgba(42, 46, 57, 0.06)',
         },
         crosshair: {
             lineColor: 'rgba(0, 0, 0, 0.3)',

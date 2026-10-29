@@ -8,6 +8,7 @@
 import { startDragSession } from '../helpers/drag-session';
 import { PriceScale } from '../model/price-scale';
 import { TimeScale } from '../model/time-scale';
+import { CrosshairOptions, GridOptions } from '../model/chart-model';
 import { PanelIndicator, IndicatorDataPoint } from './indicator';
 import { PaneWidget } from '../gui/pane-widget';
 import { Drawing } from '../drawings';
@@ -69,6 +70,11 @@ interface BitmapCoordinatesScope {
  */
 export class IndicatorPaneWidget implements Disposable {
     private readonly _timeScale: TimeScale;
+    /** Chart grid options (shared reference with the chart model); null = fallback to gridColor */
+    private _gridOptions: GridOptions | null = null;
+    /** Chart crosshair options (shared reference); null = built-in look */
+    private _crosshairOptions: CrosshairOptions | null = null;
+    private _gradientBottom: string | null = null;
     private readonly _priceScale: PriceScale;
     private readonly _options: IndicatorPaneOptions;
 
@@ -327,7 +333,14 @@ export class IndicatorPaneWidget implements Disposable {
         // Clear canvas
         this._ctx.setTransform(1, 0, 0, 1, 0, 0);
         this._ctx.scale(dpr, dpr);
-        this._ctx.fillStyle = this._options.backgroundColor;
+        if (this._gradientBottom) {
+            const g = this._ctx.createLinearGradient(0, 0, 0, height);
+            g.addColorStop(0, this._options.backgroundColor);
+            g.addColorStop(1, this._gradientBottom);
+            this._ctx.fillStyle = g;
+        } else {
+            this._ctx.fillStyle = this._options.backgroundColor;
+        }
         this._ctx.fillRect(0, 0, width, height);
 
         // Draw top border
@@ -362,18 +375,28 @@ export class IndicatorPaneWidget implements Disposable {
 
         if (this._crosshairX === null) return;
 
-        ctx.strokeStyle = this._options.crosshairColor;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
+        const co = this._crosshairOptions;
+        const dash = (style: string) =>
+            ctx.setLineDash(style === 'dotted' ? [2, 2] : style === 'solid' ? [] : [4, 4]);
+        const v = co ? co.vertLine : { visible: true, color: this._options.crosshairColor, width: 1, style: 'dashed' };
+        const h = co ? co.horzLine : { visible: true, color: this._options.crosshairColor, width: 1, style: 'dashed' };
 
         // Draw vertical line (X axis)
-        ctx.beginPath();
-        ctx.moveTo(this._crosshairX + 0.5, 0);
-        ctx.lineTo(this._crosshairX + 0.5, mediaSize.height);
-        ctx.stroke();
+        if (v.visible) {
+            ctx.strokeStyle = v.color;
+            ctx.lineWidth = Math.max(1, v.width);
+            dash(v.style);
+            ctx.beginPath();
+            ctx.moveTo(this._crosshairX + 0.5, 0);
+            ctx.lineTo(this._crosshairX + 0.5, mediaSize.height);
+            ctx.stroke();
+        }
 
         // Draw horizontal line (Y axis - only if mouse is over this pane)
-        if (this._crosshairY !== null) {
+        if (h.visible && this._crosshairY !== null) {
+            ctx.strokeStyle = h.color;
+            ctx.lineWidth = Math.max(1, h.width);
+            dash(h.style);
             ctx.beginPath();
             ctx.moveTo(0, this._crosshairY + 0.5);
             ctx.lineTo(mediaSize.width, this._crosshairY + 0.5);
@@ -381,22 +404,69 @@ export class IndicatorPaneWidget implements Disposable {
         }
 
         ctx.setLineDash([]);
+        ctx.lineWidth = 1;
+    }
+
+    /** Share the chart's crosshair options (color / style / width / visibility). */
+    public setCrosshairOptions(opts: CrosshairOptions | null): void {
+        this._crosshairOptions = opts;
+    }
+
+    /** Custom background (user canvas settings). bottom null = solid. */
+    public setBackground(top: string, bottom: string | null): void {
+        this._options.backgroundColor = top;
+        this._options.priceAxisBackgroundColor = top;
+        this._gradientBottom = bottom;
+        if (this._element) {
+            this._element.style.background = bottom ? `linear-gradient(${top}, ${bottom})` : top;
+        }
+    }
+
+    /** Repaint the separator line (after the separator color changed). */
+    public repaintSeparator(): void {
+        this._paintSeparator(false);
+    }
+
+    /** Share the chart's grid options (visible / color / style per direction). */
+    public setGridOptions(grid: GridOptions | null): void {
+        this._gridOptions = grid;
     }
 
     private _drawGrid(scope: BitmapCoordinatesScope): void {
         const { context: ctx, mediaSize } = scope;
-        const marks = this._priceScale.marks();
+        const g = this._gridOptions;
+        const horz = g ? g.horzLines : { visible: true, color: this._options.gridColor, style: 'solid' as const };
+        const vert = g ? g.vertLines : { visible: true, color: this._options.gridColor, style: 'solid' as const };
+        const dash = (style: string) =>
+            ctx.setLineDash(style === 'dashed' ? [5, 3] : style === 'dotted' ? [2, 2] : []);
 
-        ctx.strokeStyle = this._options.gridColor;
         ctx.lineWidth = 1;
 
-        for (const mark of marks) {
-            const y = Math.round(mark.coord) + 0.5;
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(mediaSize.width, y);
-            ctx.stroke();
+        if (horz.visible) {
+            ctx.strokeStyle = horz.color;
+            dash(horz.style);
+            for (const mark of this._priceScale.marks()) {
+                const y = Math.round(mark.coord) + 0.5;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(mediaSize.width, y);
+                ctx.stroke();
+            }
         }
+
+        if (vert.visible) {
+            ctx.strokeStyle = vert.color;
+            dash(vert.style);
+            for (const mark of this._timeScale.marks()) {
+                const x = Math.round(mark.x) + 0.5;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, mediaSize.height);
+                ctx.stroke();
+            }
+        }
+
+        ctx.setLineDash([]);
     }
 
     private _drawIndicator(scope: BitmapCoordinatesScope, indicator: PanelIndicator): void {

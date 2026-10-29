@@ -43,7 +43,7 @@ export interface CrosshairOptions {
         visible: boolean;
         color: string;
         width: number;
-        style: 'solid' | 'dashed';
+        style: 'solid' | 'dashed' | 'dotted';
         labelVisible: boolean;
         labelBackgroundColor: string;
     };
@@ -51,7 +51,7 @@ export interface CrosshairOptions {
         visible: boolean;
         color: string;
         width: number;
-        style: 'solid' | 'dashed';
+        style: 'solid' | 'dashed' | 'dotted';
         labelVisible: boolean;
         labelBackgroundColor: string;
     };

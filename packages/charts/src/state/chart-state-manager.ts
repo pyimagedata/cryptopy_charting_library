@@ -98,6 +98,8 @@ export class ChartStateManager {
     private _saveDebounceTimer: number | null = null;
     private _unloadListenersAttached = false;
     private _paneLayoutHost: PaneLayoutHost | null = null;
+    /** Multi-chart slot: 0 = legacy per-symbol keys; >= 1 = keys suffixed with the slot (independent per chart) */
+    private _slot = 0;
 
     private _onUnload = (): void => this.flushPendingSave();
     private _onVisibilityChange = (): void => {
@@ -107,8 +109,10 @@ export class ChartStateManager {
     constructor(
         drawingManager: DrawingManager,
         indicatorManager: IndicatorManager,
-        storage?: StorageAdapter
+        storage?: StorageAdapter,
+        slot: number = 0
     ) {
+        this._slot = slot > 0 ? Math.floor(slot) : 0;
         this._drawingManager = drawingManager;
         this._indicatorManager = indicatorManager;
         this._storage = storage || new LocalStorageAdapter();
@@ -138,6 +142,15 @@ export class ChartStateManager {
     // =========================================================================
     // Public Methods
     // =========================================================================
+
+    /** Storage key of a symbol's drawings (slot 0 keeps the legacy key so existing data stays valid) */
+    private _key(symbol: string): string {
+        return this._slot > 0 ? `${symbol}::slot${this._slot}` : symbol;
+    }
+
+    private get _indicatorKey(): string {
+        return this._slot > 0 ? `_layout_indicators::slot${this._slot}` : '_layout_indicators';
+    }
 
     /** Set current symbol and load its state */
     setSymbol(symbol: string): void {
@@ -187,7 +200,7 @@ export class ChartStateManager {
             savedAt: Date.now(),
             version: CURRENT_VERSION,
         };
-        this._storage.save(this._currentSymbol, JSON.stringify(drawingState));
+        this._storage.save(this._key(this._currentSymbol), JSON.stringify(drawingState));
 
         // Save indicators globally (layout-based)
         this._saveIndicatorsGlobal();
@@ -204,7 +217,7 @@ export class ChartStateManager {
             savedAt: Date.now(),
             version: CURRENT_VERSION,
         };
-        this._storage.save('_layout_indicators', JSON.stringify(indicatorState));
+        this._storage.save(this._indicatorKey, JSON.stringify(indicatorState));
         console.log(`Indicators saved globally:`, indicatorState.indicators.length, 'indicators');
     }
 
@@ -213,7 +226,7 @@ export class ChartStateManager {
         if (!this._currentSymbol) return;
 
         // Load drawings per-symbol
-        const drawingJson = this._storage.load(this._currentSymbol);
+        const drawingJson = this._storage.load(this._key(this._currentSymbol));
         if (drawingJson) {
             try {
                 const state = JSON.parse(drawingJson);
@@ -236,7 +249,9 @@ export class ChartStateManager {
 
     /** Load indicators from global storage */
     private _loadIndicatorsGlobal(): void {
-        const indicatorJson = this._storage.load('_layout_indicators');
+        let indicatorJson = this._storage.load(this._indicatorKey);
+        // First run of a slot >= 1: start from the legacy global indicators (copy, then independent)
+        if (!indicatorJson && this._slot > 0) indicatorJson = this._storage.load('_layout_indicators');
         if (!indicatorJson) {
             console.log('No saved indicators');
             return;
@@ -256,7 +271,7 @@ export class ChartStateManager {
     deleteState(symbol?: string): void {
         const targetSymbol = symbol || this._currentSymbol;
         if (targetSymbol) {
-            this._storage.delete(targetSymbol);
+            this._storage.delete(this._key(targetSymbol));
             console.log(`Chart state deleted for ${targetSymbol}`);
         }
     }
@@ -269,14 +284,14 @@ export class ChartStateManager {
     /** Check if a symbol has saved state */
     hasState(symbol?: string): boolean {
         const targetSymbol = symbol || this._currentSymbol;
-        return targetSymbol ? this._storage.load(targetSymbol) !== null : false;
+        return targetSymbol ? this._storage.load(this._key(targetSymbol)) !== null : false;
     }
 
     /** Export state for backup */
     exportState(symbol?: string): string | null {
         const targetSymbol = symbol || this._currentSymbol;
         if (!targetSymbol) return null;
-        return this._storage.load(targetSymbol);
+        return this._storage.load(this._key(targetSymbol));
     }
 
     /** Import state from backup */
@@ -291,7 +306,7 @@ export class ChartStateManager {
                 throw new Error('Invalid state format');
             }
 
-            this._storage.save(targetSymbol, json);
+            this._storage.save(this._key(targetSymbol), json);
 
             // If importing for current symbol, reload
             if (targetSymbol === this._currentSymbol) {

@@ -1,4 +1,6 @@
 import { TimeScale } from '../model/time-scale';
+import { TimeParts } from '../model/time-marks';
+import { getCurrentLanguage } from '../helpers/translations';
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -31,15 +33,6 @@ const defaultTimeAxisOptions: TimeAxisWidgetOptions = {
     timezone: '',
 };
 
-/** Calendar fields of an instant, resolved in some zone. Month is 0-based. */
-interface TimeParts {
-    year: number;
-    month: number;
-    day: number;
-    hour: number;
-    minute: number;
-}
-
 /**
  * Time axis widget - renders time labels at bottom
  */
@@ -51,8 +44,7 @@ export class TimeAxisWidget implements Disposable {
     private _canvas: HTMLCanvasElement | null = null;
     private _ctx: CanvasRenderingContext2D | null = null;
     private _width: number = 0;
-    private _fmt: Intl.DateTimeFormat | null = null;
-    private _fmtTz: string | null = null;
+    private _boldColor: string = '#d1d4dc';
 
     constructor(
         container: HTMLElement,
@@ -63,7 +55,10 @@ export class TimeAxisWidget implements Disposable {
         this._timeScale = timeScale;
         this._timestamps = timestamps;
         this._options = { ...defaultTimeAxisOptions, ...options };
+        timeScale.timeMarks.setTimezone(this._options.timezone);
+        timeScale.timeMarks.setTimestamps(timestamps);
         this._createElement(container);
+        this._installMeasure();
     }
 
     get element(): HTMLElement | null {
@@ -94,6 +89,17 @@ export class TimeAxisWidget implements Disposable {
 
     updateTimestamps(timestamps: number[]): void {
         (this as any)._timestamps = timestamps;
+        this._timeScale.timeMarks.setTimestamps(timestamps);
+    }
+
+    /** Tick marks are laid out with the real canvas text metrics (label width + padding). */
+    private _installMeasure(): void {
+        const o = this._options;
+        this._timeScale.timeMarks.setMeasure((text, bold) => {
+            if (!this._ctx) return text.length * 7;
+            this._ctx.font = `${bold ? 'bold ' : ''}${o.fontSize}px ${o.fontFamily}`;
+            return this._ctx.measureText(text).width;
+        }, `${o.fontSize}|${o.fontFamily}`);
     }
 
     render(): void {
@@ -121,33 +127,26 @@ export class TimeAxisWidget implements Disposable {
         const visibleRange = this._timeScale.visibleRange();
         if (!visibleRange || this._timestamps.length === 0) return;
 
-        // Calculate label spacing
-        const barSpacing = this._timeScale.barSpacing;
-        const minLabelSpacing = 80; // Minimum pixels between labels
-        const labelInterval = Math.ceil(minLabelSpacing / barSpacing);
+        this._timeScale.timeMarks.setLocale(getCurrentLanguage());
+        const marks = this._timeScale.marks();
 
-        this._ctx.fillStyle = this._options.textColor;
-        this._ctx.font = `${this._options.fontSize}px ${this._options.fontFamily}`;
         this._ctx.textAlign = 'center';
         this._ctx.textBaseline = 'top';
 
-        for (let i = visibleRange.from as number; i <= (visibleRange.to as number); i += labelInterval) {
-            if (i < 0 || i >= this._timestamps.length) continue;
-
-            const x = this._timeScale.indexToCoordinate(i as any);
-            if (x < 0 || x > width) continue;
-
-            const timestamp = this._timestamps[i];
-            const label = this._formatTime(timestamp, i);
+        for (const mark of marks) {
+            const x = mark.x;
 
             // Tick mark
+            this._ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
             this._ctx.beginPath();
             this._ctx.moveTo(x, 0);
             this._ctx.lineTo(x, 4);
             this._ctx.stroke();
 
-            // Label
-            this._ctx.fillText(label, x, 8);
+            // Label: day and above are bold / brighter, like TradingView
+            this._ctx.fillStyle = mark.bold ? this._boldColor : this._options.textColor;
+            this._ctx.font = `${mark.bold ? 'bold ' : ''}${this._options.fontSize}px ${this._options.fontFamily}`;
+            this._ctx.fillText(mark.label, x, 8);
         }
 
         // Cizimlerin zaman etiketleri (dikey cizgi vb.): imlec etiketinin ALTINDA kalsin diye once
@@ -207,6 +206,10 @@ export class TimeAxisWidget implements Disposable {
         this._ctx.fillText(text, boxX + (boxWidth / 2), boxY + (boxHeight / 2));
     }
 
+    setBackgroundColor(color: string): void {
+        this._options.backgroundColor = color;
+    }
+
     /**
      * Set theme colors
      */
@@ -214,6 +217,7 @@ export class TimeAxisWidget implements Disposable {
         const isDark = theme === 'dark';
         this._options.backgroundColor = isDark ? '#16213e' : '#f8f9fa';
         this._options.textColor = isDark ? 'rgba(255, 255, 255, 0.5)' : '#787b86';
+        this._boldColor = isDark ? '#d1d4dc' : '#131722';
         this.render();
     }
 
@@ -233,8 +237,7 @@ export class TimeAxisWidget implements Disposable {
     setTimezone(timezone: string): void {
         if (this._options.timezone === timezone) return;
         this._options.timezone = timezone;
-        this._fmt = null;
-        this._fmtTz = null;
+        this._timeScale.timeMarks.setTimezone(timezone);
         this.render();
     }
 
@@ -242,92 +245,9 @@ export class TimeAxisWidget implements Disposable {
         return this._options.timezone;
     }
 
-    /**
-     * Calendar fields of an instant in the configured zone. With no timezone set
-     * this uses the plain local getters, so the default path stays allocation-light
-     * and behaves exactly as before.
-     */
+    /** Calendar fields of an instant in the configured zone (shared with the tick mark engine). */
     private _parts(timestamp: number): TimeParts {
-        const tz = this._options.timezone;
-        const date = new Date(timestamp);
-        if (!tz) {
-            return {
-                year: date.getFullYear(),
-                month: date.getMonth(),
-                day: date.getDate(),
-                hour: date.getHours(),
-                minute: date.getMinutes(),
-            };
-        }
-        if (!this._fmt || this._fmtTz !== tz) {
-            try {
-                this._fmt = new Intl.DateTimeFormat('en-GB', {
-                    timeZone: tz, hour12: false,
-                    year: 'numeric', month: '2-digit', day: '2-digit',
-                    hour: '2-digit', minute: '2-digit',
-                });
-                this._fmtTz = tz;
-            } catch (e) {
-                // Unknown zone: fall back to local rather than throwing on every frame
-                this._options.timezone = '';
-                this._fmt = null;
-                this._fmtTz = null;
-                return this._parts(timestamp);
-            }
-        }
-        const out: TimeParts = { year: 0, month: 0, day: 1, hour: 0, minute: 0 };
-        for (const p of this._fmt.formatToParts(date)) {
-            switch (p.type) {
-                case 'year': out.year = parseInt(p.value, 10); break;
-                case 'month': out.month = parseInt(p.value, 10) - 1; break;
-                case 'day': out.day = parseInt(p.value, 10); break;
-                case 'hour': out.hour = parseInt(p.value, 10) % 24; break;
-                case 'minute': out.minute = parseInt(p.value, 10); break;
-            }
-        }
-        return out;
-    }
-
-    private _formatTime(timestamp: number, index: number): string {
-        const cur = this._parts(timestamp);
-
-        // Compare against the previous bar to decide how much date context to show.
-        // Resolved in the same zone as the label, so the day divider lands on the
-        // configured zone's midnight rather than the browser's.
-        const prevTimestamp = index > 0 ? this._timestamps[index - 1] : null;
-        const prev = prevTimestamp === null ? null : this._parts(prevTimestamp);
-
-        const isYearChange = prev === null || cur.year !== prev.year;
-        const isMonthChange = prev === null || isYearChange || cur.month !== prev.month;
-        const isDayChange = prev === null || isMonthChange || cur.day !== prev.day;
-
-        if (isYearChange || index === 0) {
-            return this._formatFullDate(cur);
-        } else if (isMonthChange) {
-            return this._formatMonthDay(cur);
-        } else if (isDayChange) {
-            return this._formatDayOnly(cur);
-        } else {
-            return this._formatTimeOnly(cur);
-        }
-    }
-
-    private _formatFullDate(p: TimeParts): string {
-        return `${p.day} ${this._getMonthShort(p.month)} '${p.year.toString().slice(-2)}`;
-    }
-
-    private _formatMonthDay(p: TimeParts): string {
-        return `${p.day} ${this._getMonthShort(p.month)}`;
-    }
-
-    private _formatDayOnly(p: TimeParts): string {
-        return `${p.day} ${this._getMonthShort(p.month)}`;
-    }
-
-    private _formatTimeOnly(p: TimeParts): string {
-        const hours = p.hour.toString().padStart(2, '0');
-        const minutes = p.minute.toString().padStart(2, '0');
-        return `${hours}:${minutes}`;
+        return this._timeScale.timeMarks.clock.parts(timestamp);
     }
 
     private _getMonthShort(month: number): string {

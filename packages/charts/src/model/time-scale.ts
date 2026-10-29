@@ -1,6 +1,7 @@
 import { Coordinate, TimePointIndex, coordinate, timePointIndex } from './coordinate';
 import { Delegate } from '../helpers/delegate';
 import { clamp } from '../helpers/math';
+import { TimeMark, TimeMarks } from './time-marks';
 
 /**
  * Time scale options
@@ -52,8 +53,12 @@ export class TimeScale {
     private _baseIndex: TimePointIndex | null = null;
     private _pointsCount: number = 0;
 
+    /** Shared time tick mark engine (time axis + every pane's vertical grid read from it). */
+    readonly timeMarks = new TimeMarks();
+
     private readonly _sizeChanged = new Delegate<void>();
     private readonly _visibleRangeChanged = new Delegate<VisibleRange>();
+    private readonly _userViewChanged = new Delegate<void>();
 
     constructor(options: Partial<TimeScaleOptions> = {}) {
         this._options = { ...defaultTimeScaleOptions, ...options };
@@ -96,6 +101,14 @@ export class TimeScale {
 
     get visibleRangeChanged(): Delegate<VisibleRange> {
         return this._visibleRangeChanged;
+    }
+
+    /**
+     * Fired after the USER scrolls / zooms the view (drag, wheel, pinch, zoom tool). Not fired by
+     * scrollToPosition / silent setVisibleBarRange (programmatic: data loads, multi-chart sync).
+     */
+    get userViewChanged(): Delegate<void> {
+        return this._userViewChanged;
     }
 
     // --- Configuration ---
@@ -174,6 +187,22 @@ export class TimeScale {
         };
     }
 
+    /**
+     * Time axis tick marks for the visible range, TradingView style: round times, stable while
+     * scrolling. x is the bar center in CSS px.
+     */
+    marks(): (TimeMark & { x: number })[] {
+        const range = this.visibleRange();
+        if (!range) return [];
+        const out: (TimeMark & { x: number })[] = [];
+        for (const m of this.timeMarks.select(range.from as number, range.to as number, this._barSpacing)) {
+            const x = this.indexToCoordinate(m.index as TimePointIndex) as number;
+            if (x < 0 || x > this._width) continue;
+            out.push({ ...m, x });
+        }
+        return out;
+    }
+
     // --- Scrolling ---
 
     scrollToPosition(position: number, _animated: boolean = false): void {
@@ -185,19 +214,21 @@ export class TimeScale {
      * Fits the float bar range [fromIndex, toIndex] to the full width (Zoom In tool).
      * The left edge shows fromIndex and the right edge shows toIndex.
      */
-    setVisibleBarRange(fromIndex: number, toIndex: number): void {
+    setVisibleBarRange(fromIndex: number, toIndex: number, silent: boolean = false): void {
         if (this._baseIndex === null || this._width <= 0) return;
         const span = Math.max(toIndex - fromIndex, 1);
         this.setBarSpacing((this._width - 1) / span);
         // coordinateToFloatIndex(width - 1) === toIndex
         this._scrollOffset = this._baseIndex + this._rightOffset + 0.5 - toIndex;
         this._correctOffset();
+        if (!silent) this._userViewChanged.fire();
     }
 
     scrollBy(deltaPixels: number): void {
         const deltaBars = deltaPixels / this._barSpacing;
         this._scrollOffset += deltaBars;
         this._correctOffset();
+        this._userViewChanged.fire();
     }
 
     // --- Zooming ---
@@ -219,6 +250,7 @@ export class TimeScale {
         const newFloatIndexAtZoomPoint = this.coordinateToFloatIndex(zoomPoint);
         this._scrollOffset += newFloatIndexAtZoomPoint - floatIndexAtZoomPoint;
         this._correctOffset();
+        this._userViewChanged.fire();
     }
 
     /**
@@ -277,5 +309,6 @@ export class TimeScale {
     destroy(): void {
         this._sizeChanged.destroy();
         this._visibleRangeChanged.destroy();
+        this._userViewChanged.destroy();
     }
 }

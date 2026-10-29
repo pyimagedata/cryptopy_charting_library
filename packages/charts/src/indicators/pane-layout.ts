@@ -45,8 +45,20 @@ export const PANE_STYLE = {
     },
 } as const;
 
+let separatorColorOverride: string | null = null;
+
+/** User-chosen separator color (chart settings > Canvas). null = theme default. */
+export function setPaneSeparatorOverride(color: string | null): void {
+    separatorColorOverride = color;
+}
+
+export function getPaneSeparatorOverride(): string | null {
+    return separatorColorOverride;
+}
+
 export function paneColors(theme: 'dark' | 'light') {
-    return theme === 'light' ? PANE_STYLE.light : PANE_STYLE.dark;
+    const base = theme === 'light' ? PANE_STYLE.light : PANE_STYLE.dark;
+    return separatorColorOverride ? { ...base, separator: separatorColorOverride } : base;
 }
 
 export type PaneAction = 'up' | 'down' | 'maximize' | 'collapse' | 'delete';

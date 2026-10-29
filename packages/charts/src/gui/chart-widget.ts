@@ -1,4 +1,4 @@
-import { ChartModel, ChartModelOptions, InvalidateReason } from '../model/chart-model';
+import { ChartModel, ChartModelOptions, GridOptions, InvalidateReason } from '../model/chart-model';
 import { Delegate } from '../helpers/delegate';
 import { t, setLanguage, getCurrentLanguage } from '../helpers/translations';
 import { getTheme, ThemeType } from '../helpers/themes';
@@ -25,6 +25,7 @@ import { IndicatorType, IndicatorPaneWidget, PanelIndicator, IndicatorManager, I
 import { IndicatorSearchModal, IndicatorAccess, isIndicatorAllowed, getIndicatorAccess, setIndicatorAccess, subscribeIndicatorAccess } from './indicator_search';
 import { IndicatorSettingsModal, applySavedDefaults, withCommonSettings, safeLocalStorage } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
+import { DrawingToolbarBinding } from './drawing_toolbar/drawing_toolbar_binding';
 import { DrawingManager, DrawingMode, Drawing } from '../drawings';
 import { TableDrawing } from '../drawings/note-drawings';
 import { INLINE_TEXT_TYPES } from '../drawings/text-common';
@@ -39,7 +40,7 @@ import { ChartSettingsModal } from './chart-settings-modal';
 import { ChartStateManager } from '../state';
 import {
     MAIN_PANE_ID, PANE_STYLE, PaneAction, PaneLayoutPersist, canMovePane, dragSeparator, isPaneHiddenByInterval,
-    paneColors, resolvePaneLayout, toggleCollapsed, toggleMaximized,
+    paneColors, resolvePaneLayout, setPaneSeparatorOverride, getPaneSeparatorOverride, toggleCollapsed, toggleMaximized,
 } from '../indicators/pane-layout';
 import { AddTextTooltipHelper } from './tooltips';
 import { TechnicalRatingBadge } from './technical-rating-badge';
@@ -56,6 +57,7 @@ import { BistDataProvider } from '../data-providers/stocks/bist';
 import { OrderbookHeatmapRenderer } from '../renderers/orderbook-heatmap-renderer';
 import { ReplayController, ReplayChartAdapter } from '../replay/replay-controller';
 import { ReplayUI } from './replay';
+import { timeAtFloatIndex, floatIndexAtTime, scrollOffsetForRightEdge } from './layouts/time-sync-math';
 
 // Type for all orderbook providers
 type OrderbookProvider = BinanceSpotProvider | BinanceFuturesProvider |
@@ -91,6 +93,8 @@ export interface ChartWidgetOptions extends Omit<Partial<ChartModelOptions>, 'lo
     exchange?: string;
     locale?: ChartModelOptions['locale'];
     showToolbar?: boolean;
+    /** Multi-chart slot index; slots >= 1 persist drawings/indicators under their own keys (slot 0 keeps the per-symbol key). */
+    stateSlot?: number;
     showDrawingToolbar?: boolean;
 }
 
@@ -140,12 +144,17 @@ export class ChartWidget implements Disposable {
     private _chartRow: HTMLElement | null = null;
     private _watchlistPanel: WatchlistPanel | null = null;
     private _objectTreePanel: ObjectTreePanel | null = null;
+    /** Object tree lives in a host-owned sidebar (multi-chart layout): it must not squeeze this chart. */
+    private _objectTreeExternal: HTMLElement | null = null;
     private _timeAxisRow: HTMLElement | null = null;
     private _indicatorContainer: HTMLElement | null = null;
 
     // Widgets
     private _toolbarWidget: ToolbarWidget | null = null;
     private _drawingToolbarWidget: DrawingToolbarWidget | null = null;
+    private _drawingToolbarBinding: DrawingToolbarBinding | null = null;
+    /** Host-owned (MultiChartLayout) shared drawing toolbar: tool selection by shortcut goes through it. */
+    private _sharedToolbar: { select: (tool: string) => void; closeFlyout: () => void } | null = null;
     /** Eraser / Measure / Zoom In modes and Dot / Demonstration cursors (not drawings) */
     private readonly _interactionTools = new InteractionTools();
     private _toolEnvCache: { key: string; times: number[]; precision: number } | null = null;
@@ -158,6 +167,7 @@ export class ChartWidget implements Disposable {
     /** Spot modunda eksene verilen, fark kadar kaydirilmis olcek. */
     private _spotScale: OffsetPriceScale | null = null;
     private _spotButtonState = '';
+    private readonly _spotStateChanged = new Delegate<{ label: string | null; active: boolean }>();
     private _timeAxisWidget: TimeAxisWidget | null = null;
     private _floatingAttributeBar: FloatingAttributeBar | null = null;
     private _textEditor: TextEditorOverlay | null = null;
@@ -196,6 +206,7 @@ export class ChartWidget implements Disposable {
     private _syncedLocalY: number | null = null;
     private _lastCrosshairKey = '';
     private readonly _timeframeChanged = new Delegate<string>();
+    private readonly _objectTreeVisibilityChanged = new Delegate<boolean>();
     /** Bar replay engine (see src/replay). Public through the `replay` getter. */
     private readonly _replay: ReplayController = new ReplayController(this._createReplayAdapter());
     /** TradingView-style replay UI (selection line + control bar). */
@@ -225,6 +236,7 @@ export class ChartWidget implements Disposable {
 
     // Loading overlay
     private _loadingOverlay: HTMLElement | null = null;
+    private _noticeEl: HTMLElement | null = null;
 
     private _unsubscribeIndicatorAccess: (() => void) | null = null;
     // Indicator search modal
@@ -300,6 +312,8 @@ export class ChartWidget implements Disposable {
 
         // Create model
         this._model = new ChartModel(options);
+        this._restoreGridOptions();
+        this._restoreCanvasOptions();
         this._showToolbar = options.showToolbar !== false;
         this._showDrawingToolbar = options.showDrawingToolbar !== false;
 
@@ -333,11 +347,6 @@ export class ChartWidget implements Disposable {
         });
         this._drawingManager.drawingsChanged.subscribe(() => {
             this._scheduleDraw();
-            // Gizleme manager tarafinda kapanabilir (cizim baslayinca): toolbar Hide butonunu senkronla
-            const tb = this._drawingToolbarWidget;
-            if (tb && tb.isVisibilityHidden !== this._drawingManager.drawingsHidden) {
-                tb.isVisibilityHidden = this._drawingManager.drawingsHidden;
-            }
         });
         // Satir ici metin editoru (Text/Callout): dinleyici varligi, yeni cizimin gecmis kaydini editor kapanana kadar erteler
         this._drawingManager.textEditRequested.subscribe(({ drawing, isNew }) => {
@@ -366,7 +375,8 @@ export class ChartWidget implements Disposable {
         });
 
         // Initialize chart state manager for per-symbol persistence
-        this._chartStateManager = new ChartStateManager(this._drawingManager, this._indicatorManager);
+        this._chartStateManager = new ChartStateManager(
+            this._drawingManager, this._indicatorManager, undefined, options.stateSlot ?? 0);
         this._chartStateManager.setPaneLayoutHost({
             getPaneLayout: () => this._getPaneLayout(),
             applyPaneLayout: (layout) => this._applyPaneLayoutState(layout),
@@ -391,6 +401,7 @@ export class ChartWidget implements Disposable {
         if (this._element) {
             this._chartSettingsModal = new ChartSettingsModal(this._element);
             this._chartSettingsModal.setTheme(this._currentTheme);
+            this._chartSettingsModal.setChart(this);
         }
 
         // Now that UI is created, load saved state for symbol
@@ -474,6 +485,7 @@ export class ChartWidget implements Disposable {
                 this._replayUI?.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
             }
         }
+        if (this._bgCustomized) this._applyBackground();
     }
 
     /**
@@ -578,6 +590,49 @@ export class ChartWidget implements Disposable {
             this._model.setCrosshairPosition(x, 0, true);
         }
         this._scheduleDraw();
+    }
+
+    /** Fired after the user scrolls / zooms this chart's time axis (not for programmatic changes). */
+    get viewChanged(): Delegate<void> {
+        return this._model.timeScale.userViewChanged;
+    }
+
+    private _mainSeriesLike(): { n: number; at: (i: number) => number } {
+        const data = (this._model.serieses[0]?.data ?? []) as { time: number }[];
+        return { n: data.length, at: (i) => toMsTime(data[i].time) };
+    }
+
+    /**
+     * Visible time span (ms) of the main series: time at the left edge and at the right edge of the pane
+     * (interpolated / extrapolated past the data). null when there is no data or the pane has no width.
+     */
+    getVisibleTimeRange(): { from: number; to: number } | null {
+        const ts = this._model.timeScale;
+        if (ts.width <= 0) return null;
+        const s = this._mainSeriesLike();
+        const from = timeAtFloatIndex(s, ts.coordinateToFloatIndex(0 as any));
+        const to = timeAtFloatIndex(s, ts.coordinateToFloatIndex((ts.width - 1) as any));
+        return from === null || to === null ? null : { from, to };
+    }
+
+    /** Scrolls (keeping the zoom) so that `timeMs` is at the right edge. Silent (no viewChanged). */
+    setRightEdgeTime(timeMs: number): void {
+        const ts = this._model.timeScale;
+        const f = floatIndexAtTime(this._mainSeriesLike(), timeMs);
+        if (f === null || ts.width <= 0) return;
+        ts.scrollToPosition(scrollOffsetForRightEdge(ts.pointsCount, ts.rightOffset, f), false);
+        this._model.recalculateAllPanes();
+    }
+
+    /** Fits [fromMs, toMs] to the pane width (changes zoom). Silent (no viewChanged). */
+    setVisibleTimeRange(fromMs: number, toMs: number): void {
+        const ts = this._model.timeScale;
+        const s = this._mainSeriesLike();
+        const a = floatIndexAtTime(s, fromMs);
+        const b = floatIndexAtTime(s, toMs);
+        if (a === null || b === null || ts.width <= 0 || b <= a) return;
+        ts.setVisibleBarRange(a, b, true);
+        this._model.recalculateAllPanes();
     }
 
     private _mainBarTimes(): number[] {
@@ -731,6 +786,11 @@ export class ChartWidget implements Disposable {
         this._symbolSearch?.show();
     }
 
+    /** Type-to-open entry point for hosts that own the keyboard listener (MultiChartLayout). */
+    handleTypeToOpen(e: KeyboardEvent): boolean {
+        return this._symbolSearch?.handleTypeToOpen(e) ?? false;
+    }
+
     private _createSymbolSearch(): SymbolSearch {
         const search = new SymbolSearch({
             getActiveSymbol: () => ({ symbol: this._model.symbol, exchange: this._model.exchange }),
@@ -745,6 +805,7 @@ export class ChartWidget implements Disposable {
 
     /** Type-to-open: a printable key pressed on the (active) chart opens the symbol search prefilled. */
     private readonly _boundKeyPress: (e: KeyboardEvent) => void = (e) => {
+        // Without an own toolbar (multi-chart layout) the layout owns one listener and routes it here.
         if (!this._showToolbar || !this._symbolSearch) return;
         if (_keyboardActiveChart !== null && _keyboardActiveChart !== this) return;
         this._symbolSearch.handleTypeToOpen(e);
@@ -863,6 +924,7 @@ export class ChartWidget implements Disposable {
         const ts = this._timestamps;
         if (ts.length > truncateTo) ts.length = truncateTo;
         for (const bar of push) ts.push(bar.time);
+        this._model.timeScale.timeMarks.invalidate();
         if (series instanceof HeikenAshiSeries) series.syncTail(truncateTo);
 
         const timeScale = this._model.timeScale;
@@ -911,6 +973,30 @@ export class ChartWidget implements Disposable {
         return this._model.rightPriceScale;
     }
 
+    /** Small non-blocking message inside the chart (null clears it); e.g. "no data" after a failed load. */
+    setNotice(message: string | null): void {
+        if (!this._element) return;
+        let el = this._noticeEl;
+        if (!message) {
+            el?.remove();
+            this._noticeEl = null;
+            return;
+        }
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'tv-chart-notice';
+            el.style.cssText = `
+                position: absolute; top: ${(this._toolbarWidget?.height ?? 0) + 18}px; left: 50%; transform: translateX(-50%);
+                z-index: 900; padding: 6px 12px; border-radius: 4px; pointer-events: none;
+                background: rgba(239, 83, 80, 0.15); border: 1px solid #ef5350; color: #ef9a9a;
+                font-size: 12px; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
+            `;
+            this._element.appendChild(el);
+            this._noticeEl = el;
+        }
+        el.textContent = message;
+    }
+
     /**
      * Show or hide loading indicator
      */
@@ -943,6 +1029,259 @@ export class ChartWidget implements Disposable {
 
         if (this._timeAxisWidget) {
             this._timeAxisWidget.setTimezone(timezone);
+        }
+        // Tick marks (and the grid that follows them) depend on the zone
+        this._model.fullUpdate();
+    }
+
+    // --- Grid options -----------------------------------------------------------------------
+
+    private _gridCustomized = { vertLines: false, horzLines: false };
+
+    /** Deep copy of the chart's grid options. */
+    getGridOptions(): GridOptions {
+        const g = this._model.options.grid;
+        return { vertLines: { ...g.vertLines }, horzLines: { ...g.horzLines } };
+    }
+
+    /**
+     * Update grid line visibility / color / style per direction. Repaints the main pane and every
+     * sub-pane, persists to localStorage (`charts.gridOptions`). Setting a color marks it as user
+     * customized (kept across theme switches); pass color '' to go back to the theme default.
+     */
+    setGridOptions(partial: {
+        vertLines?: Partial<{ visible: boolean; color: string; style: 'solid' | 'dashed' | 'dotted' }>;
+        horzLines?: Partial<{ visible: boolean; color: string; style: 'solid' | 'dashed' | 'dotted' }>;
+    }): void {
+        const grid = (this._model as any)._options.grid as GridOptions;
+        for (const dir of ['vertLines', 'horzLines'] as const) {
+            const p = partial?.[dir];
+            if (!p) continue;
+            const target = grid[dir];
+            if (typeof p.visible === 'boolean') target.visible = p.visible;
+            if (p.style === 'solid' || p.style === 'dashed' || p.style === 'dotted') target.style = p.style;
+            if (typeof p.color === 'string') {
+                if (p.color === '') {
+                    this._gridCustomized[dir] = false;
+                    target.color = getTheme(this._currentTheme).grid.color;
+                } else {
+                    // Cancel in the settings dialog re-applies the old (default) color: not a customization
+                    this._gridCustomized[dir] = p.color !== getTheme(this._currentTheme).grid.color;
+                    target.color = p.color;
+                }
+            }
+        }
+        this._persistGridOptions();
+        this._model.fullUpdate();
+    }
+
+    /** Convenience over the visible flags: 'both' | 'vert' | 'horz' | 'none'. */
+    setGridLinesMode(mode: 'both' | 'vert' | 'horz' | 'none'): void {
+        this.setGridOptions({
+            vertLines: { visible: mode === 'both' || mode === 'vert' },
+            horzLines: { visible: mode === 'both' || mode === 'horz' },
+        });
+    }
+
+    getGridLinesMode(): 'both' | 'vert' | 'horz' | 'none' {
+        const g = this._model.options.grid;
+        if (g.vertLines.visible && g.horzLines.visible) return 'both';
+        if (g.vertLines.visible) return 'vert';
+        if (g.horzLines.visible) return 'horz';
+        return 'none';
+    }
+
+
+    // --- Canvas settings: background, pane separators, crosshair, watermark -------------------
+
+    private _bg: { type: 'solid' | 'gradient'; color: string; gradientColor: string } =
+        { type: 'solid', color: '#ffffff', gradientColor: '#e0e3eb' };
+    private _bgCustomized = false;
+    private _crosshairColorCustomized = false;
+
+    private _defaultBackground(theme: ThemeType) {
+        return {
+            type: 'solid' as const,
+            color: getTheme(theme).layout.backgroundColor,
+            gradientColor: theme === 'dark' ? '#131722' : '#e0e3eb',
+        };
+    }
+
+    private _readStore(key: string): any {
+        try {
+            const raw = localStorage.getItem(key);
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) { return null; }
+    }
+
+    private _writeStore(key: string, value: unknown): void {
+        try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { }
+    }
+
+    private _restoreCanvasOptions(): void {
+        const opts = (this._model as any)._options as ChartModelOptions;
+        this._bg = this._defaultBackground(this._currentTheme);
+        this._bg.color = opts.layout.backgroundColor;
+
+        const bg = this._readStore('charts.backgroundOptions');
+        if (bg && bg.customized === true && typeof bg.color === 'string') {
+            this._bgCustomized = true;
+            this._bg = {
+                type: bg.type === 'gradient' ? 'gradient' : 'solid',
+                color: bg.color,
+                gradientColor: typeof bg.gradientColor === 'string' ? bg.gradientColor : this._bg.gradientColor,
+            };
+            opts.layout.backgroundColor = this._bg.color;
+        }
+
+        const sep = this._readStore('charts.paneSeparatorColor');
+        if (typeof sep === 'string' && sep) setPaneSeparatorOverride(sep);
+
+        const ch = this._readStore('charts.crosshairStyle');
+        if (ch && typeof ch === 'object') {
+            for (const l of [opts.crosshair.vertLine, opts.crosshair.horzLine]) {
+                if (ch.style === 'solid' || ch.style === 'dashed' || ch.style === 'dotted') l.style = ch.style;
+                if (typeof ch.width === 'number' && ch.width > 0) l.width = ch.width;
+                if (ch.customized === true && typeof ch.color === 'string' && ch.color) {
+                    l.color = ch.color;
+                    this._crosshairColorCustomized = true;
+                }
+            }
+        }
+
+        const wm = this._readStore('charts.watermarkOptions');
+        if (wm && typeof wm === 'object') {
+            if (typeof wm.visible === 'boolean') opts.watermark.visible = wm.visible;
+            if (typeof wm.color === 'string' && wm.color) opts.watermark.color = wm.color;
+        }
+    }
+
+    /** Push the background state to the main pane, sub-panes and axes. */
+    private _applyBackground(): void {
+        const opts = (this._model as any)._options as ChartModelOptions;
+        const bg = this._bg;
+        const bottom = bg.type === 'gradient' ? bg.gradientColor : null;
+        opts.layout.backgroundColor = bg.color;
+        if (this._element) {
+            this._element.style.background = bottom ? `linear-gradient(${bg.color}, ${bottom})` : bg.color;
+        }
+        this._paneWidget?.setBackgroundGradient(bottom);
+        if (this._bgCustomized) {
+            this._priceAxisWidget?.setBackgroundColor(bg.color);
+            this._timeAxisWidget?.setBackgroundColor(bg.color);
+            for (const pane of this._indicatorPanes.values()) pane.setBackground(bg.color, bottom);
+        } else {
+            // theme defaults (panes / axes re-themed in setTheme)
+            if (this._priceAxisWidget) this._priceAxisWidget.setTheme(this._currentTheme);
+            if (this._timeAxisWidget) this._timeAxisWidget.setTheme(this._currentTheme);
+            for (const pane of this._indicatorPanes.values()) {
+                pane.setTheme(this._currentTheme);
+                pane.setBackground(bg.color, bottom);
+            }
+        }
+    }
+
+    getBackgroundOptions(): { type: 'solid' | 'gradient'; color: string; gradientColor: string } {
+        return { ...this._bg };
+    }
+
+    /** Background: color = top, gradientColor = bottom; type 'gradient' paints a vertical gradient. */
+    setBackgroundOptions(partial: Partial<{ type: 'solid' | 'gradient'; color: string; gradientColor: string }>): void {
+        const next = { ...this._bg };
+        if (partial.type === 'solid' || partial.type === 'gradient') next.type = partial.type;
+        if (typeof partial.color === 'string' && partial.color) next.color = partial.color;
+        if (typeof partial.gradientColor === 'string' && partial.gradientColor) next.gradientColor = partial.gradientColor;
+        const def = this._defaultBackground(this._currentTheme);
+        this._bgCustomized = !(next.type === def.type && next.color === def.color && next.gradientColor === def.gradientColor);
+        this._bg = next;
+        this._writeStore('charts.backgroundOptions', { ...next, customized: this._bgCustomized });
+        this._applyBackground();
+        this._model.fullUpdate();
+    }
+
+    private _repaintPaneSeparators(): void {
+        for (const pane of this._indicatorPanes.values()) pane.repaintSeparator();
+        this._updateMainPaneButton(this._priceAxisWidget?.width ?? 52);
+    }
+
+    getPaneSeparatorColor(): string {
+        return getPaneSeparatorOverride() ?? paneColors(this._currentTheme === 'light' ? 'light' : 'dark').separator;
+    }
+
+    setPaneSeparatorColor(color: string): void {
+        const themeDefault = this._currentTheme === 'light' ? PANE_STYLE.light.separator : PANE_STYLE.dark.separator;
+        const override = !color || color.toLowerCase() === themeDefault.toLowerCase() ? null : color;
+        setPaneSeparatorOverride(override);
+        try {
+            if (override) localStorage.setItem('charts.paneSeparatorColor', JSON.stringify(override));
+            else localStorage.removeItem('charts.paneSeparatorColor');
+        } catch (e) { }
+        this._repaintPaneSeparators();
+        this._model.fullUpdate();
+    }
+
+    getCrosshairStyle(): { color: string; style: 'solid' | 'dashed' | 'dotted'; width: number } {
+        const l = this._model.options.crosshair.vertLine;
+        return { color: l.color, style: l.style, width: l.width };
+    }
+
+    setCrosshairStyle(partial: Partial<{ color: string; style: 'solid' | 'dashed' | 'dotted'; width: number }>): void {
+        const ch = (this._model as any)._options.crosshair as ChartModelOptions['crosshair'];
+        for (const l of [ch.vertLine, ch.horzLine]) {
+            if (typeof partial.color === 'string' && partial.color) l.color = partial.color;
+            if (partial.style === 'solid' || partial.style === 'dashed' || partial.style === 'dotted') l.style = partial.style;
+            if (typeof partial.width === 'number' && partial.width > 0) l.width = partial.width;
+        }
+        if (typeof partial.color === 'string' && partial.color) {
+            this._crosshairColorCustomized = partial.color !== getTheme(this._currentTheme).crosshair.lineColor;
+        }
+        this._writeStore('charts.crosshairStyle', {
+            color: ch.vertLine.color, style: ch.vertLine.style, width: ch.vertLine.width,
+            customized: this._crosshairColorCustomized,
+        });
+        this._model.fullUpdate();
+    }
+
+    getWatermarkOptions(): { visible: boolean; color: string } {
+        const w = this._model.options.watermark;
+        return { visible: w.visible, color: w.color };
+    }
+
+    setWatermarkOptions(partial: Partial<{ visible: boolean; color: string }>): void {
+        const w = (this._model as any)._options.watermark as ChartModelOptions['watermark'];
+        if (typeof partial.visible === 'boolean') w.visible = partial.visible;
+        if (typeof partial.color === 'string' && partial.color) w.color = partial.color;
+        this._writeStore('charts.watermarkOptions', { visible: w.visible, color: w.color });
+        this._model.fullUpdate();
+    }
+
+    private _persistGridOptions(): void {
+        const g = this._model.options.grid;
+        try {
+            localStorage.setItem('charts.gridOptions', JSON.stringify({
+                vertLines: { ...g.vertLines, customized: this._gridCustomized.vertLines },
+                horzLines: { ...g.horzLines, customized: this._gridCustomized.horzLines },
+            }));
+        } catch (e) { }
+    }
+
+    private _restoreGridOptions(): void {
+        let saved: any = null;
+        try {
+            const raw = localStorage.getItem('charts.gridOptions');
+            if (raw) saved = JSON.parse(raw);
+        } catch (e) { }
+        if (!saved || typeof saved !== 'object') return;
+        const grid = (this._model as any)._options.grid as GridOptions;
+        for (const dir of ['vertLines', 'horzLines'] as const) {
+            const p = saved[dir];
+            if (!p || typeof p !== 'object') continue;
+            if (typeof p.visible === 'boolean') grid[dir].visible = p.visible;
+            if (p.style === 'solid' || p.style === 'dashed' || p.style === 'dotted') grid[dir].style = p.style;
+            if (p.customized === true && typeof p.color === 'string' && p.color) {
+                this._gridCustomized[dir] = true;
+                grid[dir].color = p.color;
+            }
         }
     }
 
@@ -982,10 +1321,15 @@ export class ChartWidget implements Disposable {
         (this._model as any)._options.theme = theme;
         (this._model as any)._options.layout.backgroundColor = colors.layout.backgroundColor;
         (this._model as any)._options.layout.textColor = colors.layout.textColor;
-        (this._model as any)._options.grid.vertLines.color = colors.grid.color;
-        (this._model as any)._options.grid.horzLines.color = colors.grid.color;
-        (this._model as any)._options.crosshair.vertLine.color = colors.crosshair.lineColor;
-        (this._model as any)._options.crosshair.horzLine.color = colors.crosshair.lineColor;
+        // TradingView resets grid colors to the theme defaults on theme change, unless the user picked a color
+        const grid = (this._model as any)._options.grid as GridOptions;
+        if (!this._gridCustomized.vertLines) grid.vertLines.color = colors.grid.color;
+        if (!this._gridCustomized.horzLines) grid.horzLines.color = colors.grid.color;
+        if (!this._crosshairColorCustomized) {
+            (this._model as any)._options.crosshair.vertLine.color = colors.crosshair.lineColor;
+            (this._model as any)._options.crosshair.horzLine.color = colors.crosshair.lineColor;
+        }
+        if (!this._bgCustomized) this._bg = this._defaultBackground(theme);
 
         // Update main container
         if (this._element) {
@@ -1096,6 +1440,9 @@ export class ChartWidget implements Disposable {
         if (this._technicalRatingBadge) {
             this._technicalRatingBadge.setTheme(theme);
         }
+
+        this._applyBackground();
+        this._repaintPaneSeparators();
 
         // Trigger full redraw
         this._model.fullUpdate();
@@ -1416,6 +1763,7 @@ export class ChartWidget implements Disposable {
 
         // Initialize Symbol Search Modal
         this._symbolSearch = this._createSymbolSearch();
+        if (!this._showToolbar) this._syncSpot();
 
         // Create widgets
         this._paneWidget = new PaneWidget(this._chartRow, this._model);
@@ -1438,6 +1786,10 @@ export class ChartWidget implements Disposable {
         if (this._showDrawingToolbar) {
             this._createDrawingToolbar();
         }
+
+        // Without an own toolbar the host-owned one (MultiChartLayout) provides the watchlist / spot toggle;
+        // the object tree only needs the drawing toolbar button.
+        if (!this._showToolbar) this._createObjectTree();
 
         // Create floating attribute bar (shown when drawing is selected)
         this._floatingAttributeBar = new FloatingAttributeBar(this._element);
@@ -1558,7 +1910,7 @@ export class ChartWidget implements Disposable {
         // Nesne agaci paneli de ayni sag kenari kullanir (ikisi ayni anda acik olmaz).
         const watchlistWidth = this._watchlistPanel?.visible
             ? this._watchlistPanel.width
-            : this._objectTreePanel?.visible ? this._objectTreePanel.width : 0;
+            : this._objectTreePanel?.visible && !this._objectTreeExternal ? this._objectTreePanel.width : 0;
         const usableWidth = this._width - watchlistWidth;
         this._technicalRatingBadge?.setRightOffset(watchlistWidth);
         const paneWidth = usableWidth - priceAxisWidth - drawingToolbarWidth;
@@ -1928,9 +2280,9 @@ export class ChartWidget implements Disposable {
 
     /** Nesne agaci: sag kenarda yerlesir (izleme listesiyle ayni anda acik olmaz). */
     private _createObjectTree(): void {
-        if (!this._element || !this._toolbarWidget) return;
+        if (!this._element) return;
         this._objectTreePanel?.destroy();
-        const panel = new ObjectTreePanel(this._element, this._toolbarWidget.height, {
+        const panel = new ObjectTreePanel(this._element, this._toolbarWidget?.height ?? 0, {
             drawings: this._drawingManager,
             indicators: this._indicatorManager,
             openDrawingSettings: (d) => this._openDrawingSettings(d),
@@ -1941,15 +2293,67 @@ export class ChartWidget implements Disposable {
             requestDraw: () => this._scheduleDraw(),
         });
         this._objectTreePanel = panel;
+        if (this._objectTreeExternal) panel.mountIn(this._objectTreeExternal, 0);
         panel.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
         panel.visibilityChanged.subscribe((visible) => {
             if (visible) this._watchlistPanel?.setVisible(false);
             this._drawingToolbarWidget?.setObjectTreeActive(visible);
             this._updateLayout();
             this._scheduleDraw();
+            this._objectTreeVisibilityChanged.fire(visible);
         });
-        if (ObjectTreePanel.wasOpen() && !this._watchlistPanel?.visible) panel.setVisible(true);
+        if (ObjectTreePanel.wasOpen() && !this._watchlistPanel?.visible && !this._objectTreeExternal) panel.setVisible(true);
         this._drawingToolbarWidget?.setObjectTreeActive(panel.visible);
+    }
+
+    /** Drawing state / interaction tools (used by DrawingToolbarBinding). */
+    get drawingManager(): DrawingManager {
+        return this._drawingManager;
+    }
+
+    get interactionTools(): InteractionTools {
+        return this._interactionTools;
+    }
+
+    get objectTreeWidth(): number {
+        return this._objectTreePanel?.width ?? 0;
+    }
+
+    get objectTreeVisible(): boolean {
+        return this._objectTreePanel?.visible ?? false;
+    }
+
+    /** Redraws the drawings layer (after a host changed drawing-manager flags). */
+    refreshDrawings(): void {
+        this._scheduleDraw();
+    }
+
+    /** Registers the host-owned shared drawing toolbar (this chart has no toolbar of its own then). */
+    setSharedDrawingToolbar(handlers: { select: (tool: string) => void; closeFlyout: () => void } | null): void {
+        this._sharedToolbar = handlers;
+    }
+
+    /** Hosts the object tree in an external container (layout sidebar) instead of inside this chart; null = back inside. */
+    setObjectTreeContainer(container: HTMLElement | null): void {
+        this._objectTreeExternal = container;
+        const target = container ?? this._element;
+        if (target) this._objectTreePanel?.mountIn(target, container ? 0 : this._toolbarWidget?.height ?? 0);
+        this._updateLayout();
+        this._scheduleDraw();
+    }
+
+    /** Fires when the object tree panel of this chart opens / closes (host-owned watchlist exclusion). */
+    get objectTreeVisibilityChanged(): Delegate<boolean> {
+        return this._objectTreeVisibilityChanged;
+    }
+
+    /** Temporarily closes the object tree (preference is kept); `restoreObjectTree` re-opens it if it was open before. */
+    hideObjectTree(): void {
+        this._objectTreePanel?.setVisible(false, { persist: false });
+    }
+
+    restoreObjectTree(): void {
+        if (ObjectTreePanel.wasOpen()) this._objectTreePanel?.setVisible(true);
     }
 
     /** Nesne agacini ac/kapat (toolbar dugmesi ve baglam menusu) */
@@ -2175,6 +2579,7 @@ export class ChartWidget implements Disposable {
         this._contextMenu?.hide();
         this._drawingContextMenu?.hide();
         this._drawingToolbarWidget?.closeFlyout();
+        this._sharedToolbar?.closeFlyout();
     }
 
     private _onMouseMove(e: MouseEvent): void {
@@ -2297,6 +2702,8 @@ export class ChartWidget implements Disposable {
     private _selectToolByShortcut(tool: string): void {
         if (this._drawingToolbarWidget) {
             this._drawingToolbarWidget.setActiveTool(tool);
+        } else if (this._sharedToolbar) {
+            this._sharedToolbar.select(tool);
         } else {
             // cursors / interaction tools are not drawing modes
             this._interactionTools.setTool(tool);
@@ -3257,18 +3664,33 @@ export class ChartWidget implements Disposable {
         if (state !== this._spotButtonState) {
             this._spotButtonState = state;
             this._toolbarWidget?.setSpotButton(pair ? pair.exchange : null, this._spotMode);
+            this._spotStateChanged.fire({ label: pair ? pair.exchange : null, active: this._spotMode });
         }
+    }
+
+    /** Spot toggle state of this chart (label = spot exchange, null when the symbol has no spot counterpart). */
+    getSpotState(): { label: string | null; active: boolean } {
+        const pair = SpotPriceSource.pairFor(this._model.symbol);
+        return { label: pair ? pair.exchange : null, active: this._spotMode };
+    }
+
+    /** Fires when the spot button state of this chart changes (for a host-owned toolbar). */
+    get spotStateChanged(): Delegate<{ label: string | null; active: boolean }> {
+        return this._spotStateChanged;
+    }
+
+    /** Turns the spot price axis on/off for this chart. */
+    setSpotMode(enabled: boolean): void {
+        this._spotMode = enabled;
+        writeSpotMode(enabled);
+        const data = this._model.serieses[0]?.data as BarData[] | undefined;
+        this._syncSpot(data && data.length > 0 && 'open' in data[0] ? data : undefined);
+        this._scheduleDraw();
     }
 
     private _initSpotToggle(): void {
         if (!this._toolbarWidget) return;
-        this._toolbarWidget.spotToggled.subscribe((enabled) => {
-            this._spotMode = enabled;
-            writeSpotMode(enabled);
-            const data = this._model.serieses[0]?.data as BarData[] | undefined;
-            this._syncSpot(data && data.length > 0 && 'open' in data[0] ? data : undefined);
-            this._scheduleDraw();
-        });
+        this._toolbarWidget.spotToggled.subscribe((enabled) => this.setSpotMode(enabled));
         this._syncSpot();
     }
 
@@ -3496,6 +3918,9 @@ export class ChartWidget implements Disposable {
         // Pane varsayilan (koyu) renklerle olusur; setTheme sadece tema DEGISINCE
         // cagrildigi icin acik temada yeni eklenen panel koyu kaliyordu.
         pane.setTheme(this._currentTheme);
+        pane.setGridOptions(this._model.options.grid);
+        pane.setCrosshairOptions(this._model.options.crosshair);
+        if (this._bgCustomized) this._applyBackground();
 
         // Add interaction event listeners
         const canvas = pane.canvas;
@@ -4003,6 +4428,7 @@ export class ChartWidget implements Disposable {
         this._objectTreePanel?.destroy();
         this._objectTreePanel = null;
         this._toolbarWidget?.dispose();
+        this._drawingToolbarBinding?.detach();
         this._drawingToolbarWidget?.dispose();
         this._interactionTools.dispose();
         this._symbolSearch?.dispose();
@@ -4397,159 +4823,11 @@ export class ChartWidget implements Disposable {
         }
 
         this._drawingToolbarWidget = new DrawingToolbarWidget(this._element!);
-        // First subscriber: interaction tools / cursors (must run before the drawing-mode mapping
-        // so that its mode reset does not override an Eraser / Measure / Zoom In selection)
-        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
-            if (this._interactionTools.setTool(tool)) {
-                this._interactionTools.syncHost(this._drawingManager.mode !== 'none');
-                this._scheduleDraw();
-            }
-        });
-        this._drawingToolbarWidget.toolChanged.subscribe((tool) => {
-            // Map toolbar tool names to drawing modes
-            const toolToMode: Record<string, DrawingMode> = {
-                'cursor': 'none',
-                'crosshair': 'none',
-                'trendLine': 'trendLine',
-                'horizontalLine': 'horizontalLine',
-                'verticalLine': 'verticalLine',
-                'ray': 'ray',
-                'extendedLine': 'extendedLine',
-                'parallelChannel': 'parallelChannel',
-                'regressionTrend': 'regressionTrend',
-                'arrow': 'arrow',
-                'arrowMarker': 'arrowMarker',
-                'arrowMarkedUp': 'arrowMarkedUp',
-                'arrowMarkedDown': 'arrowMarkedDown',
-                'arrowMarkedLeft': 'arrowMarkedLeft',
-                'arrowMarkedRight': 'arrowMarkedRight',
-                'rectangle': 'rectangle',
-                'rotatedRectangle': 'rotatedRectangle',
-                'ellipse': 'ellipse',
-                'triangle': 'triangle',
-                'arc': 'arc',
-                'path': 'path',
-                'circle': 'circle',
-                'polyline': 'polyline',
-                'curve': 'curve',
-                'doubleCurve': 'doubleCurve',
-                'cyclicLines': 'cyclicLines',
-                'timeCycles': 'timeCycles',
-                'sineLine': 'sineLine',
-                'xabcdPattern': 'xabcdPattern',
-                'cypherPattern': 'cypherPattern',
-                'fibRetracement': 'fibRetracement',
-                'fibExtension': 'fibExtension',
-                'fibChannel': 'fibChannel',
-                'brush': 'brush',
-                'highlighter': 'highlighter',
-                'infoLine': 'infoLine',
-                'trendAngle': 'trendAngle',
-                'horizontalRay': 'horizontalRay',
-                'crossLine': 'crossLine',
-                'xabcd': 'xabcdPattern',
-                'cypher': 'cypherPattern',
-                'elliotImpulse': 'elliotImpulse',
-                'elliotCorrection': 'elliotCorrection',
-                'elliotTriangle': 'elliotTriangle',
-                'elliotDoubleCombo': 'elliotDoubleCombo',
-                'elliotTripleCombo': 'elliotTripleCombo',
-                'threeDrives': 'threeDrives',
-                'headShoulders': 'headShoulders',
-                'abcd': 'abcd',
-                'trianglePattern': 'trianglePattern',
-                'longPosition': 'longPosition',
-                'shortPosition': 'shortPosition',
-                'priceRange': 'priceRange',
-                'dateRange': 'dateRange',
-                'datePriceRange': 'datePriceRange',
-                'anchoredVwap': 'anchoredVwap',
-                'fixedRangeVolumeProfile': 'fixedRangeVolumeProfile',
-                'anchoredVolumeProfile': 'anchoredVolumeProfile',
-                'pitchfork': 'pitchfork',
-                'schiffPitchfork': 'schiffPitchfork',
-                'modifiedSchiffPitchfork': 'modifiedSchiffPitchfork',
-                'insidePitchfork': 'insidePitchfork',
-                'pitchfan': 'pitchfan',
-                'fibTimeZone': 'fibTimeZone',
-                'trendBasedFibTime': 'trendBasedFibTime',
-                'fibSpeedResistanceFan': 'fibSpeedResistanceFan',
-                'fibSpeedResistanceArcs': 'fibSpeedResistanceArcs',
-                'fibCircles': 'fibCircles',
-                'fibSpiral': 'fibSpiral',
-                'fibWedge': 'fibWedge',
-                'gannBox': 'gannBox',
-                'gannSquareFixed': 'gannSquareFixed',
-                'gannSquare': 'gannSquare',
-                'gannFan': 'gannFan',
-                'disjointChannel': 'disjointChannel',
-                'flatTopBottom': 'flatTopBottom',
-                'projection': 'projection',
-                'positionForecast': 'positionForecast',
-                'barsPattern': 'barsPattern',
-                'ghostFeed': 'ghostFeed',
-                'text': 'text',
-                'callout': 'callout',
-                'priceLabel': 'priceLabel',
-                'note': 'note',
-                'priceNote': 'priceNote',
-                'pin': 'pin',
-                'signpost': 'signpost',
-                'comment': 'comment',
-                'table': 'table',
-                'flagMarked': 'flagMarked',
-                'sticker': 'sticker',
-            };
-
-            // Handle sticker tools
-            let mode = toolToMode[tool];
-            if (!mode && tool.startsWith('sticker-')) {
-                mode = 'sticker';
-                const emoji = this._drawingToolbarWidget?.getToolIcon(tool);
-                if (emoji) {
-                    this._drawingManager.stickerContent = emoji;
-                }
-            }
-
-            this._drawingManager.setMode(mode || 'none');
-        });
-
-        this._drawingManager.keepDrawing = this._drawingToolbarWidget.keepDrawing;
-        this._drawingToolbarWidget.keepDrawingToggled.subscribe((keep) => {
-            this._drawingManager.keepDrawing = keep;
-        });
-
-        this._drawingManager.snapToIndicators = this._drawingToolbarWidget.snapToIndicators;
-        this._drawingToolbarWidget.snapToIndicatorsToggled.subscribe((on) => {
-            this._drawingManager.snapToIndicators = on;
-        });
-
-        this._drawingToolbarWidget.objectTreeToggled.subscribe(() => this.toggleObjectTree());
-        this._drawingToolbarWidget.setObjectTreeActive(this._objectTreePanel?.visible ?? false);
-        this._drawingToolbarWidget.deleteAllClicked.subscribe(() => {
-            this._drawingManager.deleteAll();
-        });
-        this._drawingToolbarWidget.lockToggled.subscribe((isLocked) => {
-            this._drawingManager.isLocked = isLocked;
-            this._scheduleDraw();
-        });
-        this._drawingToolbarWidget.visibilityToggled.subscribe((isHidden) => {
-            // Gorunum bayragi: cizimlerin kendi visible durumu ve gecmis etkilenmez
-            this._drawingManager.drawingsHidden = isHidden;
-            this._scheduleDraw();
-        });
-        // Toolbar owns the (persisted) magnet mode; weak/strong never change the active tool
-        this._drawingManager.magnetMode = this._drawingToolbarWidget.magnetMode;
-        this._drawingToolbarWidget.magnetToggled.subscribe(() => {
-            this._drawingManager.magnetMode = this._drawingToolbarWidget!.magnetMode;
-        });
-
-        this._drawingManager.modeChanged.subscribe((mode) => {
-            // Back to the last chosen cursor (crosshair / arrow / dot / demonstration);
-            // an active Eraser / Measure / Zoom In stays selected
-            if (mode === 'none' && this._interactionTools.mode === 'none') {
-                this._drawingToolbarWidget?.setActiveTool(this._interactionTools.lastCursor);
-            }
+        this._drawingToolbarBinding?.detach();
+        // Wiring (tools, magnet, lock / hide, object tree ...) lives in the adapter shared with MultiChartLayout
+        this._drawingToolbarBinding = new DrawingToolbarBinding(this._drawingToolbarWidget, {
+            getActive: () => this,
+            getAll: () => [this],
         });
     }
 }

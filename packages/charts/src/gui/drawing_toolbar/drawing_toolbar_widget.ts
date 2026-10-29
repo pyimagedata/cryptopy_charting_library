@@ -357,7 +357,11 @@ export class DrawingToolbarWidget {
     private readonly _deleteAllClicked = new Delegate<void>();
     private readonly _objectTreeToggled = new Delegate<void>();
 
-    constructor(container: HTMLElement) {
+    /**
+     * @param inline true: the toolbar is a flex column of the host (MultiChartLayout, full height);
+     *               false: absolutely positioned inside a chart.
+     */
+    constructor(container: HTMLElement, private readonly _inline: boolean = false) {
         try {
             this._keepDrawing = localStorage.getItem(KEEP_DRAWING_STORAGE_KEY) === '1';
         } catch (e) {
@@ -597,10 +601,9 @@ export class DrawingToolbarWidget {
         this._element = document.createElement('div');
         this._element.className = 'drawing-toolbar';
         this._element.style.cssText = `
-            position: absolute;
-            left: 0;
-            top: 38px;
-            bottom: 30px;
+            ${this._inline
+                ? 'position: relative; flex: 0 0 48px; align-self: stretch; box-sizing: border-box;'
+                : 'position: absolute; left: 0; top: 38px; bottom: 30px;'}
             width: 48px;
             background: #131722;
             border-right: 1px solid #2B2B43;

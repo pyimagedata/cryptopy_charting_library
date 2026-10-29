@@ -168,6 +168,12 @@ export class PaneWidget implements Disposable {
     private _legendHeaderEl: HTMLElement | null = null;
     private _overlayLegend: IndicatorLegendList;
     private _priceMarksSource: (() => PriceMark[]) | null = null;
+    private _gradientBottom: string | null = null;
+
+    /** Vertical background gradient (top = layout.backgroundColor); null = solid. */
+    setBackgroundGradient(bottom: string | null): void {
+        this._gradientBottom = bottom;
+    }
 
     /** Chart key the legend collapse state is stored under (one per chart) */
     setLegendChartKey(key: string): void {
@@ -288,7 +294,14 @@ export class PaneWidget implements Disposable {
 
         // Clear and reset transform
         this._ctx.setTransform(1, 0, 0, 1, 0, 0);
-        this._ctx.fillStyle = this._model.options.layout.backgroundColor;
+        if (this._gradientBottom) {
+            const g = this._ctx.createLinearGradient(0, 0, 0, height * dpr);
+            g.addColorStop(0, this._model.options.layout.backgroundColor);
+            g.addColorStop(1, this._gradientBottom);
+            this._ctx.fillStyle = g;
+        } else {
+            this._ctx.fillStyle = this._model.options.layout.backgroundColor;
+        }
         this._ctx.fillRect(0, 0, width * dpr, height * dpr);
 
         // Draw watermark
@@ -304,13 +317,8 @@ export class PaneWidget implements Disposable {
         const priceMarks = this._priceMarksSource ? this._priceMarksSource() : this._model.rightPriceScale.marks();
         this._gridRenderer.drawHorizontalLines(scope, priceMarks);
 
-        // Calculate vertical grid x positions (every N bars)
-        const barSpacing = this._model.timeScale.barSpacing;
-        const gridInterval = Math.ceil(80 / barSpacing);
-        const verticalXCoords: number[] = [];
-        for (let i = visibleRange.from as number; i <= (visibleRange.to as number); i += gridInterval) {
-            verticalXCoords.push(this._model.timeScale.indexToCoordinate(i as TimePointIndex));
-        }
+        // Vertical grid at the shared time axis tick marks (round times, stable while scrolling)
+        const verticalXCoords: number[] = this._model.timeScale.marks().map(m => m.x);
         this._gridRenderer.drawVerticalLines(scope, verticalXCoords as any);
 
         // Render background overlay indicators (Histogram style like Volume)
@@ -355,6 +363,8 @@ export class PaneWidget implements Disposable {
 
                 if (opts.vertLine.style === 'dashed') {
                     ctx.setLineDash([4 * hRatio, 4 * hRatio]);
+                } else if (opts.vertLine.style === 'dotted') {
+                    ctx.setLineDash([2 * hRatio, 2 * hRatio]);
                 }
 
                 ctx.moveTo(x, 0);
@@ -371,6 +381,8 @@ export class PaneWidget implements Disposable {
 
                 if (opts.horzLine.style === 'dashed') {
                     ctx.setLineDash([4 * hRatio, 4 * hRatio]);
+                } else if (opts.horzLine.style === 'dotted') {
+                    ctx.setLineDash([2 * hRatio, 2 * hRatio]);
                 } else {
                     ctx.setLineDash([]);
                 }

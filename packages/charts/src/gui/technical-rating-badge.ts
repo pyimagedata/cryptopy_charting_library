@@ -16,9 +16,20 @@ export class TechnicalRatingBadge {
     private _currentRating: TechnicalRating | null = null;
     private _isLoading: boolean = false;
 
+    private _shown = true;
+    private _narrow = false;
+    private _resizeObserver: ResizeObserver | null = null;
+    /** Below this pane width the card would sit on top of the symbol/OHLC legend, so it is hidden. */
+    private static readonly MIN_PANE_WIDTH = 720;
+
     constructor(container: HTMLElement) {
         this._element = this._createElement();
         container.appendChild(this._element);
+        if (typeof ResizeObserver !== 'undefined') {
+            this._resizeObserver = new ResizeObserver(() => this._checkWidth(container));
+            this._resizeObserver.observe(container);
+        }
+        this._checkWidth(container);
         console.log('🏷️ TechnicalRatingBadge created and appended to container');
     }
 
@@ -197,7 +208,21 @@ export class TechnicalRatingBadge {
     }
 
     setVisible(visible: boolean): void {
-        this._element.style.display = visible ? 'flex' : 'none';
+        this._shown = visible;
+        this._applyDisplay();
+    }
+
+    private _checkWidth(container: HTMLElement): void {
+        const w = container.clientWidth;
+        if (w <= 0) return; // not laid out yet
+        const narrow = w < TechnicalRatingBadge.MIN_PANE_WIDTH;
+        if (narrow === this._narrow) return;
+        this._narrow = narrow;
+        this._applyDisplay();
+    }
+
+    private _applyDisplay(): void {
+        this._element.style.display = this._shown && !this._narrow ? 'flex' : 'none';
     }
 
     /**
@@ -282,6 +307,8 @@ export class TechnicalRatingBadge {
      * Dispose
      */
     dispose(): void {
+        this._resizeObserver?.disconnect();
+        this._resizeObserver = null;
         this._element.remove();
     }
 }

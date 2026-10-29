@@ -322,6 +322,10 @@ export class PriceAxisWidget implements Disposable {
         return this._priceScale.marks();
     }
 
+    setBackgroundColor(color: string): void {
+        this._options.backgroundColor = color;
+    }
+
     /**
      * Set theme colors
      */
