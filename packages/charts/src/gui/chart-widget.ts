@@ -16,6 +16,8 @@ import { SpotPriceSource } from '../model/spot-price-source';
 import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ContextMenuItem, ICONS } from './context_menu';
 import { openAlertDialog, AlertDialogChart } from './alerts/alert-dialog';
+import { DrawingAlertsController } from './alerts/drawing-alerts';
+import { alertGeometryFor, alertDrawingLabel, geometrySeedPrice, isAlertableDrawing } from '../alerts/drawing-geometry';
 import { AlertLinesController } from './alerts/alert-lines';
 import { alertTicker, exactPrice, makeAlertSymbolId, snapAlertPrice } from '../alerts/alert-text';
 import { LegendAction, LegendPoint, LEGEND_ICONS } from './indicator_legend';
@@ -835,6 +837,13 @@ export class ChartWidget implements Disposable {
      * Display text of a price in the chart's own price format. The axis format rounds (2 decimals from 1 up), so when
      * it would lose digits of `price` the exact decimal text is used instead (display only; the input seeds from the value).
      */
+    /** Right price scale mode, for the drawing-alert dialog note (log / percent / indexed scales distort drawing lines). */
+    alertPriceScaleMode(): 'normal' | 'logarithmic' | 'percentage' {
+        const m = this._model.rightPriceScale.mode;
+        return m === PriceScaleMode.Logarithmic ? 'logarithmic'
+            : m === PriceScaleMode.Percentage || m === PriceScaleMode.IndexedTo100 ? 'percentage' : 'normal';
+    }
+
     formatAlertPrice(price: number): string {
         const axis = this._model.rightPriceScale.formatPrice(price);
         const exact = exactPrice(price);
@@ -889,6 +898,41 @@ export class ChartWidget implements Disposable {
         const raw = price ?? this.getLastPrice();
         const p = raw !== null && isFinite(raw) ? snapAlertPrice(raw, this.alertPriceStep()) : raw;
         openAlertDialog({ chart: this as AlertDialogChart, symbol: this.alertSymbolId(), price: p ?? NaN });
+    }
+
+    /** Drawing alert entry (context menu / attribute bar bell): opens the dialog for this drawing's current geometry. */
+    openDrawingAlert(drawing: Drawing): void {
+        const geometry = alertGeometryFor(drawing);
+        if (!geometry) return;
+        const lastBar = this._timestamps.length > 0 ? this._timestamps[this._timestamps.length - 1] : null;
+        const raw = geometrySeedPrice(geometry, lastBar);
+        const price = isFinite(raw) ? snapAlertPrice(raw, this.alertPriceStep()) : (this.getLastPrice() ?? NaN);
+        openAlertDialog({
+            chart: this as AlertDialogChart,
+            symbol: this.alertSymbolId(),
+            price,
+            drawing: { id: drawing.id, type: drawing.type, label: alertDrawingLabel(drawing.type), geometry },
+        });
+    }
+
+    private _drawingAlerts: DrawingAlertsController | null = null;
+
+    /** Bell badges on drawings with active alerts + follow-edit geometry updates + drawing presence for the panel. */
+    private _setupDrawingAlerts(): void {
+        if (this._drawingAlerts || !this._paneWidget) return;
+        this._drawingAlerts = new DrawingAlertsController({
+            paneElement: () => this._paneWidget?.element ?? null,
+            drawingManager: () => this._drawingManager,
+            symbol: () => this.alertSymbolId(),
+            timeToX: (time) => this._drawingManager.timeToPixel(time),
+            priceToY: (price) => {
+                const y = this._model.rightPriceScale.priceToCoordinate(price) as number;
+                return Number.isFinite(y) ? y : null;
+            },
+            theme: () => this.alertTheme(),
+            isDragging: () => this._isDraggingDrawing,
+        });
+        this._drawingAlerts.attach();
     }
 
     /** Alt+A / toolbar entry: crosshair price while hovering the chart, else the last price. */
@@ -1988,6 +2032,10 @@ export class ChartWidget implements Disposable {
         });
         // Lock can also change from the context menu / object tree: keep the bar's lock button in sync
         this._drawingManager.drawingsChanged.subscribe(() => this._floatingAttributeBar?.syncLockState());
+        this._floatingAttributeBar.alertClicked.subscribe(() => {
+            const sel = this._drawingManager.selectedDrawing;
+            if (sel) this.openDrawingAlert(sel);
+        });
         this._floatingAttributeBar.moreClicked.subscribe((rect) => {
             const sel = this._drawingManager.selectedDrawing;
             if (sel) this._showBarMoreMenu(sel, rect);
@@ -2677,6 +2725,7 @@ export class ChartWidget implements Disposable {
         });
 
         this._setupAlertLines();
+        this._setupDrawingAlerts();
         const paneCanvas = this._paneWidget?.canvas;
         if (paneCanvas) {
             paneCanvas.addEventListener('wheel', this._onWheel.bind(this), { passive: false });
@@ -3738,6 +3787,7 @@ export class ChartWidget implements Disposable {
         this._timeAxisWidget?.setDrawingLabels(timeLabels);
         this._priceAxisWidget?.setDrawingLabels(axisLabels);
         this._priceAxisWidget?.setAlertLabels(this._alertLines?.sync() ?? []);
+        this._drawingAlerts?.sync();
         if (this._priceAxisWidget?.updateWidth()) {
             this._updateLayout();
         }
@@ -4669,6 +4719,8 @@ export class ChartWidget implements Disposable {
         this._alertAxisMenu?.dispose();
         this._alertLines?.dispose();
         this._alertLines = null;
+        this._drawingAlerts?.dispose();
+        this._drawingAlerts = null;
 
         if (this._element && this._element.parentNode) {
             this._element.parentNode.removeChild(this._element);
@@ -4855,6 +4907,12 @@ export class ChartWidget implements Disposable {
         this._contextMenu?.hide();
         this._drawingContextMenu.setItems([
             { id: 'settings', label: t('Settings...'), icon: ICONS.settings, action: () => this._openDrawingSettings(drawing) },
+            ...(isAlertableDrawing(drawing) ? [{
+                id: 'add-alert',
+                label: t('Add alert on {label}...').replace('{label}', alertDrawingLabel(drawing.type)),
+                icon: ALERT_MENU_ICON,
+                action: () => this.openDrawingAlert(drawing),
+            }] : []),
             { id: 'sep1', label: '', separator: true },
             { id: 'clone', label: t('Clone'), shortcut: `${mod}drag`, action: () => { dm.duplicateDrawing(id); redraw(); } },
             { id: 'copy', label: t('Copy'), icon: ICONS.copy, shortcut: `${mod}C`, action: () => { dm.copySelected(); } },

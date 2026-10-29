@@ -248,20 +248,26 @@ export function drawParallelChannel(
     const dx = p1.x - p0.x;
     const dy = p1.y - p0.y;
 
-    if (drawing.extendLeft && dx !== 0) {
+    // "Extend left/right" are SCREEN sides: they apply to the left-most / right-most end, whichever of p0/p1 that is
+    if (dx !== 0) {
         const slope = dy / dx;
-        baseStart.x = 0;
-        baseStart.y = p0.y - slope * p0.x;
-        parallelStart.x = 0;
-        parallelStart.y = parallel0.y - slope * parallel0.x;
-    }
-
-    if (drawing.extendRight && dx !== 0) {
-        const slope = dy / dx;
-        baseEnd.x = canvasWidth;
-        baseEnd.y = p1.y + slope * (canvasWidth - p1.x);
-        parallelEnd.x = canvasWidth;
-        parallelEnd.y = parallel1.y + slope * (canvasWidth - parallel1.x);
+        const startIsLeft = dx > 0;
+        const extendStart = startIsLeft ? drawing.extendLeft : drawing.extendRight;
+        const extendEnd = startIsLeft ? drawing.extendRight : drawing.extendLeft;
+        if (extendStart) {
+            const x = startIsLeft ? 0 : canvasWidth;
+            baseStart.x = x;
+            baseStart.y = p0.y + slope * (x - p0.x);
+            parallelStart.x = x;
+            parallelStart.y = parallel0.y + slope * (x - parallel0.x);
+        }
+        if (extendEnd) {
+            const x = startIsLeft ? canvasWidth : 0;
+            baseEnd.x = x;
+            baseEnd.y = p1.y + slope * (x - p1.x);
+            parallelEnd.x = x;
+            parallelEnd.y = parallel1.y + slope * (x - parallel1.x);
+        }
     }
 
     // Draw fill between lines

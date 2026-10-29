@@ -282,7 +282,7 @@ export class ParallelChannelDrawing implements Drawing, DrawingSettingsProvider 
         if (this._pixelPoints.length >= 2) {
             const p1 = this._pixelPoints[0];
             const p2 = this._pixelPoints[1];
-            const distBase = this._pointToLineDistance(x, y, p1.x, p1.y, p2.x, p2.y);
+            const distBase = this._pointToLineDistance(x, y, p1.x, p1.y, p2.x, p2.y, ...this._extendFlags(p1.x, p2.x));
             if (distBase <= threshold) return true;
         }
 
@@ -290,7 +290,7 @@ export class ParallelChannelDrawing implements Drawing, DrawingSettingsProvider 
         if (this._parallelPixelPoints.length >= 2) {
             const p1 = this._parallelPixelPoints[0];
             const p2 = this._parallelPixelPoints[1];
-            const distParallel = this._pointToLineDistance(x, y, p1.x, p1.y, p2.x, p2.y);
+            const distParallel = this._pointToLineDistance(x, y, p1.x, p1.y, p2.x, p2.y, ...this._extendFlags(p1.x, p2.x));
             if (distParallel <= threshold) return true;
         }
 
@@ -301,6 +301,12 @@ export class ParallelChannelDrawing implements Drawing, DrawingSettingsProvider 
         }
 
         return false;
+    }
+
+    /** [extend beyond the first point, extend beyond the second point]: Extend left/right are screen sides (as drawn) */
+    private _extendFlags(x1: number, x2: number): [boolean, boolean] {
+        if (x1 === x2) return [false, false];
+        return x1 < x2 ? [this.extendLeft, this.extendRight] : [this.extendRight, this.extendLeft];
     }
 
     /** Check if point is inside the channel */
@@ -361,7 +367,9 @@ export class ParallelChannelDrawing implements Drawing, DrawingSettingsProvider 
     private _pointToLineDistance(
         px: number, py: number,
         x1: number, y1: number,
-        x2: number, y2: number
+        x2: number, y2: number,
+        extendP1: boolean = false,
+        extendP2: boolean = false
     ): number {
         const A = px - x1;
         const B = py - y1;
@@ -378,10 +386,10 @@ export class ParallelChannelDrawing implements Drawing, DrawingSettingsProvider 
 
         let xx: number, yy: number;
 
-        if (param < 0) {
+        if (param < 0 && !extendP1) {
             xx = x1;
             yy = y1;
-        } else if (param > 1) {
+        } else if (param > 1 && !extendP2) {
             xx = x2;
             yy = y2;
         } else {

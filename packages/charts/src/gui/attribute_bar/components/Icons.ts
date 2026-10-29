@@ -52,6 +52,12 @@ export const ICONS = {
         <path d="M14 16.5v2"/>
     </svg>`,
 
+    // Alert bell (drawing alerts)
+    bell: `${SVG_OPEN}
+        <path d="M14 7a5 5 0 0 0-5 5c0 4-2 6-2 6h14s-2-2-2-6a5 5 0 0 0-5-5z"/>
+        <path d="M12.3 21.5a1.9 1.9 0 0 0 3.4 0"/>
+    </svg>`,
+
     lockOpen: `${SVG_OPEN}
         <rect x="7.5" y="13" width="13" height="9" rx="1.5"/>
         <path d="M10.5 13V9.5a3.5 3.5 0 0 1 6.8-1.2"/>

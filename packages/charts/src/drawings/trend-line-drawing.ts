@@ -198,6 +198,14 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider, AxisL
         return this._pixelPoints;
     }
 
+    /**
+     * Screen-sided extension flags used for drawing and hit testing (Extend left / right are screen sides).
+     * Ray overrides this: it extends from p1 through p2 in the p1 -> p2 direction.
+     */
+    getScreenExtensions(_p1x: number, _p2x: number): { left: boolean; right: boolean } {
+        return { left: this.extendLeft, right: this.extendRight };
+    }
+
     /** Check if a pixel coordinate is near this line */
     hitTest(x: number, y: number, threshold: number = 5): boolean {
         if (this._pixelPoints.length < 2) return false;
@@ -205,8 +213,14 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider, AxisL
         const p1 = this._pixelPoints[0];
         const p2 = this._pixelPoints[1];
 
-        // Calculate distance from point to line segment
-        const distance = this._pointToLineDistance(x, y, p1.x, p1.y, p2.x, p2.y);
+        // Extensions apply to the screen-left / screen-right end (same rule as drawTrendLine)
+        const ext = this.getScreenExtensions(p1.x, p2.x);
+        const p1IsLeft = p1.x < p2.x;
+        const extendP1 = p2.x !== p1.x && (p1IsLeft ? ext.left : ext.right);
+        const extendP2 = p2.x !== p1.x && (p1IsLeft ? ext.right : ext.left);
+
+        // Calculate distance from point to line segment (or half-line / line when extended)
+        const distance = this._pointToLineDistance(x, y, p1.x, p1.y, p2.x, p2.y, extendP1, extendP2);
         return distance <= threshold;
     }
 
@@ -234,7 +248,9 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider, AxisL
     private _pointToLineDistance(
         px: number, py: number,
         x1: number, y1: number,
-        x2: number, y2: number
+        x2: number, y2: number,
+        extendP1: boolean = false,
+        extendP2: boolean = false
     ): number {
         const A = px - x1;
         const B = py - y1;
@@ -251,10 +267,10 @@ export class TrendLineDrawing implements Drawing, DrawingSettingsProvider, AxisL
 
         let xx: number, yy: number;
 
-        if (param < 0) {
+        if (param < 0 && !extendP1) {
             xx = x1;
             yy = y1;
-        } else if (param > 1) {
+        } else if (param > 1 && !extendP2) {
             xx = x2;
             yy = y2;
         } else {

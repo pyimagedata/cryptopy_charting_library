@@ -51,18 +51,23 @@ export function drawTrendLine(
     let endX = p2.x;
     let endY = p2.y;
 
-    // Extend left (from p1 towards negative direction)
-    if (extendLeft && dx !== 0) {
+    // "Extend left/right" are SCREEN sides: they apply to the left-most / right-most point, whichever of p1/p2 that is
+    // (a line drawn right-to-left keeps its body). Left-to-right lines are unchanged.
+    if (dx !== 0) {
         const slope = dy / dx;
-        startX = 0;
-        startY = p1.y - slope * p1.x;
-    }
-
-    // Extend right (from p2 towards positive direction)
-    if (extendRight && dx !== 0 && canvasWidth > 0) {
-        const slope = dy / dx;
-        endX = canvasWidth;
-        endY = p2.y + slope * (canvasWidth - p2.x);
+        const p1IsLeft = dx > 0;
+        const extendP1 = p1IsLeft ? extendLeft : extendRight;
+        const extendP2 = p1IsLeft ? extendRight : extendLeft;
+        if (extendP1 && (p1IsLeft || canvasWidth > 0)) {
+            const x = p1IsLeft ? 0 : canvasWidth;
+            startX = x;
+            startY = p1.y + slope * (x - p1.x);
+        }
+        if (extendP2 && (!p1IsLeft || canvasWidth > 0)) {
+            const x = p1IsLeft ? canvasWidth : 0;
+            endX = x;
+            endY = p2.y + slope * (x - p2.x);
+        }
     }
 
     // Check if there's text to draw

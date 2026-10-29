@@ -8,6 +8,7 @@ import { Drawing } from '../../drawings';
 import { DrawingType } from '../../drawings/drawing';
 import { AttributeBarItem } from '../../drawings/drawing-settings-config';
 import { shapeAttributeBarItems } from '../../drawings/shape-common';
+import { isAlertableDrawing } from '../../alerts/drawing-geometry';
 import { t } from '../../helpers/translations';
 import { createToolbarButton, createSeparator, createColorButton, createLineWidthButton, createLineStyleButton, createFontSizeButton, ICONS } from './components';
 import { ATTR_BAR_STYLE, barColors, refreshButtonState } from './components/style';
@@ -24,6 +25,8 @@ export interface AttributeBarEvents {
     lockClicked: Delegate<void>;
     cloneClicked: Delegate<void>;
     settingsClicked: Delegate<void>;
+    /** Bell button (drawing alerts; only on alertable drawings) */
+    alertClicked: Delegate<void>;
     /** More (...) button clicked; carries the button's bounding rect for menu placement */
     moreClicked: Delegate<DOMRect>;
 }
@@ -55,6 +58,7 @@ export class BaseAttributeBar {
     readonly lockClicked = new Delegate<void>();
     readonly cloneClicked = new Delegate<void>();
     readonly settingsClicked = new Delegate<void>();
+    readonly alertClicked = new Delegate<void>();
     readonly moreClicked = new Delegate<DOMRect>();
 
     private _lockBtn: HTMLButtonElement | null = null;
@@ -125,6 +129,7 @@ export class BaseAttributeBar {
         this.lockClicked.destroy();
         this.cloneClicked.destroy();
         this.settingsClicked.destroy();
+        this.alertClicked.destroy();
         this.moreClicked.destroy();
 
         if (this._element?.parentNode) {
@@ -232,6 +237,20 @@ export class BaseAttributeBar {
             default:
                 this._buildDefaultBar();
         }
+
+        if (isAlertableDrawing(this._currentDrawing)) this._insertAlertButton();
+    }
+
+    /** Bell ("Add alert") just before the lock button (or at the end when the bar has none) */
+    private _insertAlertButton(): void {
+        if (!this._element) return;
+        const btn = createToolbarButton(
+            { icon: ICONS.bell, title: t('Add alert'), className: 'attr-bar-alert', theme: this._theme },
+            () => this.alertClicked.fire()
+        );
+        const ref = this._lockBtn;
+        if (ref && ref.parentNode === this._element) this._element.insertBefore(btn, ref);
+        else this._element.appendChild(btn);
     }
 
     protected _buildFibonacciBar(): void {

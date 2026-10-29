@@ -37,6 +37,11 @@ export class RayDrawing extends TrendLineDrawing {
         return 'Ray';
     }
 
+    /** The ray runs from p1 through p2: towards the right edge when p2 is right of p1, else towards the left edge. */
+    getScreenExtensions(p1x: number, p2x: number): { left: boolean; right: boolean } {
+        return p2x >= p1x ? { left: false, right: true } : { left: true, right: false };
+    }
+
     protected allowExtendSettings(): boolean {
         return false;
     }

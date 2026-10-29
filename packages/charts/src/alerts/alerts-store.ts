@@ -8,8 +8,9 @@ import { showToast } from '../gui/toast/toast';
 import { playAlertSound } from './alert-sound';
 import { getAlertSettings } from './alert-settings';
 import { alertMatchesSymbol, alertTicker, conditionLabel, plainPrice } from './alert-text';
+import { sameGeometry } from './drawing-geometry';
 import {
-    AlertsBackend, AlertsError, AlertsEvent, AlertDraft, AlertLogEntry, ChartAlert,
+    AlertGeometry, AlertsBackend, AlertsError, AlertsEvent, AlertDraft, AlertLogEntry, ChartAlert,
 } from './types';
 
 /** Store events: backend events plus 'reset' (list reloaded / backend swapped / cleared). */
@@ -24,6 +25,9 @@ class AlertsStore {
     private _alerts: ChartAlert[] = [];
     private _limit = 0;
     private _telegramAvailable = false;
+    private _webhookAvailable = false;
+    private _presence: ((alert: ChartAlert) => boolean | null) | null = null;
+    private _geometryOf: ((alert: ChartAlert) => AlertGeometry | null) | null = null;
     private readonly _listeners = new Set<AlertsStoreListener>();
     private readonly _seenFired: string[] = [];
     private _gen = 0;
@@ -31,6 +35,25 @@ class AlertsStore {
     get hasBackend(): boolean { return this._backend !== null; }
     get limit(): number { return this._limit; }
     get telegramAvailable(): boolean { return this._telegramAvailable; }
+    get webhookAvailable(): boolean { return this._webhookAvailable; }
+
+    /**
+     * Plugged in by the drawing side: true = the alert's drawing exists on an open chart, false = it is gone
+     * (the panel appends "(çizim silindi)"), null = unknown. Call `notifyPresenceChanged()` after drawings change.
+     */
+    setDrawingPresenceResolver(fn: ((alert: ChartAlert) => boolean | null) | null): void {
+        this._presence = fn;
+        this._emit({ type: 'reset' });
+    }
+    /** Plugged in by the drawing side: current geometry of an alert's drawing when it is on an open chart, else null. */
+    setDrawingGeometryResolver(fn: ((alert: ChartAlert) => AlertGeometry | null) | null): void {
+        this._geometryOf = fn;
+    }
+    drawingPresence(alert: ChartAlert): boolean | null {
+        if (!this._presence) return null;
+        try { return this._presence(alert); } catch { return null; }
+    }
+    notifyPresenceChanged(): void { this._emit({ type: 'reset' }); }
 
     /** Cached alerts, newest first. The array identity changes whenever the list changes. */
     alerts(): ChartAlert[] { return this._alerts; }
@@ -64,6 +87,7 @@ class AlertsStore {
         this._alerts = [];
         this._limit = 0;
         this._telegramAvailable = false;
+        this._webhookAvailable = false;
         this._emit({ type: 'reset' });
         if (!backend) return;
         this._unsubscribe = backend.subscribe((ev) => this._onBackendEvent(ev));
@@ -80,6 +104,7 @@ class AlertsStore {
         this._alerts = [...res.alerts];
         this._limit = res.limit;
         this._telegramAvailable = res.telegramAvailable;
+        this._webhookAvailable = !!res.webhookAvailable;
         this._emit({ type: 'reset' });
     }
 
@@ -107,7 +132,17 @@ class AlertsStore {
         this._removeLocal(id);
     }
 
-    restart(id: string): Promise<ChartAlert> { return this.update(id, { status: 'active' }); }
+    /** Restart; a drawing alert whose drawing moved while it was stopped / triggered / expired gets the current geometry in the same PATCH. */
+    restart(id: string): Promise<ChartAlert> {
+        const patch: Partial<AlertDraft> & { status: 'active' } = { status: 'active' };
+        const alert = this._alerts.find((a) => a.id === id);
+        if (alert && alert.source === 'drawing' && this._geometryOf) {
+            let g: AlertGeometry | null = null;
+            try { g = this._geometryOf(alert); } catch { g = null; }
+            if (g && !sameGeometry(alert.geometry, g)) patch.geometry = g;
+        }
+        return this.update(id, patch);
+    }
     stop(id: string): Promise<ChartAlert> { return this.update(id, { status: 'stopped' }); }
 
     async log(): Promise<AlertLogEntry[]> {

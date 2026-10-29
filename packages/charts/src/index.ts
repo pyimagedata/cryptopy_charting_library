@@ -40,11 +40,12 @@ export type { AlertsStore, AlertsStoreEvent, AlertsStoreListener } from './alert
 export { AlertsError } from './alerts/types';
 export type {
     AlertCondition, AlertStatus, AlertSound, ChartAlert, AlertDraft, AlertLogEntry, AlertsEvent, AlertsBackend, AlertsErrorCode,
+    AlertTrigger, AlertInterval, AlertSource, AlertGeometry, AlertGeometryLine,
 } from './alerts/types';
 export { playAlertSound } from './alerts/alert-sound';
 export { getAlertSettings, setAlertSetting, onAlertSettingsChange } from './alerts/alert-settings';
 export type { AlertSettings, AlertSettingKey } from './alerts/alert-settings';
-export { conditionLabel as alertConditionLabel, alertTicker, parseAlertPrice, snapAlertPrice, ALERT_CONDITIONS, ALERT_SOUND_NAMES } from './alerts/alert-text';
+export { conditionLabel as alertConditionLabel, alertTicker, parseAlertPrice, snapAlertPrice, ALERT_CONDITIONS, ALERT_SOUND_NAMES, conditionsFor as alertConditionsFor, mapChartInterval as mapAlertInterval } from './alerts/alert-text';
 export { openAlertDialog, closeAlertDialog } from './gui/alerts/alert-dialog';
 export { AlertsPanel } from './gui/alerts/alerts-panel';
 export type { AlertsPanelChart } from './gui/alerts/alerts-panel';

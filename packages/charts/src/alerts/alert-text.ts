@@ -1,7 +1,7 @@
 import { t } from '../helpers/translations';
 import { displaySymbol } from '../helpers/display-aliases';
 import { AlertsError } from './types';
-import type { AlertCondition, AlertSound } from './types';
+import type { AlertCondition, AlertGeometry, AlertInterval, AlertSound, AlertSource, AlertTrigger } from './types';
 
 export const ALERT_CONDITIONS: readonly AlertCondition[] = ['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than'];
 export const ALERT_SOUND_NAMES: readonly AlertSound[] = ['chime', 'bell', 'beep', 'alarm'];
@@ -13,7 +13,85 @@ const CONDITION_EN: Record<AlertCondition, string> = {
     crossing_down: 'Crossing Down',
     greater_than: 'Greater Than',
     less_than: 'Less Than',
+    entering_channel: 'Entering Channel',
+    exiting_channel: 'Exiting Channel',
+    inside_channel: 'Inside Channel',
+    outside_channel: 'Outside Channel',
+    moving_up: 'Moving Up',
+    moving_down: 'Moving Down',
+    moving_up_percent: 'Moving Up %',
+    moving_down_percent: 'Moving Down %',
 };
+
+export const LINE_CONDITIONS: readonly AlertCondition[] = ALERT_CONDITIONS;
+export const CHANNEL_CONDITIONS: readonly AlertCondition[] = ['entering_channel', 'exiting_channel', 'inside_channel', 'outside_channel'];
+export const MOVING_CONDITIONS: readonly AlertCondition[] = ['moving_up', 'moving_down', 'moving_up_percent', 'moving_down_percent'];
+
+export function isMovingCondition(c: AlertCondition): boolean { return MOVING_CONDITIONS.indexOf(c) >= 0; }
+export function isChannelCondition(c: AlertCondition): boolean { return CHANNEL_CONDITIONS.indexOf(c) >= 0; }
+export function isPercentCondition(c: AlertCondition): boolean { return c === 'moving_up_percent' || c === 'moving_down_percent'; }
+
+/** Conditions selectable for a source / geometry: price = 5 + 4 moving, drawing line = 5, drawing channel = 4 channel. */
+export function conditionsFor(source: AlertSource | undefined, geometryType?: AlertGeometry['type'] | null): readonly AlertCondition[] {
+    if (source === 'drawing') return geometryType === 'channel' ? CHANNEL_CONDITIONS : LINE_CONDITIONS;
+    return [...ALERT_CONDITIONS, ...MOVING_CONDITIONS];
+}
+
+export const ALERT_TRIGGERS: readonly AlertTrigger[] = ['once', 'once_per_bar', 'once_per_bar_close', 'once_per_minute'];
+export const ALERT_INTERVALS: readonly AlertInterval[] = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];
+export const DEFAULT_ALERT_INTERVAL: AlertInterval = '1h';
+export const DEFAULT_MOVE_BARS = 10;
+
+const TRIGGER_EN: Record<AlertTrigger, string> = {
+    once: 'Only once',
+    once_per_bar: 'Once per bar',
+    once_per_bar_close: 'Once per bar close',
+    once_per_minute: 'Once per minute',
+};
+export function triggerLabel(tr: AlertTrigger): string { return t(TRIGGER_EN[tr]); }
+
+const INTERVAL_EN: Record<AlertInterval, string> = {
+    '1m': '1 minute', '5m': '5 minutes', '15m': '15 minutes', '30m': '30 minutes', '1h': '1 hour', '4h': '4 hours', '1d': '1 day',
+};
+export function intervalLabel(i: AlertInterval): string { return t(INTERVAL_EN[i]); }
+
+/** Chart timeframe text ("15m", "1H", "60", "1D") -> alert interval; null when it is not one of the supported bar sizes. */
+export function mapChartInterval(tf: string | null | undefined): AlertInterval | null {
+    if (!tf) return null;
+    const s = String(tf).trim().toLowerCase();
+    let min: number;
+    const m = s.match(/^(\d+)\s*([smhdw]?)$/);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    switch (m[2]) {
+        case '': case 'm': min = n; break;
+        case 'h': min = n * 60; break;
+        case 'd': min = n * 1440; break;
+        default: return null;
+    }
+    const map: Record<number, AlertInterval> = { 1: '1m', 5: '5m', 15: '15m', 30: '30m', 60: '1h', 240: '4h', 1440: '1d' };
+    return map[min] ?? null;
+}
+
+/** Move value text: "2.5" / "2.5%". */
+export function moveValueText(c: AlertCondition, value: number): string {
+    return plainPrice(value) + (isPercentCondition(c) ? '%' : '');
+}
+
+/** "<value>[%] / <bars> bar" (auto message tail of a moving alert). */
+export function movingTail(c: AlertCondition, value: number, bars: number): string {
+    return `${moveValueText(c, value)} / ${bars} ${t('bars')}`;
+}
+
+/** Second line of a panel row for a moving alert: "<condition> <value>[%] · <bars> bar · <interval>". */
+export function movingSummary(c: AlertCondition, value: number, bars: number, interval: AlertInterval): string {
+    return `${conditionLabel(c)} ${moveValueText(c, value)} · ${bars} ${t('bars')} · ${interval}`;
+}
+
+/** Placeholders usable in alert messages (rendered by the server at fire time). */
+export const ALERT_PLACEHOLDERS: readonly string[] = [
+    'ticker', 'exchange', 'close', 'open', 'high', 'low', 'volume', 'time', 'timenow', 'interval', 'alert_name', 'condition',
+];
 
 /** Localised condition label (EN keys double as translation keys). */
 export function conditionLabel(c: AlertCondition): string {
@@ -106,6 +184,24 @@ export function prettyPrice(price: number): string {
 export function serverDefaultMessage(symbol: string, condition: AlertCondition, price: number): string {
     const i = symbol.lastIndexOf(':');
     return `${i >= 0 ? symbol.slice(i + 1) : symbol} ${CONDITION_EN[condition]} ${prettyPrice(price)}`;
+}
+
+/** Server default message of a moving alert: "<ticker> <EN label> <value>[%]" (no bar count). */
+export function serverMovingMessage(symbol: string, condition: AlertCondition, value: number): string {
+    const i = symbol.lastIndexOf(':');
+    return `${i >= 0 ? symbol.slice(i + 1) : symbol} ${CONDITION_EN[condition]} ${prettyPrice(value)}${isPercentCondition(condition) ? '%' : ''}`;
+}
+
+/** Server default message of a drawing alert: "<ticker> <EN label> <drawing label>". */
+export function serverDrawingMessage(symbol: string, condition: AlertCondition, drawingLabel: string): string {
+    const i = symbol.lastIndexOf(':');
+    return `${i >= 0 ? symbol.slice(i + 1) : symbol} ${CONDITION_EN[condition]} ${drawingLabel}`;
+}
+
+/** Tails (after "<ticker> <condition> ") that mark a moving alert message as auto-built: server default and client forms. */
+export function movingAutoTails(c: AlertCondition, value: number, bars: number): string[] {
+    const unit = isPercentCondition(c) ? '%' : '';
+    return [`${prettyPrice(value)}${unit}`, moveValueText(c, value), movingTail(c, value, bars)];
 }
 
 /**

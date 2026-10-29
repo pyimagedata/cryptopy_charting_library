@@ -115,6 +115,7 @@ export class DrawingManager {
 
     // Events
     private readonly _drawingsChanged = new Delegate<void>();
+    private _drawingsLoaded = false;
     private readonly _modeChanged = new Delegate<DrawingMode>();
     private readonly _selectionChanged = new Delegate<Drawing | null>();
 
@@ -135,6 +136,8 @@ export class DrawingManager {
     private _timeframe: string = '';
     private _parsedTimeframe: ParsedTimeframe | null = null;
     private readonly _historyRestored = new Delegate<void>();
+    /** A user edit finished and changed the drawings (move / edit / settings / delete / create); not fired during drags */
+    private readonly _historyCommitted = new Delegate<void>();
     private readonly _textEditRequested = new Delegate<{ drawing: Drawing; isNew: boolean }>();
     /** Satir ici metin editoru acik olan yeni cizim (gecmise henuz yazilmadi) */
     private _pendingTextId: string | null = null;
@@ -166,6 +169,11 @@ export class DrawingManager {
 
     get selectedDrawing(): Drawing | null {
         return this._selectedDrawing;
+    }
+
+    /** True once the persisted drawings of the current symbol have been restored (deserialize ran at least once). */
+    get drawingsLoaded(): boolean {
+        return this._drawingsLoaded;
     }
 
     get drawingsChanged(): Delegate<void> {
@@ -296,6 +304,11 @@ export class DrawingManager {
     /** Gecmis (undo/redo) uygulandiktan sonra tetiklenir (acik modal/attribute bar kapatilir) */
     get historyRestored(): Delegate<void> {
         return this._historyRestored;
+    }
+
+    /** Tamamlanmis bir kullanici islemi cizimleri degistirdiginde tetiklenir (surukleme sirasinda degil) */
+    get historyCommitted(): Delegate<void> {
+        return this._historyCommitted;
     }
 
     /** Panonun kaynak paneli bu grafikte var mi? (yoksa yapistirma yapilmaz) */
@@ -1684,6 +1697,7 @@ export class DrawingManager {
 
     /** Deserialize drawings from JSON and add them to the chart */
     deserialize(data: SerializedDrawing[]): void {
+        this._drawingsLoaded = true;
         // Disaridan (state manager: sembol degisimi / yukleme) gelen yukleme: gecmis sifirlanir
         this._restore(data);
         this.resetHistory();
@@ -1995,6 +2009,7 @@ export class DrawingManager {
                 this._historyIndex--;
                 // Bir sonraki degisiklik bu (gercek) onceki kaydin uzerine birlesmesin
                 this._lastCoalesceKey = null;
+                this._historyCommitted.fire();
                 return;
             }
         } else {
@@ -2007,6 +2022,7 @@ export class DrawingManager {
         }
         this._lastCoalesceKey = coalesceKey ?? null;
         this._lastCommitTime = now;
+        this._historyCommitted.fire();
     }
 
     /**
@@ -2418,6 +2434,7 @@ export class DrawingManager {
         this._selectedDrawing = null;
         this._modeChanged.destroy();
         this._selectionChanged.destroy();
+        this._historyCommitted.destroy();
     }
 
     /**

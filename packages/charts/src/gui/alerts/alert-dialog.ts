@@ -6,9 +6,11 @@ import { t } from '../../helpers/translations';
 import { alertsStore } from '../../alerts/alerts-store';
 import { playAlertSound } from '../../alerts/alert-sound';
 import {
-    ALERT_CONDITIONS, ALERT_SOUND_NAMES, DEFAULT_ALERT_COLOR, alertErrorText, alertPriceSeed, alertTicker, conditionLabel, exactPrice, isAutoAlertMessage, parseAlertPrice, plainPrice, priceDecimals, soundLabel,
+    ALERT_INTERVALS, ALERT_PLACEHOLDERS, ALERT_SOUND_NAMES, ALERT_TRIGGERS, DEFAULT_ALERT_COLOR, DEFAULT_ALERT_INTERVAL, DEFAULT_MOVE_BARS,
+    alertErrorText, alertPriceSeed, alertTicker, conditionLabel, conditionsFor, exactPrice, intervalLabel, isAutoAlertMessage, isMovingCondition,
+    isPercentCondition, mapChartInterval, movingAutoTails, parseAlertPrice, plainPrice, priceDecimals, serverDrawingMessage, serverMovingMessage, soundLabel, triggerLabel,
 } from '../../alerts/alert-text';
-import { AlertCondition, AlertDraft, AlertSound, ChartAlert } from '../../alerts/types';
+import { AlertsError, AlertCondition, AlertDraft, AlertGeometry, AlertInterval, AlertSound, AlertTrigger, ChartAlert } from '../../alerts/types';
 import { detectUiTheme, showToast, ToastTheme } from '../toast/toast';
 
 /** What the dialog needs to know about the chart it was opened from (all optional behaviour). */
@@ -17,6 +19,10 @@ export interface AlertDialogChart {
     /** Tick size of the symbol if the chart knows it. */
     alertPriceStep(): number | null;
     alertTheme(): ToastTheme;
+    /** Right price scale mode (optional): drawing alerts interpolate linearly in price. */
+    alertPriceScaleMode?(): 'normal' | 'logarithmic' | 'percentage';
+    /** Current chart timeframe ("15m", "1h", ...), used as the default alert interval. */
+    timeframe?: string;
 }
 
 export interface AlertDialogOptions {
@@ -25,6 +31,8 @@ export interface AlertDialogOptions {
     price: number;
     /** When given the dialog edits this alert instead of creating a new one. */
     alert?: ChartAlert;
+    /** Create a drawing alert (source = drawing): the geometry is stored with the alert. */
+    drawing?: { id: string; type: string; label: string; geometry: AlertGeometry };
 }
 
 export interface AlertDialogHandle {
@@ -77,17 +85,49 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     // the input holds the full-precision value (never the axis format, which rounds); fmt() is display-only
     const initialPriceText = alertPriceSeed(editing ? editing.price : opts.price, step, !editing);
 
+    // drawing alert info: from the edited alert, or from the drawing the dialog was opened for
+    const isDrawing = editing ? editing.source === 'drawing' : !!opts.drawing;
+    const drawingInfo = isDrawing
+        ? (editing
+            ? { id: editing.drawingId ?? '', type: editing.drawingType ?? '', label: editing.drawingLabel ?? '', geometry: editing.geometry ?? null }
+            : { id: opts.drawing!.id, type: opts.drawing!.type, label: opts.drawing!.label, geometry: opts.drawing!.geometry as AlertGeometry | null })
+        : null;
+    const geometryType = drawingInfo?.geometry?.type ?? null;
+    const source = isDrawing ? 'drawing' as const : 'price' as const;
+    const allowed = conditionsFor(source, geometryType);
+    const defaultCondition: AlertCondition = isDrawing && geometryType === 'channel' ? 'entering_channel' : 'crossing';
+    const chartInterval = ((): AlertInterval => {
+        try { return mapChartInterval(chart?.timeframe) ?? DEFAULT_ALERT_INTERVAL; } catch { return DEFAULT_ALERT_INTERVAL; }
+    })();
+
     // ---- state ----
     const st = {
         tab: 'settings' as TabId,
         busy: false,
-        condition: (editing?.condition ?? 'crossing') as AlertCondition,
+        condition: (editing?.condition ?? defaultCondition) as AlertCondition,
         messageEdited: false,
     };
     const autoMessage = (): string => {
+        const head = `${ticker} ${conditionLabel(st.condition)}`;
+        // drawing / moving previews equal the server default message (what is stored when the text is left untouched)
+        if (drawingInfo) return drawingInfo.label ? serverDrawingMessage(symbol, st.condition, drawingInfo.label) : head;
+        if (isMovingCondition(st.condition)) {
+            const v = parseAlertPrice(moveInput.value);
+            return isFinite(v) && v > 0 ? serverMovingMessage(symbol, st.condition, v) : head;
+        }
         const n = parseAlertPrice(priceInput.value);
         const price = isFinite(n) && priceInput.value.trim() !== '' ? exactPrice(n) : '';
-        return `${ticker} ${conditionLabel(st.condition)}${price ? ' ' + price : ''}`;
+        return `${head}${price ? ' ' + price : ''}`;
+    };
+    /** Extra auto-text tails for isAutoAlertMessage (drawing label / moving tail). */
+    const autoExtras = (cond: AlertCondition): string[] => {
+        if (drawingInfo) return drawingInfo.label ? [drawingInfo.label] : [];
+        if (isMovingCondition(cond)) {
+            const v = parseAlertPrice(moveInput.value);
+            const bars = parseInt(barsInput.value, 10);
+            return isFinite(v) && isFinite(bars) ? movingAutoTails(cond, v, bars) : [];
+        }
+        return [];
     };
 
     // ---- element helpers ----
@@ -182,17 +222,22 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     symbolBox.className = 'chart-alert-symbol';
     settings.appendChild(row(t('Symbol'), symbolBox));
 
-    const condSelect = el('select', inputCss + 'cursor: pointer;');
+    const condSelect = el('select', inputCss + 'cursor: pointer; flex: 1 1 auto; min-width: 0; width: auto;');
     condSelect.className = 'chart-alert-condition';
-    for (const c of ALERT_CONDITIONS) {
+    for (const c of allowed) {
         const o = el('option', '', conditionLabel(c));
         o.value = c;
         condSelect.appendChild(o);
     }
+    if (allowed.indexOf(st.condition) < 0) st.condition = allowed[0];
     condSelect.value = st.condition;
     focusRing(condSelect);
-    settings.appendChild(row(t('Condition'), condSelect));
+    const condWrap = el('div', 'display: flex; align-items: center; gap: 8px;');
+    condWrap.appendChild(el('div', `flex: 0 0 auto; font-size: 14px; font-weight: 600; color: ${p.text};`, ticker));
+    condWrap.appendChild(condSelect);
+    settings.appendChild(row(t('Condition'), condWrap));
 
+    // value area: price input | drawing chip | moving value + bars
     const priceWrap = el('div', 'display: flex; align-items: center; gap: 8px;');
     priceWrap.appendChild(el('div', `flex: 0 0 auto; font-size: 14px; color: ${p.text};`, t('Price')));
     const priceInput = el('input', inputCss);
@@ -232,15 +277,82 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     const priceCell = el('div');
     priceCell.appendChild(priceWrap);
     priceCell.appendChild(priceErr);
-    settings.appendChild(row(t('Value'), priceCell));
 
-    const triggerBox = el('div', `height: 36px; display: flex; align-items: center; font-size: 14px; color: ${p.disabled};`);
-    const trig = checkbox(t('Only once'), true);
-    trig.box.disabled = true;
-    trig.wrap.style.cursor = 'default';
-    trig.wrap.style.color = p.disabled;
-    triggerBox.appendChild(trig.wrap);
-    settings.appendChild(row(t('Trigger'), triggerBox));
+    // drawing chip (read-only)
+    const drawingChip = el('div', `height: 36px; display: flex; align-items: center;`);
+    const chipText = el('span', `display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 13px; font-weight: 600; color: ${p.text}; background: ${p.hover}; border: 1px solid ${p.inputBorder};`, drawingInfo?.label || t('Drawing'));
+    chipText.className = 'chart-alert-drawing-chip';
+    drawingChip.appendChild(chipText);
+
+    // moving condition: value + unit + "within N bars"
+    const moveCell = el('div');
+    const moveRow = el('div', 'display: flex; align-items: center; gap: 8px;');
+    const moveInput = el('input', inputCss + 'flex: 1 1 0; min-width: 0; width: auto;');
+    moveInput.className = 'chart-alert-move-value';
+    moveInput.type = 'text';
+    moveInput.inputMode = 'decimal';
+    moveInput.autocomplete = 'off';
+    moveInput.spellcheck = false;
+    moveInput.value = editing?.moveValue != null ? plainPrice(editing.moveValue) : '';
+    focusRing(moveInput);
+    const moveUnit = el('div', `flex: 0 0 auto; min-width: 14px; font-size: 14px; color: ${p.text};`);
+    moveUnit.className = 'chart-alert-move-unit';
+    const barsInput = el('input', inputCss + 'flex: 0 0 64px; width: 64px;');
+    barsInput.className = 'chart-alert-move-bars';
+    barsInput.type = 'number';
+    barsInput.min = '1';
+    barsInput.max = '500';
+    barsInput.step = '1';
+    barsInput.value = String(editing?.moveBars ?? DEFAULT_MOVE_BARS);
+    focusRing(barsInput);
+    moveRow.appendChild(moveInput);
+    moveRow.appendChild(moveUnit);
+    moveRow.appendChild(el('div', `flex: 0 0 auto; font-size: 14px; color: ${p.sub};`, t('within bars')));
+    moveRow.appendChild(barsInput);
+    const moveErr = el('div', `display: none; margin-top: 4px; font-size: 12px; color: ${p.danger};`);
+    moveCell.appendChild(moveRow);
+    moveCell.appendChild(moveErr);
+
+    const valueHost = el('div');
+    valueHost.appendChild(priceCell);
+    valueHost.appendChild(drawingChip);
+    valueHost.appendChild(moveCell);
+    settings.appendChild(row(t('Value'), valueHost));
+    if (isDrawing) {
+        let scaleMode: string = 'normal';
+        try { scaleMode = chart?.alertPriceScaleMode?.() ?? 'normal'; } catch { /* ignore */ }
+        if (scaleMode !== 'normal') {
+            const note = el('div', `margin-top: 8px; font-size: 12px; line-height: 1.4; color: ${p.sub};`,
+                t('Note: on a log scale the alert uses a linear price interpolation and may differ from the drawing.'));
+            note.className = 'chart-alert-scale-note';
+            settings.appendChild(note);
+        }
+    }
+
+    // interval (moving conditions / recurring triggers)
+    const intervalSelect = el('select', inputCss + 'cursor: pointer;');
+    intervalSelect.className = 'chart-alert-interval';
+    for (const i of ALERT_INTERVALS) {
+        const o = el('option', '', intervalLabel(i));
+        o.value = i;
+        intervalSelect.appendChild(o);
+    }
+    intervalSelect.value = editing?.interval ?? chartInterval;
+    focusRing(intervalSelect);
+    const intervalRow = row(t('Alert interval'), intervalSelect);
+    intervalRow.classList.add('chart-alert-interval-row');
+    settings.appendChild(intervalRow);
+
+    const triggerSelect = el('select', inputCss + 'cursor: pointer;');
+    triggerSelect.className = 'chart-alert-trigger';
+    for (const tr of ALERT_TRIGGERS) {
+        const o = el('option', '', triggerLabel(tr));
+        o.value = tr;
+        triggerSelect.appendChild(o);
+    }
+    triggerSelect.value = editing?.trigger ?? 'once';
+    focusRing(triggerSelect);
+    settings.appendChild(row(t('Trigger'), triggerSelect));
 
     const expWrap = el('div');
     const forever = checkbox(t('Open-ended'), editing ? editing.expiresAt === null : true);
@@ -281,6 +393,29 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     msgArea.maxLength = 500;
     focusRing(msgArea);
     msgPane.appendChild(row(t('Message'), msgArea));
+    const phWrap = el('div', 'display: flex; flex-wrap: wrap; gap: 6px;');
+    phWrap.className = 'chart-alert-placeholders';
+    for (const ph of ALERT_PLACEHOLDERS) {
+        const token = `{{${ph}}}`;
+        const chip = el('button', `height: 22px; padding: 0 8px; border: 1px solid ${p.inputBorder}; border-radius: 11px; background: transparent; color: ${p.text}; font: 12px ${FONT}; cursor: pointer;`, token);
+        chip.type = 'button';
+        chip.dataset.placeholder = token;
+        chip.addEventListener('mousedown', (e) => e.preventDefault());
+        chip.addEventListener('mouseenter', () => { chip.style.background = p.hover; });
+        chip.addEventListener('mouseleave', () => { chip.style.background = 'transparent'; });
+        chip.addEventListener('click', () => {
+            const a = msgArea.selectionStart ?? msgArea.value.length;
+            const b2 = msgArea.selectionEnd ?? a;
+            const next = msgArea.value.slice(0, a) + token + msgArea.value.slice(b2);
+            if (next.length > msgArea.maxLength) return;
+            msgArea.value = next;
+            msgArea.focus();
+            msgArea.setSelectionRange(a + token.length, a + token.length);
+            st.messageEdited = true;
+        });
+        phWrap.appendChild(chip);
+    }
+    msgPane.appendChild(row(t('Placeholders (click to insert)'), phWrap));
 
     // ---- Notifications pane ----
     const notePane = el('div');
@@ -332,6 +467,41 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     noteList.appendChild(nToast.wrap);
     noteList.appendChild(soundBlock);
     noteList.appendChild(tgBlock);
+
+    const whAvailable = alertsStore.webhookAvailable;
+    const nHook = checkbox(t('Webhook URL'), whAvailable && !!editing?.webhookUrl);
+    nHook.box.className = 'chart-alert-notify-webhook';
+    const hookInput = el('input', inputCss + 'margin-top: 8px;');
+    hookInput.className = 'chart-alert-webhook-url';
+    hookInput.type = 'text';
+    hookInput.maxLength = 500;
+    hookInput.placeholder = 'https://';
+    hookInput.spellcheck = false;
+    hookInput.autocomplete = 'off';
+    hookInput.value = whAvailable ? editing?.webhookUrl ?? '' : '';
+    focusRing(hookInput);
+    const hookErr = el('div', `display: none; margin-top: 4px; font-size: 12px; color: ${p.danger};`);
+    hookErr.className = 'chart-alert-webhook-error';
+    const hookBlock = el('div');
+    hookBlock.appendChild(nHook.wrap);
+    hookBlock.appendChild(hookInput);
+    hookBlock.appendChild(hookErr);
+    const syncHook = () => {
+        const on = whAvailable && nHook.box.checked;
+        hookInput.style.display = whAvailable ? 'block' : 'none';
+        hookInput.disabled = !on;
+        hookInput.style.opacity = on ? '1' : '0.5';
+        hookErr.style.display = 'none';
+    };
+    if (!whAvailable) {
+        nHook.box.disabled = true;
+        nHook.wrap.style.cursor = 'default';
+        nHook.wrap.style.color = p.disabled;
+        hookBlock.appendChild(el('div', `margin: 4px 0 0 24px; font-size: 12px; color: ${p.sub};`, t('Webhook is available on the PRO plan')));
+    }
+    nHook.box.addEventListener('change', () => { syncHook(); if (nHook.box.checked) hookInput.focus(); });
+    syncHook();
+    noteList.appendChild(hookBlock);
     notePane.appendChild(noteList);
 
     for (const pane of panes.values()) body.appendChild(pane);
@@ -360,17 +530,31 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         for (const [k, pane] of panes) pane.style.display = k === id ? 'block' : 'none';
     }
 
+    function syncVisibility(): void {
+        const moving = isMovingCondition(st.condition);
+        priceCell.style.display = !isDrawing && !moving ? 'block' : 'none';
+        drawingChip.style.display = isDrawing ? 'flex' : 'none';
+        moveCell.style.display = !isDrawing && moving ? 'block' : 'none';
+        moveUnit.textContent = isPercentCondition(st.condition) ? '%' : t('Price');
+        intervalRow.style.display = moving || triggerSelect.value !== 'once' ? 'flex' : 'none';
+    }
+
     function syncAuto(): void {
+        syncVisibility();
         nameInput.placeholder = `${ticker} ${conditionLabel(st.condition)}`;
         if (!st.messageEdited) msgArea.value = autoMessage();
     }
     // an existing alert whose message is still an auto text keeps tracking the price / condition
     st.messageEdited = !!editing && !!editing.message
-        && !isAutoAlertMessage(editing.message, editing.symbol, editing.condition, editing.price, [fmt(editing.price)]);
+        && !isAutoAlertMessage(editing.message, editing.symbol, editing.condition, editing.price, [fmt(editing.price), ...autoExtras(editing.condition)]);
     msgArea.value = st.messageEdited && editing ? editing.message : autoMessage();
     msgArea.addEventListener('input', () => { st.messageEdited = true; });
     condSelect.addEventListener('change', () => { st.condition = condSelect.value as AlertCondition; syncAuto(); });
     priceInput.addEventListener('input', () => { priceErr.style.display = 'none'; syncAuto(); });
+    moveInput.addEventListener('input', () => { moveErr.style.display = 'none'; syncAuto(); });
+    barsInput.addEventListener('input', () => { moveErr.style.display = 'none'; syncAuto(); });
+    triggerSelect.addEventListener('change', () => syncVisibility());
+    syncVisibility();
 
     const setBusy = (b: boolean) => {
         st.busy = b;
@@ -384,34 +568,83 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
 
     const errorText = (e: unknown): string | null => alertErrorText(e, alertsStore.hasBackend);
 
+    const validHookUrl = (v: string): boolean => {
+        if (v.length > 500) return false;
+        try {
+            const u = new URL(v);
+            return u.protocol === 'https:' && !u.username && !u.password && !!u.hostname;
+        } catch { return false; }
+    };
+
     const validate = (): AlertDraft | null => {
-        const price = parseAlertPrice(priceInput.value);
+        const moving = !isDrawing && isMovingCondition(st.condition);
+        let price = parseAlertPrice(priceInput.value);
         let ok = true;
-        if (priceInput.value.trim() === '' || !isFinite(price) || price <= 0) {
+        const failSettings = (focus?: HTMLElement) => { if (ok) { selectTab('settings'); focus?.focus(); } ok = false; };
+        let moveValue: number | null = null;
+        let moveBars: number | null = null;
+        if (isDrawing) {
+            // the price of a drawing alert is only informational: the value at creation (or the stored one)
+            price = editing ? editing.price : opts.price;
+        } else if (moving) {
+            price = editing ? editing.price : opts.price;
+            if (!isFinite(price) || price <= 0) price = parseAlertPrice(priceInput.value);
+            if (!isFinite(price) || price <= 0) price = 1;
+            const v = parseAlertPrice(moveInput.value);
+            const bars = Number(barsInput.value);
+            if (!isFinite(v) || v <= 0) {
+                moveErr.textContent = t('Enter a value greater than 0');
+                moveErr.style.display = 'block';
+                failSettings(moveInput);
+            } else if (barsInput.value.trim() === '' || !Number.isInteger(bars) || bars < 1 || bars > 500) {
+                moveErr.textContent = t('Enter bars between 1 and 500');
+                moveErr.style.display = 'block';
+                failSettings(barsInput);
+            } else {
+                moveValue = v;
+                moveBars = bars;
+            }
+        } else if (priceInput.value.trim() === '' || !isFinite(price) || price <= 0) {
             priceErr.style.display = 'block';
-            selectTab('settings');
-            priceInput.focus();
-            ok = false;
+            failSettings(priceInput);
         }
         let expiresAt: number | null = null;
         if (!forever.box.checked) {
             const ms = new Date(expInput.value).getTime();
             if (!expInput.value || !isFinite(ms) || ms <= Date.now()) {
                 expErr.style.display = 'block';
-                if (ok) selectTab('settings');
-                ok = false;
+                failSettings();
             } else {
                 expiresAt = ms;
             }
         }
+        let webhookUrl: string | null | undefined;
+        if (whAvailable) {
+            if (nHook.box.checked) {
+                const v = hookInput.value.trim();
+                if (!validHookUrl(v)) {
+                    hookErr.textContent = t('Enter a valid https:// URL');
+                    hookErr.style.display = 'block';
+                    if (ok) { selectTab('notifications'); hookInput.focus(); }
+                    ok = false;
+                } else {
+                    webhookUrl = v;
+                }
+            } else {
+                webhookUrl = null;
+            }
+        }
         if (!ok) return null;
-        return {
+        const cond = st.condition;
+        const trigger = triggerSelect.value as AlertTrigger;
+        const draft: AlertDraft = {
             symbol,
-            condition: st.condition,
-            price,
+            condition: cond,
+            // a drawing alert's price is informational: null (omitted on the wire) when there is no usable seed price
+            price: isDrawing && !(isFinite(price) && price > 0) ? null : price,
             name: nameInput.value.trim(),
             // untouched auto text -> '' so the server rebuilds the default for the saved price / condition
-            message: !st.messageEdited || isAutoAlertMessage(msgArea.value, symbol, st.condition, price, [fmt(price)]) ? '' : msgArea.value.trim(),
+            message: !st.messageEdited || isAutoAlertMessage(msgArea.value, symbol, cond, price, [fmt(price), ...autoExtras(cond)]) ? '' : msgArea.value.trim(),
             notifyApp: true,
             notifyToast: nToast.box.checked,
             playSound: nSound.box.checked,
@@ -419,7 +652,18 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             notifyTelegram: tgAvailable && nTg.box.checked,
             expiresAt,
             color: editing?.color ?? DEFAULT_ALERT_COLOR,
+            interval: intervalSelect.value as AlertInterval,
+            trigger,
+            source,
+            drawingId: drawingInfo ? drawingInfo.id : null,
+            drawingType: drawingInfo ? drawingInfo.type : null,
+            drawingLabel: drawingInfo ? drawingInfo.label : null,
+            geometry: drawingInfo ? drawingInfo.geometry : null,
+            moveValue,
+            moveBars,
         };
+        if (webhookUrl !== undefined) draft.webhookUrl = webhookUrl;
+        return draft;
     };
 
     const submit = async (): Promise<void> => {
@@ -430,7 +674,10 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         setBusy(true);
         try {
             if (editing) {
-                const { symbol: _s, ...patch } = draft;
+                // an edit never rewrites the drawing binding / geometry (the drawing side keeps them in sync)
+                const { symbol: _s, source: _so, drawingId: _d, drawingType: _dt, drawingLabel: _dl, geometry: _g, ...patch } = draft;
+                // nor the informational price of a drawing alert
+                if (isDrawing) delete (patch as { price?: number | null }).price;
                 await alertsStore.update(editing.id, patch);
             } else {
                 await alertsStore.create(draft);
@@ -440,7 +687,13 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         } catch (e) {
             setBusy(false);
             const text = errorText(e);
-            if (text) showBanner(text);
+            if (e instanceof AlertsError && e.field === 'webhook_url' && text) {
+                hookErr.textContent = text;
+                hookErr.style.display = 'block';
+                selectTab('notifications');
+            } else if (text) {
+                showBanner(text);
+            }
         }
     };
 
@@ -451,6 +704,9 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             if (!st.busy) close();
         }
     };
+    for (const inp of [moveInput, barsInput, hookInput]) {
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } });
+    }
     priceInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); void submit(); }
         else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); stepPrice(e.key === 'ArrowUp' ? 1 : -1); }
@@ -475,6 +731,11 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     selectTab('settings');
     document.body.appendChild(overlay);
     current = handle;
-    setTimeout(() => { if (!closed) { priceInput.focus(); priceInput.select(); } }, 0);
+    setTimeout(() => {
+        if (closed) return;
+        const f = isDrawing ? condSelect : isMovingCondition(st.condition) ? moveInput : priceInput;
+        f.focus();
+        if (f instanceof HTMLInputElement) f.select();
+    }, 0);
     return handle;
 }

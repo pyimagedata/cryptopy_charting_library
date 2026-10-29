@@ -11,7 +11,7 @@ import { t } from '../../helpers/translations';
 import { startDragSession } from '../../helpers/drag-session';
 import { alertsStore } from '../../alerts/alerts-store';
 import { getAlertSettings, onAlertSettingsChange } from '../../alerts/alert-settings';
-import { DEFAULT_ALERT_COLOR, alertTicker, conditionLabel, isAutoAlertMessage, snapAlertPrice } from '../../alerts/alert-text';
+import { DEFAULT_ALERT_COLOR, alertTicker, conditionLabel, isAutoAlertMessage, isMovingCondition, snapAlertPrice } from '../../alerts/alert-text';
 import { ChartAlert } from '../../alerts/types';
 import { showToast } from '../toast/toast';
 
@@ -106,7 +106,8 @@ export class AlertLinesController {
 
     private _visibleAlerts(): ChartAlert[] {
         const symbol = this._host.symbol();
-        return alertsStore.alertsForSymbol(symbol).filter((a) => a.status === 'active');
+        // only plain price alerts have their own line (drawing alerts live on the drawing, moving ones have no level)
+        return alertsStore.alertsForSymbol(symbol).filter((a) => a.status === 'active' && (a.source ?? 'price') === 'price' && !isMovingCondition(a.condition));
     }
 
     private _priceOf(a: ChartAlert): number {

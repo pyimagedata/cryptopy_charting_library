@@ -760,7 +760,8 @@ export class PaneWidget implements Disposable {
                         this._model.symbol
                     )
                     : [];
-                drawTrendLine(ctx, pixelPoints, drawing.style, showControlPoints, trendLine.extendLeft, trendLine.extendRight, this._canvas!.width, isHoveredForAddText, { props: lp, statsLines });
+                const ext = trendLine.getScreenExtensions(pixelPoints[0].x, pixelPoints[1].x);
+                drawTrendLine(ctx, pixelPoints, drawing.style, showControlPoints, ext.left, ext.right, this._canvas!.width, isHoveredForAddText, { props: lp, statsLines });
             } else if (drawing.type === 'trendAngle') {
                 const trendAngle = drawing as TrendLineDrawing;
                 const showControlPoints = drawing.state === 'selected' || drawing.state === 'creating';
