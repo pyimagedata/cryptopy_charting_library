@@ -3,14 +3,18 @@
  * Talks to the page-level alertsStore; the chart only supplies price formatting / tick size / theme.
  */
 import { t } from '../../helpers/translations';
+import { formatLegendValue } from '../../indicators/legend-info';
 import { alertsStore } from '../../alerts/alerts-store';
 import { playAlertSound } from '../../alerts/alert-sound';
 import {
     ALERT_INTERVALS, ALERT_PLACEHOLDERS, ALERT_SOUND_NAMES, ALERT_TRIGGERS, DEFAULT_ALERT_COLOR, DEFAULT_ALERT_INTERVAL, DEFAULT_MOVE_BARS,
-    alertErrorText, alertPriceSeed, alertTicker, conditionLabel, conditionsFor, exactPrice, intervalLabel, isAutoAlertMessage, isMovingCondition,
-    isPercentCondition, mapChartInterval, movingAutoTails, parseAlertPrice, plainPrice, priceDecimals, serverDrawingMessage, serverMovingMessage, soundLabel, triggerLabel,
+    INDICATOR_CONDITIONS, SIGNAL_CONDITIONS,
+    alertErrorText, alertPriceSeed, alertTicker, conditionLabel, conditionsFor, exactPrice, intervalLabel, isAutoAlertMessage, isAutoIndicatorMessage, isChannelCondition,
+    isMovingCondition, isPercentCondition, mapChartInterval, movingAutoTails, parseAlertPrice, plainPrice, priceDecimals, serverDrawingMessage, serverIndicatorMessage,
+    serverMovingMessage, soundLabel, triggerLabel,
 } from '../../alerts/alert-text';
-import { AlertsError, AlertCondition, AlertDraft, AlertGeometry, AlertInterval, AlertSound, AlertTrigger, ChartAlert } from '../../alerts/types';
+import { AlertIndicatorEntry, indicatorRefKey, operandLabel, plotShortLabel, alertableIndicatorDef } from '../../alerts/indicator-plots';
+import { AlertsError, AlertCondition, AlertDraft, AlertEventId, AlertGeometry, AlertInterval, AlertSound, AlertSource, AlertTrigger, ChartAlert, IndicatorRef, Operand } from '../../alerts/types';
 import { detectUiTheme, showToast, ToastTheme } from '../toast/toast';
 
 /** What the dialog needs to know about the chart it was opened from (all optional behaviour). */
@@ -23,6 +27,8 @@ export interface AlertDialogChart {
     alertPriceScaleMode?(): 'normal' | 'logarithmic' | 'percentage';
     /** Current chart timeframe ("15m", "1h", ...), used as the default alert interval. */
     timeframe?: string;
+    /** Alertable, unlocked indicators currently on the chart (indicator alerts); absent = price / drawing alerts only. */
+    alertIndicators?(): AlertIndicatorEntry[];
 }
 
 export interface AlertDialogOptions {
@@ -33,6 +39,8 @@ export interface AlertDialogOptions {
     alert?: ChartAlert;
     /** Create a drawing alert (source = drawing): the geometry is stored with the alert. */
     drawing?: { id: string; type: string; label: string; geometry: AlertGeometry };
+    /** Create an indicator alert preselecting this chart indicator (its first event, else its first plot) or the given plot / event. */
+    indicator?: { instanceId: string; plot?: string; event?: AlertEventId };
 }
 
 export interface AlertDialogHandle {
@@ -93,9 +101,52 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             : { id: opts.drawing!.id, type: opts.drawing!.type, label: opts.drawing!.label, geometry: opts.drawing!.geometry as AlertGeometry | null })
         : null;
     const geometryType = drawingInfo?.geometry?.type ?? null;
-    const source = isDrawing ? 'drawing' as const : 'price' as const;
-    const allowed = conditionsFor(source, geometryType);
     const defaultCondition: AlertCondition = isDrawing && geometryType === 'channel' ? 'entering_channel' : 'crossing';
+
+    // indicator alert operands: entries of the chart + indicators that only exist in the alert snapshot (edit)
+    const indEntries: AlertIndicatorEntry[] = (() => { try { return chart?.alertIndicators?.() ?? []; } catch { return []; } })();
+    const refKey = (r: IndicatorRef): string => indicatorRefKey(r);
+    interface RefSlot { ref: IndicatorRef; value(plotId: string): number | null; missing: boolean }
+    const slots: RefSlot[] = indEntries.map((e) => ({ ref: e.ref, value: (pl: string) => e.value(pl), missing: false }));
+    const slotIndexOf = (r: IndicatorRef): number => {
+        let i = slots.findIndex((x) => refKey(x.ref) === refKey(r));
+        if (i < 0) { slots.push({ ref: r, value: () => null, missing: true }); i = slots.length - 1; }
+        return i;
+    };
+    const editingInd = !!editing && editing.source === 'indicator' && !!editing.left;
+    const opKey = (op: Operand | null | undefined): string => {
+        if (!op) return '';
+        if (op.kind === 'price' || op.kind === 'value') return op.kind;
+        return op.kind === 'plot' ? `${slotIndexOf(op.indicator)}|${op.plot}` : `${slotIndexOf(op.indicator)}#${op.event}`;
+    };
+    const keyToOperand = (key: string): Operand | null => {
+        if (key === 'price') return { kind: 'price' };
+        const m = /^(\d+)([|#])(.+)$/.exec(key);
+        if (!m || !slots[Number(m[1])]) return null;
+        const ref = slots[Number(m[1])].ref;
+        return m[2] === '|' ? { kind: 'plot', indicator: ref, plot: m[3] } : { kind: 'event', indicator: ref, event: m[3] as AlertEventId };
+    };
+    // initial left operand: edited snapshot, else the indicator the dialog was opened for, else price
+    let initialLeftKey = 'price';
+    if (editingInd) {
+        initialLeftKey = opKey(editing!.left);
+    } else if (!editing && !isDrawing && opts.indicator) {
+        const idx = indEntries.findIndex((e) => e.ref.instanceId === opts.indicator!.instanceId);
+        if (idx >= 0) {
+            const def = alertableIndicatorDef(indEntries[idx].ref.type);
+            const ev0 = opts.indicator.event ?? (opts.indicator.plot ? undefined : def?.events[0]?.id);
+            const pl0 = opts.indicator.plot ?? def?.plots[0]?.id;
+            initialLeftKey = ev0 ? `${idx}#${ev0}` : pl0 ? `${idx}|${pl0}` : 'price';
+        }
+    }
+    const initialRight = editingInd ? editing!.right ?? null : null;
+    const initialRight2 = editingInd ? editing!.right2 ?? null : null;
+    // make sure the snapshot's indicators have a slot before the selects are built
+    opKey(initialRight);
+    opKey(initialRight2);
+    const showLeftSelect = !isDrawing && (editing ? editingInd : indEntries.length > 0);
+    // left = price: the right side may be an indicator plot ("price crossing EMA 50"); not offered when editing a classic price alert
+    const priceRightEnabled = !isDrawing && indEntries.some((e) => (alertableIndicatorDef(e.ref.type)?.plots.length ?? 0) > 0) && (!editing || editingInd);
     const chartInterval = ((): AlertInterval => {
         try { return mapChartInterval(chart?.timeframe) ?? DEFAULT_ALERT_INTERVAL; } catch { return DEFAULT_ALERT_INTERVAL; }
     })();
@@ -106,9 +157,30 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         busy: false,
         condition: (editing?.condition ?? defaultCondition) as AlertCondition,
         messageEdited: false,
+        leftKey: initialLeftKey,
+        /** left = price and the right side is an indicator plot (source = indicator) */
+        pricePlot: editingInd && initialLeftKey === 'price',
+    };
+    // ---- indicator alert state (left operand picked in the left select; price = classic alert) ----
+    const leftOperand = (): Operand => (showLeftSelect ? keyToOperand(st.leftKey) : null) ?? { kind: 'price' };
+    const isInd = (): boolean => !isDrawing && (editingInd || leftOperand().kind !== 'price' || st.pricePlot);
+    const isEventLeft = (): boolean => leftOperand().kind === 'event';
+    const isPremiumEventLeft = (): boolean => {
+        const l = leftOperand();
+        return l.kind === 'event' && !!alertableIndicatorDef(l.indicator.type)?.premium;
+    };
+    const curSource = (): AlertSource => (isDrawing ? 'drawing' : isInd() ? 'indicator' : 'price');
+    const allowedConditions = (): readonly AlertCondition[] =>
+        isDrawing ? conditionsFor('drawing', geometryType) : isInd() ? (isEventLeft() ? SIGNAL_CONDITIONS : INDICATOR_CONDITIONS) : conditionsFor('price');
+    /** Operands as currently entered (lenient: an invalid number input counts as "no operand"; used for the auto message). */
+    const indOperands = (): { left: Operand; right: Operand | null; right2: Operand | null } => {
+        const left = leftOperand();
+        if (left.kind === 'event') return { left, right: null, right2: null };
+        return { left, right: sideOperand(rightHi), right2: isChannelCondition(st.condition) ? sideOperand(rightLo) : null };
     };
     const autoMessage = (): string => {
         const head = `${ticker} ${conditionLabel(st.condition)}`;
+        if (isInd()) { const o = indOperands(); return serverIndicatorMessage(symbol, st.condition, o.left, o.right, o.right2); }
         // drawing / moving previews equal the server default message (what is stored when the text is left untouched)
         if (drawingInfo) return drawingInfo.label ? serverDrawingMessage(symbol, st.condition, drawingInfo.label) : head;
         if (isMovingCondition(st.condition)) {
@@ -120,6 +192,15 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         return `${head}${price ? ' ' + price : ''}`;
     };
     /** Extra auto-text tails for isAutoAlertMessage (drawing label / moving tail). */
+    const isAutoMsg = (message: string, cond: AlertCondition, price: number, extra: string[]): boolean => {
+        if (isInd()) { const o = indOperands(); return isAutoIndicatorMessage(message, symbol, cond, o.left, o.right, o.right2); }
+        return isAutoAlertMessage(message, symbol, cond, price, extra);
+    };
+    const namePlaceholder = (): string => {
+        if (!isInd()) return `${ticker} ${conditionLabel(st.condition)}`;
+        const o = indOperands();
+        return o.left.kind === 'event' ? operandLabel(o.left, ticker) : `${operandLabel(o.left, ticker)} ${conditionLabel(st.condition)}`;
+    };
     const autoExtras = (cond: AlertCondition): string[] => {
         if (drawingInfo) return drawingInfo.label ? [drawingInfo.label] : [];
         if (isMovingCondition(cond)) {
@@ -167,7 +248,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     const overlay = el('div', `position: fixed; inset: 0; z-index: 99000; display: flex; align-items: center; justify-content: center; background: ${p.backdrop}; font-family: ${FONT};`);
     overlay.className = 'chart-alert-dialog-overlay';
     overlay.dataset.theme = theme;
-    const panel = el('div', `box-sizing: border-box; width: 480px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); display: flex; flex-direction: column;
+    const panel = el('div', `box-sizing: border-box; width: ${showLeftSelect ? 540 : 480}px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); display: flex; flex-direction: column;
         background: ${p.bg}; color: ${p.text}; border: 1px solid ${p.border}; border-radius: 8px; box-shadow: ${p.shadow};`);
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-modal', 'true');
@@ -224,22 +305,76 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
 
     const condSelect = el('select', inputCss + 'cursor: pointer; flex: 1 1 auto; min-width: 0; width: auto;');
     condSelect.className = 'chart-alert-condition';
-    for (const c of allowed) {
-        const o = el('option', '', conditionLabel(c));
-        o.value = c;
-        condSelect.appendChild(o);
+    function rebuildConditions(): void {
+        const allowed = allowedConditions();
+        condSelect.textContent = '';
+        for (const c of allowed) {
+            const o = el('option', '', conditionLabel(c));
+            o.value = c;
+            condSelect.appendChild(o);
+        }
+        if (allowed.indexOf(st.condition) < 0) st.condition = allowed.indexOf(defaultCondition) >= 0 ? defaultCondition : allowed[0];
+        condSelect.value = st.condition;
     }
-    if (allowed.indexOf(st.condition) < 0) st.condition = allowed[0];
-    condSelect.value = st.condition;
+    rebuildConditions();
     focusRing(condSelect);
     const condWrap = el('div', 'display: flex; align-items: center; gap: 8px;');
-    condWrap.appendChild(el('div', `flex: 0 0 auto; font-size: 14px; font-weight: 600; color: ${p.text};`, ticker));
+
+    // left operand: price or any plot / event of the alertable indicators on the chart
+    const leftSelect = el('select', inputCss + 'cursor: pointer; flex: 1.2 1 0; min-width: 0; width: auto;');
+    leftSelect.className = 'chart-alert-left';
+    const addOpt = (parent: HTMLElement, key: string, text: string): void => {
+        const o = el('option', '', text);
+        o.value = key;
+        parent.appendChild(o);
+    };
+    const valText = (v: number | null): string => (v === null ? '' : ` \u00B7 ${formatLegendValue(v)}`);
+    const slotGroupLabel = (sl: { ref: IndicatorRef; missing: boolean }): string => (sl.missing ? `${sl.ref.label} ${t('(not on chart)')}` : sl.ref.label);
+    if (showLeftSelect) {
+        if (!editingInd || initialLeftKey === 'price') addOpt(leftSelect, 'price', t('{ticker} (price)').replace('{ticker}', ticker));
+        slots.forEach((sl, i) => {
+            const def = alertableIndicatorDef(sl.ref.type);
+            if (!def) return;
+            const g = el('optgroup');
+            g.label = slotGroupLabel(sl);
+            for (const pl of def.plots) addOpt(g, `${i}|${pl.id}`, plotShortLabel(sl.ref, pl.id) + valText(sl.value(pl.id)));
+            for (const e of def.events) addOpt(g, `${i}#${e.id}`, e.label);
+            leftSelect.appendChild(g);
+        });
+        leftSelect.value = st.leftKey;
+        focusRing(leftSelect);
+        condWrap.appendChild(leftSelect);
+    } else {
+        condWrap.appendChild(el('div', `flex: 0 0 auto; font-size: 14px; font-weight: 600; color: ${p.text};`, ticker));
+    }
     condWrap.appendChild(condSelect);
-    settings.appendChild(row(t('Condition'), condWrap));
+    condSelect.style.flex = '1 1 0';
+    const condErr = el('div', `display: none; margin-top: 4px; font-size: 12px; color: ${p.danger};`);
+    condErr.className = 'chart-alert-cond-error';
+    const condCell = el('div');
+    condCell.appendChild(condWrap);
+    condCell.appendChild(condErr);
+    settings.appendChild(row(t('Condition'), condCell));
 
     // value area: price input | drawing chip | moving value + bars
     const priceWrap = el('div', 'display: flex; align-items: center; gap: 8px;');
-    priceWrap.appendChild(el('div', `flex: 0 0 auto; font-size: 14px; color: ${p.text};`, t('Price')));
+    const pSel = el('select', inputCss + 'cursor: pointer; flex: 0 0 150px; width: 150px;');
+    pSel.className = 'chart-alert-price-kind';
+    if (priceRightEnabled) {
+        addOpt(pSel, 'value', t('Value'));
+        slots.forEach((sl, i) => {
+            const def = alertableIndicatorDef(sl.ref.type);
+            if (!def || def.plots.length === 0) return;
+            const g = el('optgroup');
+            g.label = slotGroupLabel(sl);
+            for (const pl of def.plots) addOpt(g, `${i}|${pl.id}`, plotShortLabel(sl.ref, pl.id) + valText(sl.value(pl.id)));
+            pSel.appendChild(g);
+        });
+        focusRing(pSel);
+        priceWrap.appendChild(pSel);
+    } else {
+        priceWrap.appendChild(el('div', `flex: 0 0 auto; font-size: 14px; color: ${p.text};`, t('Price')));
+    }
     const priceInput = el('input', inputCss);
     priceInput.className = 'chart-alert-price';
     priceInput.type = 'text';
@@ -313,11 +448,85 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     moveCell.appendChild(moveRow);
     moveCell.appendChild(moveErr);
 
+    // indicator alert right side(s): select (Value | Price | any plot) + number input; channel = lower + upper bound
+    const roundSensible = (v: number): string => (Math.abs(v) >= 1 ? String(Number(v.toFixed(2))) : String(Number(v.toPrecision(4))));
+    const leftCurrentValue = (): number | null => {
+        const l = leftOperand();
+        if (l.kind === 'price') return isFinite(opts.price) && opts.price > 0 ? opts.price : null;
+        if (l.kind !== 'plot') return null;
+        const sl = slots[slotIndexOf(l.indicator)];
+        return sl ? sl.value(l.plot) : null;
+    };
+    interface Side { wrap: HTMLElement; caption: HTMLElement; select: HTMLSelectElement; input: HTMLInputElement; touched: boolean }
+    const makeSide = (caption: string): Side => {
+        const wrap = el('div', 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;');
+        const cap = el('div', `flex: 0 0 40px; font-size: 13px; color: ${p.sub};`, caption);
+        const select = el('select', inputCss + 'cursor: pointer; flex: 1 1 0; min-width: 0; width: auto;');
+        addOpt(select, 'value', t('Value'));
+        addOpt(select, 'price', t('Price'));
+        slots.forEach((sl, i) => {
+            const def = alertableIndicatorDef(sl.ref.type);
+            if (!def || def.plots.length === 0) return;
+            const g = el('optgroup');
+            g.label = slotGroupLabel(sl);
+            for (const pl of def.plots) addOpt(g, `${i}|${pl.id}`, plotShortLabel(sl.ref, pl.id) + valText(sl.value(pl.id)));
+            select.appendChild(g);
+        });
+        focusRing(select);
+        const input = el('input', inputCss + 'flex: 0 0 110px; width: 110px;');
+        input.type = 'text';
+        input.inputMode = 'decimal';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        focusRing(input);
+        wrap.append(cap, select, input);
+        return { wrap, caption: cap, select, input, touched: false };
+    };
+    const rightHi = makeSide(t('Upper'));
+    const rightLo = makeSide(t('Lower'));
+    rightHi.select.className = 'chart-alert-right';
+    rightHi.input.className = 'chart-alert-right-value';
+    rightLo.select.className = 'chart-alert-right2';
+    rightLo.input.className = 'chart-alert-right2-value';
+    function sideOperand(sd: Side): Operand | null {
+        const v = sd.select.value;
+        if (v === 'value') {
+            const n = parseAlertPrice(sd.input.value);
+            return isFinite(n) ? { kind: 'value', value: n } : null;
+        }
+        return keyToOperand(v);
+    }
+    function setSide(sd: Side, op: Operand | null): void {
+        if (!op) return;
+        sd.select.value = opKey(op);
+        if (op.kind === 'value') { sd.input.value = String(op.value); sd.touched = true; }
+    }
+    function prefillSides(): void {
+        const cur = leftCurrentValue();
+        for (const sd of [rightHi, rightLo]) {
+            if (!sd.touched && cur !== null) sd.input.value = roundSensible(cur);
+        }
+    }
+    setSide(rightHi, initialRight);
+    setSide(rightLo, initialRight2);
+    if (leftOperand().kind === 'price') {
+        for (const sd of [rightHi, rightLo]) {
+            const po = Array.from(sd.select.options).find((o) => o.value === 'price');
+            if (po) po.hidden = po.disabled = true;
+        }
+    }
+    prefillSides();
+    const indHost = el('div');
+    indHost.className = 'chart-alert-indicator-values';
+    indHost.append(rightLo.wrap, rightHi.wrap);
+
     const valueHost = el('div');
     valueHost.appendChild(priceCell);
     valueHost.appendChild(drawingChip);
     valueHost.appendChild(moveCell);
-    settings.appendChild(row(t('Value'), valueHost));
+    valueHost.appendChild(indHost);
+    const valueRow = row(t('Value'), valueHost);
+    settings.appendChild(valueRow);
     if (isDrawing) {
         let scaleMode: string = 'normal';
         try { scaleMode = chart?.alertPriceScaleMode?.() ?? 'normal'; } catch { /* ignore */ }
@@ -350,7 +559,11 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         o.value = tr;
         triggerSelect.appendChild(o);
     }
-    triggerSelect.value = editing?.trigger ?? 'once';
+    // Premium event alerts fire once per new event: default "once per bar close" (until the user picks a trigger himself)
+    const defaultTrigger = (): AlertTrigger => (!isDrawing && isPremiumEventLeft() ? 'once_per_bar_close' : 'once');
+    let triggerTouched = false;
+    triggerSelect.value = editing?.trigger ?? defaultTrigger();
+    triggerSelect.addEventListener('change', () => { triggerTouched = true; });
     focusRing(triggerSelect);
     settings.appendChild(row(t('Trigger'), triggerSelect));
 
@@ -385,7 +598,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     nameInput.type = 'text';
     nameInput.maxLength = 120;
     nameInput.value = editing?.name ?? '';
-    nameInput.placeholder = `${ticker} ${conditionLabel(st.condition)}`;
+    nameInput.placeholder = namePlaceholder();
     focusRing(nameInput);
     msgPane.appendChild(row(t('Alert name'), nameInput, t('Optional')));
     const msgArea = el('textarea', inputCss + 'height: 110px; padding: 8px 10px; resize: vertical; line-height: 1.4;');
@@ -530,26 +743,85 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         for (const [k, pane] of panes) pane.style.display = k === id ? 'block' : 'none';
     }
 
+    let prevInd = isInd();
+    let savedInterval: string = intervalSelect.value;
     function syncVisibility(): void {
-        const moving = isMovingCondition(st.condition);
-        priceCell.style.display = !isDrawing && !moving ? 'block' : 'none';
+        const ind = isInd();
+        // entering / leaving an indicator alert: the interval is fixed to the chart's, a user-picked classic interval is restored afterwards
+        if (ind !== prevInd) {
+            if (ind) { savedInterval = intervalSelect.value; intervalSelect.value = editing?.interval ?? chartInterval; }
+            else intervalSelect.value = savedInterval;
+            prevInd = ind;
+        }
+        const moving = !ind && isMovingCondition(st.condition);
+        const channel = ind && isChannelCondition(st.condition);
+        priceCell.style.display = !isDrawing && !ind && !moving ? 'block' : 'none';
         drawingChip.style.display = isDrawing ? 'flex' : 'none';
-        moveCell.style.display = !isDrawing && moving ? 'block' : 'none';
+        moveCell.style.display = !isDrawing && !ind && moving ? 'block' : 'none';
+        indHost.style.display = ind && !isEventLeft() ? 'block' : 'none';
+        valueRow.style.display = ind && isEventLeft() ? 'none' : 'flex';
+        rightLo.wrap.style.display = channel ? 'flex' : 'none';
+        rightLo.caption.style.display = channel ? 'block' : 'none';
+        rightHi.caption.style.display = channel ? 'block' : 'none';
+        for (const sd of [rightHi, rightLo]) sd.input.style.display = sd.select.value === 'value' ? 'block' : 'none';
         moveUnit.textContent = isPercentCondition(st.condition) ? '%' : t('Price');
-        intervalRow.style.display = moving || triggerSelect.value !== 'once' ? 'flex' : 'none';
+        // indicator alerts always run on the chart's interval (read-only)
+        intervalSelect.disabled = ind;
+        intervalRow.style.display = ind || moving || triggerSelect.value !== 'once' ? 'flex' : 'none';
     }
 
     function syncAuto(): void {
         syncVisibility();
-        nameInput.placeholder = `${ticker} ${conditionLabel(st.condition)}`;
+        nameInput.placeholder = namePlaceholder();
         if (!st.messageEdited) msgArea.value = autoMessage();
+    }
+    /** left = price + a right side that is no longer a plot (and no channel): back to the classic price alert */
+    function maybeRevertClassic(): void {
+        if (editingInd || !priceRightEnabled || !st.pricePlot || leftOperand().kind !== 'price' || isChannelCondition(st.condition)) return;
+        if (rightHi.select.value !== 'value') return;
+        st.pricePlot = false;
+        pSel.value = 'value';
+        rebuildConditions();
+    }
+    function onLeftChange(): void {
+        st.leftKey = leftSelect.value;
+        if (!editingInd) { st.pricePlot = false; pSel.value = 'value'; }
+        for (const sd of [rightHi, rightLo]) {
+            const po = Array.from(sd.select.options).find((o) => o.value === 'price');
+            if (po) po.hidden = po.disabled = leftOperand().kind === 'price';
+            if (sd.select.value === 'price' && leftOperand().kind === 'price') sd.select.value = 'value';
+        }
+        condErr.style.display = 'none';
+        if (!editing && !triggerTouched) triggerSelect.value = defaultTrigger();
+        rebuildConditions();
+        prefillSides();
+        syncAuto();
+    }
+    leftSelect.addEventListener('change', onLeftChange);
+    for (const sd of [rightHi, rightLo]) {
+        sd.select.addEventListener('change', () => {
+            condErr.style.display = 'none';
+            if (sd.select.value === 'value' && !sd.touched) prefillSides();
+            maybeRevertClassic();
+            syncAuto();
+            if (sd.select.value === 'value') sd.input.focus();
+        });
+        sd.input.addEventListener('input', () => { sd.touched = true; condErr.style.display = 'none'; syncAuto(); });
     }
     // an existing alert whose message is still an auto text keeps tracking the price / condition
     st.messageEdited = !!editing && !!editing.message
-        && !isAutoAlertMessage(editing.message, editing.symbol, editing.condition, editing.price, [fmt(editing.price), ...autoExtras(editing.condition)]);
+        && !isAutoMsg(editing.message, editing.condition, editing.price, [fmt(editing.price), ...autoExtras(editing.condition)]);
     msgArea.value = st.messageEdited && editing ? editing.message : autoMessage();
     msgArea.addEventListener('input', () => { st.messageEdited = true; });
-    condSelect.addEventListener('change', () => { st.condition = condSelect.value as AlertCondition; syncAuto(); });
+    condSelect.addEventListener('change', () => { st.condition = condSelect.value as AlertCondition; maybeRevertClassic(); syncAuto(); });
+    pSel.addEventListener('change', () => {
+        if (pSel.value === 'value') return;
+        st.pricePlot = true;
+        rightHi.select.value = pSel.value;
+        condErr.style.display = 'none';
+        rebuildConditions();
+        syncAuto();
+    });
     priceInput.addEventListener('input', () => { priceErr.style.display = 'none'; syncAuto(); });
     moveInput.addEventListener('input', () => { moveErr.style.display = 'none'; syncAuto(); });
     barsInput.addEventListener('input', () => { moveErr.style.display = 'none'; syncAuto(); });
@@ -577,8 +849,12 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     };
 
     const validate = (): AlertDraft | null => {
-        const moving = !isDrawing && isMovingCondition(st.condition);
+        const ind = isInd();
+        const moving = !isDrawing && !ind && isMovingCondition(st.condition);
         let price = parseAlertPrice(priceInput.value);
+        let leftOp: Operand | null = null;
+        let rightOp: Operand | null = null;
+        let right2Op: Operand | null = null;
         let ok = true;
         const failSettings = (focus?: HTMLElement) => { if (ok) { selectTab('settings'); focus?.focus(); } ok = false; };
         let moveValue: number | null = null;
@@ -586,6 +862,29 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         if (isDrawing) {
             // the price of a drawing alert is only informational: the value at creation (or the stored one)
             price = editing ? editing.price : opts.price;
+        } else if (ind) {
+            // the price of an indicator alert is only informational: the value at creation (or the stored one)
+            price = editing ? editing.price : opts.price;
+            leftOp = leftOperand();
+            const failCond = (msg: string, focus?: HTMLElement) => { condErr.textContent = msg; condErr.style.display = 'block'; failSettings(focus); };
+            if (leftOp.kind !== 'event') {
+                const sides = isChannelCondition(st.condition) ? [rightHi, rightLo] : [rightHi];
+                for (const sd of sides) {
+                    const op = sideOperand(sd);
+                    if (!op) failCond(t('Enter a number'), sd.input);
+                    else if (sd === rightHi) rightOp = op;
+                    else right2Op = op;
+                }
+            }
+            if (ok && leftOp.kind === 'price' && ![rightOp as Operand | null, right2Op as Operand | null].some((o) => o && o.kind === 'plot')) {
+                failCond(t('Pick at least one indicator plot'));
+            }
+            const distinct = new Set<string>();
+            for (const op of [leftOp, rightOp as Operand | null, right2Op as Operand | null]) {
+                if (op && (op.kind === 'plot' || op.kind === 'event')) distinct.add(refKey(op.indicator));
+            }
+            if (ok && distinct.size > 2) failCond(t('An alert can use at most 2 different indicators'));
+            if (ok && !editing && chart && mapChartInterval(chart.timeframe) === null) failCond(t('Indicator alerts are not available on this chart interval'));
         } else if (moving) {
             price = editing ? editing.price : opts.price;
             if (!isFinite(price) || price <= 0) price = parseAlertPrice(priceInput.value);
@@ -641,10 +940,10 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             symbol,
             condition: cond,
             // a drawing alert's price is informational: null (omitted on the wire) when there is no usable seed price
-            price: isDrawing && !(isFinite(price) && price > 0) ? null : price,
+            price: (isDrawing || ind) && !(isFinite(price) && price > 0) ? null : price,
             name: nameInput.value.trim(),
             // untouched auto text -> '' so the server rebuilds the default for the saved price / condition
-            message: !st.messageEdited || isAutoAlertMessage(msgArea.value, symbol, cond, price, [fmt(price), ...autoExtras(cond)]) ? '' : msgArea.value.trim(),
+            message: !st.messageEdited || isAutoMsg(msgArea.value, cond, price, [fmt(price), ...autoExtras(cond)]) ? '' : msgArea.value.trim(),
             notifyApp: true,
             notifyToast: nToast.box.checked,
             playSound: nSound.box.checked,
@@ -652,9 +951,9 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             notifyTelegram: tgAvailable && nTg.box.checked,
             expiresAt,
             color: editing?.color ?? DEFAULT_ALERT_COLOR,
-            interval: intervalSelect.value as AlertInterval,
+            interval: (ind ? editing?.interval ?? chartInterval : intervalSelect.value) as AlertInterval,
             trigger,
-            source,
+            source: curSource(),
             drawingId: drawingInfo ? drawingInfo.id : null,
             drawingType: drawingInfo ? drawingInfo.type : null,
             drawingLabel: drawingInfo ? drawingInfo.label : null,
@@ -663,6 +962,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             moveBars,
         };
         if (webhookUrl !== undefined) draft.webhookUrl = webhookUrl;
+        if (ind) { draft.left = leftOp; draft.right = rightOp; draft.right2 = right2Op; }
         return draft;
     };
 
@@ -677,7 +977,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
                 // an edit never rewrites the drawing binding / geometry (the drawing side keeps them in sync)
                 const { symbol: _s, source: _so, drawingId: _d, drawingType: _dt, drawingLabel: _dl, geometry: _g, ...patch } = draft;
                 // nor the informational price of a drawing alert
-                if (isDrawing) delete (patch as { price?: number | null }).price;
+                if (isDrawing || editingInd) delete (patch as { price?: number | null }).price;
                 await alertsStore.update(editing.id, patch);
             } else {
                 await alertsStore.create(draft);
@@ -687,7 +987,11 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         } catch (e) {
             setBusy(false);
             const text = errorText(e);
-            if (e instanceof AlertsError && e.field === 'webhook_url' && text) {
+            if (e instanceof AlertsError && (e.field === 'left' || e.field === 'right' || e.field === 'right2' || e.field === 'symbol') && text) {
+                condErr.textContent = text;
+                condErr.style.display = 'block';
+                selectTab('settings');
+            } else if (e instanceof AlertsError && e.field === 'webhook_url' && text) {
                 hookErr.textContent = text;
                 hookErr.style.display = 'block';
                 selectTab('notifications');
@@ -704,7 +1008,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             if (!st.busy) close();
         }
     };
-    for (const inp of [moveInput, barsInput, hookInput]) {
+    for (const inp of [moveInput, barsInput, hookInput, rightHi.input, rightLo.input]) {
         inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void submit(); } });
     }
     priceInput.addEventListener('keydown', (e) => {
@@ -712,10 +1016,26 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); stepPrice(e.key === 'ArrowUp' ? 1 : -1); }
     });
 
+    // live preview values: refresh the option texts about once a second while the dialog is open
+    const refreshValues = (): void => {
+        for (const sel of [leftSelect, pSel, rightHi.select, rightLo.select]) {
+            if (document.activeElement === sel) continue;
+            for (const o of Array.from(sel.options)) {
+                const m = /^(\d+)\|(.+)$/.exec(o.value);
+                const sl = m ? slots[Number(m[1])] : null;
+                if (!m || !sl) continue;
+                const txt = plotShortLabel(sl.ref, m[2]) + valText(sl.value(m[2]));
+                if (o.textContent !== txt) o.textContent = txt;
+            }
+        }
+    };
+    const refreshTimer = indEntries.length > 0 ? setInterval(refreshValues, 1000) : null;
+
     let closed = false;
     function close(): void {
         if (closed) return;
         closed = true;
+        if (refreshTimer !== null) clearInterval(refreshTimer);
         document.removeEventListener('keydown', onKeyDown, true);
         overlay.remove();
         if (current === handle) current = null;
@@ -733,7 +1053,8 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     current = handle;
     setTimeout(() => {
         if (closed) return;
-        const f = isDrawing ? condSelect : isMovingCondition(st.condition) ? moveInput : priceInput;
+        const f = isDrawing ? condSelect : isInd() ? (isEventLeft() ? condSelect : rightHi.select.value === 'value' ? rightHi.input : rightHi.select)
+            : isMovingCondition(st.condition) ? moveInput : priceInput;
         f.focus();
         if (f instanceof HTMLInputElement) f.select();
     }, 0);

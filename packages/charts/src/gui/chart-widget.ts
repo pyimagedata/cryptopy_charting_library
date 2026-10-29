@@ -16,6 +16,7 @@ import { SpotPriceSource } from '../model/spot-price-source';
 import { TimeAxisWidget } from './time-axis-widget';
 import { ContextMenu, ContextMenuItem, ICONS } from './context_menu';
 import { openAlertDialog, AlertDialogChart } from './alerts/alert-dialog';
+import { alertCatalogId, alertIndicatorEntries, AlertIndicatorEntry } from '../alerts/indicator-plots';
 import { DrawingAlertsController } from './alerts/drawing-alerts';
 import { alertGeometryFor, alertDrawingLabel, geometrySeedPrice, isAlertableDrawing } from '../alerts/drawing-geometry';
 import { AlertLinesController } from './alerts/alert-lines';
@@ -898,6 +899,18 @@ export class ChartWidget implements Disposable {
         const raw = price ?? this.getLastPrice();
         const p = raw !== null && isFinite(raw) ? snapAlertPrice(raw, this.alertPriceStep()) : raw;
         openAlertDialog({ chart: this as AlertDialogChart, symbol: this.alertSymbolId(), price: p ?? NaN });
+    }
+
+    /** Alertable, unlocked indicators on this chart (indicator alerts in the alert dialog). */
+    alertIndicators(): AlertIndicatorEntry[] {
+        return alertIndicatorEntries(this._indicatorManager.allIndicators as any, (i) => this._indicatorManager.typeIdOf(i));
+    }
+
+    /** Indicator alert entry (legend menu): opens the dialog with this indicator's first event (else first plot) preselected. */
+    openIndicatorAlert(indicator: Indicator): void {
+        const raw = this.getLastPrice();
+        const price = raw !== null && isFinite(raw) ? snapAlertPrice(raw, this.alertPriceStep()) : NaN;
+        openAlertDialog({ chart: this as AlertDialogChart, symbol: this.alertSymbolId(), price, indicator: { instanceId: indicator.id } });
     }
 
     /** Drawing alert entry (context menu / attribute bar bell): opens the dialog for this drawing's current geometry. */
@@ -4297,6 +4310,15 @@ export class ChartWidget implements Disposable {
             { id: 'settings', label: t('Settings...'), icon: LEGEND_ICONS.settings, action: () => this._openIndicatorSettings(indicator) },
             { id: 'clone', label: t('Clone'), icon: LEGEND_ICONS.clone, action: () => { manager.duplicateIndicator(id); redraw(); } },
         ];
+        const alertEntry = this.alertIndicators().find((e) => e.ref.instanceId === id);
+        if (alertEntry && alertCatalogId(manager.typeIdOf(indicator))) {
+            items.push({
+                id: 'add-alert',
+                label: t('Add alert on {label}...').replace('{label}', alertEntry.ref.label),
+                icon: ALERT_MENU_ICON,
+                action: () => this.openIndicatorAlert(indicator),
+            });
+        }
         if (indicator.type === IndicatorType.Overlay) {
             items.push(
                 { id: 'sep1', label: '', separator: true },

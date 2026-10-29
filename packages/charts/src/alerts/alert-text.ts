@@ -1,7 +1,8 @@
 import { t } from '../helpers/translations';
 import { displaySymbol } from '../helpers/display-aliases';
 import { AlertsError } from './types';
-import type { AlertCondition, AlertGeometry, AlertInterval, AlertSound, AlertSource, AlertTrigger } from './types';
+import type { AlertCondition, ChartAlert, AlertGeometry, AlertInterval, AlertSound, AlertSource, AlertTrigger, Operand } from './types';
+import { indicatorAutoMessage, operandLabel, operandMessageLabel } from './indicator-plots';
 
 export const ALERT_CONDITIONS: readonly AlertCondition[] = ['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than'];
 export const ALERT_SOUND_NAMES: readonly AlertSound[] = ['chime', 'bell', 'beep', 'alarm'];
@@ -21,11 +22,17 @@ const CONDITION_EN: Record<AlertCondition, string> = {
     moving_down: 'Moving Down',
     moving_up_percent: 'Moving Up %',
     moving_down_percent: 'Moving Down %',
+    signal: 'Signal',
 };
 
 export const LINE_CONDITIONS: readonly AlertCondition[] = ALERT_CONDITIONS;
 export const CHANNEL_CONDITIONS: readonly AlertCondition[] = ['entering_channel', 'exiting_channel', 'inside_channel', 'outside_channel'];
 export const MOVING_CONDITIONS: readonly AlertCondition[] = ['moving_up', 'moving_down', 'moving_up_percent', 'moving_down_percent'];
+
+/** Conditions of an indicator plot / price left operand: crossing family, greater / less, channel family. */
+export const INDICATOR_CONDITIONS: readonly AlertCondition[] = [...ALERT_CONDITIONS, ...CHANNEL_CONDITIONS];
+/** Conditions of an indicator event left operand. */
+export const SIGNAL_CONDITIONS: readonly AlertCondition[] = ['signal'];
 
 export function isMovingCondition(c: AlertCondition): boolean { return MOVING_CONDITIONS.indexOf(c) >= 0; }
 export function isChannelCondition(c: AlertCondition): boolean { return CHANNEL_CONDITIONS.indexOf(c) >= 0; }
@@ -33,6 +40,7 @@ export function isPercentCondition(c: AlertCondition): boolean { return c === 'm
 
 /** Conditions selectable for a source / geometry: price = 5 + 4 moving, drawing line = 5, drawing channel = 4 channel. */
 export function conditionsFor(source: AlertSource | undefined, geometryType?: AlertGeometry['type'] | null): readonly AlertCondition[] {
+    if (source === 'indicator') return INDICATOR_CONDITIONS;
     if (source === 'drawing') return geometryType === 'channel' ? CHANNEL_CONDITIONS : LINE_CONDITIONS;
     return [...ALERT_CONDITIONS, ...MOVING_CONDITIONS];
 }
@@ -91,6 +99,7 @@ export function movingSummary(c: AlertCondition, value: number, bars: number, in
 /** Placeholders usable in alert messages (rendered by the server at fire time). */
 export const ALERT_PLACEHOLDERS: readonly string[] = [
     'ticker', 'exchange', 'close', 'open', 'high', 'low', 'volume', 'time', 'timenow', 'interval', 'alert_name', 'condition',
+    'plot_0', 'plot_1', 'event',
 ];
 
 /** Localised condition label (EN keys double as translation keys). */
@@ -218,6 +227,46 @@ export function isAutoAlertMessage(message: string, symbol: string, condition: A
     for (const tk of tickers) {
         for (const lab of [conditionLabel(condition), CONDITION_EN[condition]]) {
             for (const pr of prices) if (m === (pr ? `${tk} ${lab} ${pr}` : `${tk} ${lab}`)) return true;
+        }
+    }
+    return false;
+}
+
+/** Panel row text of an indicator alert: "<left> <condition> <right>" (channel: "<left> <condition> <lower> – <upper>") / "<indicator> Al sinyali". */
+export function indicatorAlertSummary(a: ChartAlert): string {
+    const tk = alertTicker(a.symbol);
+    const left = operandLabel(a.left, tk);
+    if (a.condition === 'signal' || a.left?.kind === 'event') return left;
+    const hi = operandLabel(a.right, tk);
+    const lo = operandLabel(a.right2, tk);
+    const rhs = isChannelCondition(a.condition) && lo ? `${lo} - ${hi}` : hi;
+    return [a.left?.kind === 'price' ? '' : left, conditionLabel(a.condition), rhs].filter((x) => x !== '').join(' ');
+}
+
+/** Default message the server builds for an indicator alert (see indicatorAutoMessage). */
+export function serverIndicatorMessage(symbol: string, condition: AlertCondition, left: Operand | null | undefined, right?: Operand | null, right2?: Operand | null): string {
+    const i = symbol.lastIndexOf(':');
+    return indicatorAutoMessage(i >= 0 ? symbol.slice(i + 1) : symbol, CONDITION_EN[condition], condition, left, right, right2);
+}
+
+/** True when `message` is empty or an auto-built text of an indicator alert (server default or the client's UI-label forms). */
+export function isAutoIndicatorMessage(message: string, symbol: string, condition: AlertCondition, left: Operand | null | undefined, right?: Operand | null, right2?: Operand | null): boolean {
+    const m = message.trim();
+    if (m === '') return true;
+    const i = symbol.lastIndexOf(':');
+    const tickers = [alertTicker(symbol), i >= 0 ? symbol.slice(i + 1) : symbol];
+    for (const tk of tickers) {
+        for (const lab of [operandMessageLabel, operandLabel]) {
+            for (const c of [CONDITION_EN[condition], conditionLabel(condition)]) {
+                if (!left) return false;
+                if (left.kind === 'event') { if (m === `${tk} ${lab(left, tk)}`) return true; continue; }
+                const rhs = right2 && right ? `${lab(right2, tk)} - ${lab(right, tk)}` : lab(right2, tk) || lab(right, tk);
+                const l = left.kind === 'price' ? '' : lab(left, tk);
+                for (const withLeft of [false, true]) {
+                    const bits = [tk, withLeft ? lab(left, tk) : l, c, rhs];
+                    if (m === bits.filter((x) => x !== '').join(' ')) return true;
+                }
+            }
         }
     }
     return false;

@@ -6,10 +6,27 @@
 export type AlertCondition =
     | 'crossing' | 'crossing_up' | 'crossing_down' | 'greater_than' | 'less_than'
     | 'entering_channel' | 'exiting_channel' | 'inside_channel' | 'outside_channel'
-    | 'moving_up' | 'moving_down' | 'moving_up_percent' | 'moving_down_percent';
+    | 'moving_up' | 'moving_down' | 'moving_up_percent' | 'moving_down_percent'
+    | 'signal';
 export type AlertTrigger = 'once' | 'once_per_bar' | 'once_per_bar_close' | 'once_per_minute';
 export type AlertInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d';
-export type AlertSource = 'price' | 'drawing';
+export type AlertSource = 'price' | 'drawing' | 'indicator';
+
+/** Indicator snapshot stored with an indicator alert (params = only the alert-relevant option keys, same keys the server uses). */
+export interface IndicatorRef {
+    type: string;
+    params: Record<string, number | string | boolean>;
+    label: string;
+    instanceId: string | null;
+}
+/** 3a: 'buy' | 'sell'; 3b (Premium): the event ids of alerts/premium-events.ts. */
+export type AlertEventId = string;
+/** One side of an indicator alert condition. */
+export type Operand =
+    | { kind: 'price' }
+    | { kind: 'value'; value: number }
+    | { kind: 'plot'; indicator: IndicatorRef; plot: string }
+    | { kind: 'event'; indicator: IndicatorRef; event: AlertEventId };
 
 /** Line of a drawing alert: times epoch ms, prices numbers. */
 export interface AlertGeometryLine { t1: number; p1: number; t2: number; p2: number; extendLeft: boolean; extendRight: boolean }
@@ -28,6 +45,8 @@ export interface ChartAlert {
     interval?: AlertInterval; trigger?: AlertTrigger; source?: AlertSource;
     drawingId?: string | null; drawingType?: string | null; drawingLabel?: string | null;
     geometry?: AlertGeometry | null; moveValue?: number | null; moveBars?: number | null; webhookUrl?: string | null;
+    /** Phase 3 (source = indicator): `right` = upper bound for channel conditions, `right2` = lower bound. */
+    left?: Operand | null; right?: Operand | null; right2?: Operand | null;
 }
 
 /** `price` is null for a drawing alert without a usable seed price (the server then stores its informational default). */

@@ -7,7 +7,7 @@
 import { Delegate } from '../../helpers/delegate';
 import { t } from '../../helpers/translations';
 import { alertsStore, AlertsStoreEvent } from '../../alerts/alerts-store';
-import { alertErrorText, alertMatchesSymbol, alertTicker, conditionLabel, exactPrice, isMovingCondition, movingSummary, triggerLabel, DEFAULT_ALERT_INTERVAL } from '../../alerts/alert-text';
+import { alertErrorText, alertMatchesSymbol, alertTicker, conditionLabel, indicatorAlertSummary, exactPrice, isMovingCondition, movingSummary, triggerLabel, DEFAULT_ALERT_INTERVAL } from '../../alerts/alert-text';
 import type { AlertLogEntry, AlertStatus, ChartAlert } from '../../alerts/types';
 import { ContextMenu, ContextMenuItem } from '../context_menu/context_menu';
 import type { SymbolInfo } from '../symbol_search/symbol_model';
@@ -581,6 +581,8 @@ export class AlertsPanel {
         if (a.source === 'drawing') {
             condText = `${conditionLabel(a.condition)} ${a.drawingLabel || t('Drawing')}`;
             if (alertsStore.drawingPresence(a) === false) condText += ` ${t('(drawing deleted)')}`;
+        } else if (a.source === 'indicator' && a.left) {
+            condText = indicatorAlertSummary(a);
         } else if (isMovingCondition(a.condition) && a.moveValue != null && a.moveBars != null) {
             condText = movingSummary(a.condition, a.moveValue, a.moveBars, a.interval ?? DEFAULT_ALERT_INTERVAL);
         } else {

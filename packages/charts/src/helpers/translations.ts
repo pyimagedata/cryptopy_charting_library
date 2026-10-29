@@ -1030,6 +1030,25 @@ const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
         'Add alert on {label}...': 'Alarm ekle: {label}…',
         'Add alert': 'Alarm ekle',
         'Alert for this drawing': 'Bu çizim için alarm',
+
+        // Indicator alerts
+        'Upper': 'Üst',
+        'Lower': 'Alt',
+        'MA': 'MA',
+        '%K': '%K',
+        '%D': '%D',
+        'Conversion': 'Dönüşüm',
+        'Base': 'Baz',
+        'Leading A': 'Öncü A',
+        'Leading B': 'Öncü B',
+        'Buy signal': 'Al sinyali',
+        'Sell signal': 'Sat sinyali',
+        '{ticker} (price)': '{ticker} (fiyat)',
+        '(not on chart)': '(grafikte yok)',
+        'Enter a number': 'Bir sayı girin',
+        'Pick at least one indicator plot': 'En az bir indikatör çizgisi seçin',
+        'An alert can use at most 2 different indicators': 'Bir alarm en fazla 2 farklı indikatör kullanabilir',
+        'Indicator alerts are not available on this chart interval': 'İndikatör alarmları bu grafik aralığında kullanılamıyor',
         'Note: on a log scale the alert uses a linear price interpolation and may differ from the drawing.': 'Not: Logaritmik ölçekte çizim alarmı fiyat doğrusal hesaplanır, çizimden farklı olabilir.',
     }
 };
