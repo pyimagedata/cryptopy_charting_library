@@ -145,6 +145,37 @@ const ALERT_MENU_ICON = `<svg width="18" height="18" viewBox="0 0 18 18" fill="n
 
 let _keyboardActiveChart: ChartWidget | null = null;
 
+/**
+ * Mevcut mumun kapanisina kalan ms. `lastBarStartMs` ana serinin son bar acilis zamani (ms).
+ * null: geri sayim gizlenmeli (piyasa kapali / veri yok ve aralik >= 1g).
+ */
+export function barCountdownMs(nowMs: number, lastBarStartMs: number | null, intervalMs: number): number | null {
+    if (!(intervalMs > 0)) return null;
+    if (lastBarStartMs === null || !isFinite(lastBarStartMs)) {
+        if (intervalMs >= 24 * 60 * 60 * 1000) return null;
+        return (Math.floor(nowMs / intervalMs) + 1) * intervalMs - nowMs;
+    }
+    const close = lastBarStartMs + intervalMs;
+    if (close > nowMs) return close - nowMs;
+    // yalnizca kisa sureli gecikme (likit olmayan sembolde tick yok) ayni fazda ilerletilir; gerisi kapali piyasa
+    if (nowMs - close >= Math.min(intervalMs * 2, 5 * 60 * 1000)) return null;
+    const k = Math.floor((nowMs - lastBarStartMs) / intervalMs) + 1;
+    return lastBarStartMs + k * intervalMs - nowMs;
+}
+
+/** "m:ss", "h:mm:ss"; 24 saat ve uzeri icin "Nd HH:MM". */
+export function formatCountdown(remainingMs: number): string {
+    const totalSeconds = Math.floor(remainingMs / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const p2 = (n: number) => n.toString().padStart(2, '0');
+    if (days > 0) return `${days}d ${p2(hours)}:${p2(minutes)}`;
+    if (hours > 0) return `${hours}:${p2(minutes)}:${p2(seconds)}`;
+    return `${minutes}:${p2(seconds)}`;
+}
+
 export class ChartWidget implements Disposable {
     private readonly _container: HTMLElement;
     private readonly _model: ChartModel;
@@ -855,8 +886,15 @@ export class ChartWidget implements Disposable {
     alertPriceStep(): number | null {
         const data = this._model.serieses[0]?.data;
         if (!data || data.length === 0) return null;
+        const p = this._model.rightPriceScale.precision();
+        if (p !== null) return Math.pow(10, -p);
         const env = this._getToolEnv();
         return env ? Math.pow(10, -env.precision) : null;
+    }
+
+    /** Force the price precision (decimal places) for axis, labels and legend; null = auto from data. */
+    setPricePrecision(precision: number | null): void {
+        this._model.setPricePrecision(precision);
     }
 
     alertTheme(): 'light' | 'dark' {
@@ -1084,6 +1122,59 @@ export class ChartWidget implements Disposable {
         this._applyData(series, data);
     }
 
+    /**
+     * Progressive loading: prepend OLDER bars to a series without disturbing the view.
+     * Merge = older bars (strictly before the current first bar; any overlap is dropped) + the CURRENT
+     * series data (so live-tick updates / appended bars made meanwhile are never overwritten).
+     * The time scale measures its scroll offset from the RIGHT (live) edge, so keeping scrollOffset and
+     * barSpacing unchanged keeps every visible bar exactly in place (and the right-edge anchor stays
+     * anchored). Indicators are recomputed on the full data, timestamps (time axis, drawings) are
+     * refreshed, price precision is recomputed by Series.setData.
+     * `replaceFirst`: when `olderBars` contains a bar with the SAME time as the current first bar (and the
+     * series has more than one bar, i.e. the first bar is not the forming one), that bar replaces it. Used
+     * for derived timeframes where the oldest bar of the first page may be an incomplete bucket.
+     * Returns the number of bars actually prepended (0 = nothing done, e.g. replay is active).
+     */
+    prependData(
+        series: CandlestickSeries | LineSeries | AreaSeries | HeikenAshiSeries,
+        olderBars: BarData[] | LineData[],
+        options: { replaceFirst?: boolean } = {},
+    ): number {
+        if (this._replay.active) return 0;
+        const current = series.data as ReadonlyArray<BarData | LineData>;
+        if (current.length === 0 || olderBars.length === 0) return 0;
+        const firstTime = current[0].time as number;
+        const replaced = options.replaceFirst && current.length > 1
+            ? (olderBars as Array<BarData | LineData>).find(b => (b.time as number) === firstTime)
+            : undefined;
+        const older = (olderBars as Array<BarData | LineData>).filter(b => (b.time as number) < firstTime);
+        if (older.length === 0) {
+            // Nothing new: no older bars, and the boundary bar is absent or identical (skip the full recompute).
+            if (!replaced) return 0;
+            const a = replaced as any, c = current[0] as any;
+            if (a.open === c.open && a.high === c.high && a.low === c.low && a.close === c.close && a.volume === c.volume && a.value === c.value) return 0;
+        }
+        older.sort((a, b) => (a.time as number) - (b.time as number));
+        const merged: Array<BarData | LineData> = [];
+        for (const b of older) {
+            const last = merged[merged.length - 1];
+            if (!last || (last.time as number) !== (b.time as number)) merged.push(b);
+        }
+        const added = merged.length;
+        if (replaced) merged.push(replaced);
+        for (let i = replaced ? 1 : 0; i < current.length; i++) merged.push(current[i]);
+
+        const timeScale = this._model.timeScale;
+        const scrollOffset = timeScale.scrollOffset;
+        const barSpacing = timeScale.barSpacing;
+        this._applyData(series, merged as BarData[] | LineData[]);
+        timeScale.setPointsCount(merged.length);
+        timeScale.setBarSpacing(barSpacing);
+        timeScale.scrollToPosition(scrollOffset, false);
+        this._model.fullUpdate();
+        return added;
+    }
+
     /** Real data application (bypasses the replay interception). */
     private _applyData(series: CandlestickSeries | LineSeries | AreaSeries | HeikenAshiSeries, data: BarData[] | LineData[]): void {
         series.setData(data as any);
@@ -1141,6 +1232,7 @@ export class ChartWidget implements Disposable {
         const before = data.length;
         if (data.length > truncateTo) data.length = truncateTo;
         for (const bar of push) data.push(bar);
+        series.refreshPricePrecision();
         // keep the timestamp array identity: time axis + drawing manager hold references to it
         const ts = this._timestamps;
         if (ts.length > truncateTo) ts.length = truncateTo;
@@ -4016,7 +4108,9 @@ export class ChartWidget implements Disposable {
 
         // Calculate and set countdown
         const countdown = this._calculateCountdown();
+        this._lastCountdownText = countdown;
         this._priceAxisWidget.setCountdown(countdown);
+        this._startCountdownTicker();
     }
 
     /**
@@ -4029,36 +4123,46 @@ export class ChartWidget implements Disposable {
         if (this._replay.active) return null;
 
         const now = Date.now();
-        let remainingMs: number;
+        let remainingMs: number | null;
         if (timeframe === 'M' || timeframe === '1mo') {
             // Takvim ayi sabit sure degil; ayrica _parseTimeframeToMs "M"yi
             // (buyuk harf) kucuk harfe cevirip "m" = 1 DAKIKA sanardi.
             const d = new Date(now);
             remainingMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - now;
         } else {
-            // Parse timeframe to milliseconds
             const intervalMs = this._parseTimeframeToMs(timeframe);
             if (intervalMs === 0) return null;
 
-            // Calculate next candle close time
-            const currentCandleStart = Math.floor(now / intervalMs) * intervalMs;
-            const nextCandleStart = currentCandleStart + intervalMs;
-            remainingMs = nextCandleStart - now;
+            // Bar zamani ms (ZonedClock/new Date dogrudan kullaniyor). Heiken Ashi'de zamanlar ham veriyle ayni.
+            const series = this._model.serieses[0];
+            const data = series ? series.data : null;
+            let lastStart: number | null = null;
+            if (data && data.length > 0) {
+                const t = (data[data.length - 1] as any).time;
+                if (typeof t === 'number' && isFinite(t)) lastStart = t;
+            }
+            remainingMs = barCountdownMs(now, lastStart, intervalMs);
         }
 
-        if (remainingMs <= 0) return null;
-
-        // Format countdown
-        const totalSeconds = Math.floor(remainingMs / 1000);
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
-
-        if (hours > 0) {
-            return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-        }
-        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        if (remainingMs === null || remainingMs <= 0) return null;
+        return formatCountdown(remainingMs);
     }
+
+    /** 1 sn'de bir sadece fiyat eksenini yeniden cizer (geri sayim aksin / piyasa kapaninca kaybolsun). */
+    private _startCountdownTicker(): void {
+        if (this._countdownTimer !== null) return;
+        this._countdownTimer = setInterval(() => {
+            if (!this._priceAxisWidget) return;
+            const text = this._calculateCountdown();
+            if (text === this._lastCountdownText) return;
+            this._lastCountdownText = text;
+            this._priceAxisWidget.setCountdown(text);
+            this._priceAxisWidget.render();
+        }, 1000);
+    }
+
+    private _countdownTimer: ReturnType<typeof setInterval> | null = null;
+    private _lastCountdownText: string | null = null;
 
     /**
      * Parse timeframe string to milliseconds
@@ -4693,6 +4797,7 @@ export class ChartWidget implements Disposable {
     // --- Cleanup ---
 
     dispose(): void {
+        if (this._countdownTimer !== null) { clearInterval(this._countdownTimer); this._countdownTimer = null; }
         if (_keyboardActiveChart === this) _keyboardActiveChart = null;
         document.removeEventListener('keydown', this._boundKeyDown);
         window.removeEventListener('keypress', this._boundKeyPress);

@@ -82,6 +82,19 @@ export class PriceScale {
     private readonly _modeChanged = new Delegate<PriceScaleMode>();
     private readonly _rangeChanged = new Delegate<PriceRange | null>();
 
+    private _precisionProvider: (() => number | null) | null = null;
+
+    /** Fiyat hassasiyeti kaynagi; null donerse eski buyukluk sezgiseli kullanilir. */
+    setPrecisionProvider(fn: (() => number | null) | null): void {
+        this._precisionProvider = fn;
+    }
+
+    /** Gecerli ondalik basamak sayisi ya da null (otomatik sezgisel). */
+    precision(): number | null {
+        const p = this._precisionProvider ? this._precisionProvider() : null;
+        return p === null || p === undefined || !isFinite(p) ? null : Math.max(0, Math.min(8, Math.round(p)));
+    }
+
     constructor(options: Partial<PriceScaleOptions> = {}) {
         this._options = { ...defaultPriceScaleOptions, ...options };
         this._isAutoScale = this._options.autoScale;
@@ -271,7 +284,7 @@ export class PriceScale {
 
         const values = this._options.mode === PriceScaleMode.Logarithmic && priceMin > 0 && priceMax > 0
             ? this._generateLogAxisValues(priceMin, priceMax, targetCount)
-            : generateAxisValues(priceMin, priceMax, targetCount);
+            : generateAxisValues(priceMin, priceMax, targetCount, this._minTickStep());
 
         return values
             .map(price => ({
@@ -381,7 +394,17 @@ export class PriceScale {
 
     // --- Public: Formatting ---
 
+    private _minTickStep(): number | undefined {
+        const p = this.precision();
+        return p === null ? undefined : Math.pow(10, -p);
+    }
+
     formatPrice(price: number): string {
+        const prec = this.precision();
+        if (prec !== null) {
+            const out = price.toFixed(prec);
+            return /^-0(\.0*)?$/.test(out) ? out.slice(1) : out;
+        }
         const absPrice = Math.abs(price);
         let decimals: number;
 

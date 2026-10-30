@@ -79,7 +79,7 @@ const ALGO_KEYS = [
 ] as const;
 
 const COMPARE_OPTIONS = ['GC1', 'SI1', 'XAUUSD', 'XAGUSD', 'EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD',
-    'USDCHF', 'USDCAD', 'USDJPY', 'USOIL', 'UKOIL', 'BTCUSDT', 'ETHUSDT'];
+    'USDCHF', 'USDCAD', 'USDJPY', 'USOIL', 'UKOIL', 'BTCUSDT', 'ETHUSDT', 'DXY', 'SPX500', 'NAS100'];
 
 export class SMTDivergenceIndicator extends OverlayIndicator {
     private _smtOptions: SMTDivergenceIndicatorOptions;

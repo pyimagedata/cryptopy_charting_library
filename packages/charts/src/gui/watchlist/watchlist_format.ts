@@ -127,9 +127,15 @@ function sortValueOf(r: RowLike | undefined, col: SortCol): number | string | nu
 
 // ---- Sayilar ----
 
-/** Fiyat buyuklugune (ve forex icin sinifa) gore ondalik sayisi. */
-export function decimalsFor(price: number, assetClass?: string): number {
+/** Sinif varsayilanini ezen sembol-bazli ondalik sayisi (TradingView ile ayni: CFD endeksleri 2). */
+const CODE_DECIMALS: Record<string, number> = { SPX500: 2, NAS100: 2 };
+
+/** Fiyat buyuklugune (ve forex icin sinifa) gore ondalik sayisi; sembol kodu varsa onun ezmesi once gelir. */
+export function decimalsFor(price: number, assetClass?: string, code?: string): number {
     const p = Math.abs(price);
+    const override = code ? CODE_DECIMALS[code.toUpperCase()] : undefined;
+    if (override !== undefined) return override;
+    if (assetClass === 'index') return 3;
     if (assetClass === 'forex') return p >= 20 ? 3 : 5;
     if (p >= 100) return 2;
     if (p >= 10) return 3;
@@ -142,10 +148,10 @@ export function decimalsFor(price: number, assetClass?: string): number {
 export class DecimalsTracker {
     private readonly _map = new Map<string, number>();
 
-    get(key: string, price: number, assetClass?: string): number {
+    get(key: string, price: number, assetClass?: string, code?: string): number {
         const known = this._map.get(key);
         if (known !== undefined) return known;
-        const d = decimalsFor(price, assetClass);
+        const d = decimalsFor(price, assetClass, code);
         if (Number.isFinite(price) && price > 0) this._map.set(key, d);
         return d;
     }

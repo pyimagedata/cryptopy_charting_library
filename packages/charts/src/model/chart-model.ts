@@ -197,6 +197,21 @@ export class ChartModel {
         this._timeScale = new TimeScale(this._options.timeScale);
         this._rightPriceScale = new PriceScale(this._options.rightPriceScale);
         this._leftPriceScale = new PriceScale(this._options.leftPriceScale);
+        this._rightPriceScale.setPrecisionProvider(() => this._pricePrecisionOverride ?? this._serieses[0]?.pricePrecision ?? null);
+    }
+
+    private _pricePrecisionOverride: number | null = null;
+
+    /** Host fiyat hassasiyetini zorlar; null = otomatik (veriden). */
+    setPricePrecision(precision: number | null): void {
+        this._pricePrecisionOverride = precision === null || !isFinite(precision)
+            ? null
+            : Math.max(0, Math.min(8, Math.round(precision)));
+        this._invalidated.fire(InvalidateReason.Data);
+    }
+
+    get pricePrecisionOverride(): number | null {
+        return this._pricePrecisionOverride;
     }
 
     setCrosshairPosition(x: number, y: number, visible: boolean): void {

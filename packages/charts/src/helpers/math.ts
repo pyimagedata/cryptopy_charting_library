@@ -56,12 +56,14 @@ export function niceNumber(value: number, round: boolean): number {
 export function generateAxisValues(
     min: number,
     max: number,
-    targetCount: number
+    targetCount: number,
+    minStep?: number
 ): number[] {
     if (min >= max) return [min];
 
     const range = niceNumber(max - min, false);
-    const step = niceNumber(range / (targetCount - 1), true);
+    let step = niceNumber(range / (targetCount - 1), true);
+    if (minStep !== undefined && minStep > 0 && step < minStep) step = minStep;
     const niceMin = Math.floor(min / step) * step;
     const niceMax = Math.ceil(max / step) * step;
 
@@ -71,4 +73,12 @@ export function generateAxisValues(
     }
 
     return values;
+}
+
+/** Ondalik basamak sayisi (en cok 8; sondaki sifirlar sayilmaz). Sonlu olmayan deger icin 0. */
+export function decimalPlaces(v: number): number {
+    if (!isFinite(v)) return 0;
+    const s = v.toFixed(8).replace(/0+$/, '');
+    const dot = s.indexOf('.');
+    return dot < 0 ? 0 : s.length - dot - 1;
 }

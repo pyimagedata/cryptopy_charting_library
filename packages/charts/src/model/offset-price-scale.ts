@@ -34,7 +34,7 @@ export class OffsetPriceScale {
         const a = this.coordinateToPrice(coordinate(height));
         const b = this.coordinateToPrice(coordinate(0));
         const targetCount = Math.max(3, Math.floor(height / 30));
-        return generateAxisValues(Math.min(a, b), Math.max(a, b), targetCount)
+        return generateAxisValues(Math.min(a, b), Math.max(a, b), targetCount, this._base.precision() === null ? undefined : Math.pow(10, -(this._base.precision() as number)))
             .map((price) => ({ price, coord: this.priceToCoordinate(price), label: this.formatPrice(price) }))
             .filter((mark) => mark.coord >= 0 && mark.coord <= height);
     }

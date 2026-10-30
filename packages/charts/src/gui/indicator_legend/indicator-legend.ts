@@ -110,7 +110,11 @@ export class IndicatorLegendList {
         this.update(this._lastIndicators, this._lastBarIndex, this._theme);
     }
 
-    update(indicators: readonly Indicator[], barIndex: number | null, theme: LegendTheme): void {
+    /**
+     * `pricePrecision`: decimals of the main price scale. Applied only to price-valued plots (no preformatted
+     * text) of indicators without their own precision; null keeps the indicator's own/adaptive formatting.
+     */
+    update(indicators: readonly Indicator[], barIndex: number | null, theme: LegendTheme, pricePrecision: number | null = null): void {
         this._lastIndicators = indicators;
         this._lastBarIndex = barIndex;
         this._theme = theme;
@@ -137,7 +141,9 @@ export class IndicatorLegendList {
             for (let j = 0; j < row.valueEls.length; j++) {
                 const plot = info.plots[j];
                 if (!plot) continue;
-                const text = legendPlotText(plot, indicators[i].options.precision ?? info.precision);
+                const own = indicators[i].options.precision ?? info.precision;
+                const prec = own === undefined && pricePrecision !== null && plot.text === undefined ? pricePrecision : own;
+                const text = legendPlotText(plot, prec);
                 if (row.lastText[j] !== text) {
                     row.valueEls[j].textContent = text;
                     row.lastText[j] = text;

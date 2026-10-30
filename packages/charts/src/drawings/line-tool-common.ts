@@ -11,6 +11,7 @@
 
 import type { DrawingPoint, DrawingStyle, SerializedDrawing } from './drawing';
 import { t } from '../helpers/translations';
+import { decimalPlaces } from '../helpers/math';
 import {
     SettingsSection,
     colorRow,
@@ -269,9 +270,7 @@ export function estimatePricePrecision(values: number[], fallback: number = 2): 
     let max = 0;
     for (const v of values) {
         if (!isFinite(v)) continue;
-        const s = v.toFixed(8).replace(/0+$/, '');
-        const dot = s.indexOf('.');
-        const dec = dot < 0 ? 0 : s.length - dot - 1;
+        const dec = decimalPlaces(v);
         if (dec > max) max = dec;
     }
     return Math.max(max, fallback);

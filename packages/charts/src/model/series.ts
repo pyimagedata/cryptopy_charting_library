@@ -3,6 +3,7 @@ import { PriceScale } from './price-scale';
 import { TimeScale } from './time-scale';
 import { Coordinate, TimePointIndex } from './coordinate';
 import { Delegate } from '../helpers/delegate';
+import { decimalPlaces } from '../helpers/math';
 
 /**
  * Series type enum
@@ -48,6 +49,7 @@ export abstract class Series<TData extends SeriesDataItem = SeriesDataItem> {
     protected readonly _type: SeriesType;
 
     protected readonly _dataChanged = new Delegate<void>();
+    private _pricePrecision: number | null = null;
 
     constructor(type: SeriesType, options: Partial<SeriesOptionsBase> = {}) {
         this._type = type;
@@ -76,14 +78,48 @@ export abstract class Series<TData extends SeriesDataItem = SeriesDataItem> {
         return this._dataChanged;
     }
 
+    /** Veriden tahmin edilen ondalik basamak sayisi (son ~300 bar); veri yoksa null. */
+    get pricePrecision(): number | null {
+        return this._pricePrecision;
+    }
+
+    /** Rescan the last ~300 bars (use after mutating `data` directly, bypassing setData/updateData). */
+    refreshPricePrecision(): void {
+        if (this._data.length === 0) {
+            this._pricePrecision = null;
+            return;
+        }
+        let max = 0;
+        for (let i = Math.max(0, this._data.length - 300); i < this._data.length; i++) {
+            const p = Series._itemPrecision(this._data[i]);
+            if (p > max) max = p;
+        }
+        this._pricePrecision = max;
+    }
+
+    private static _itemPrecision(item: SeriesDataItem): number {
+        let max = 0;
+        if (isBarData(item)) {
+            max = Math.max(decimalPlaces(item.open), decimalPlaces(item.high), decimalPlaces(item.low), decimalPlaces(item.close));
+        } else if (isLineData(item)) {
+            max = decimalPlaces(item.value);
+        }
+        return max;
+    }
+
     // --- Data management ---
 
     setData(data: TData[]): void {
         this._data = [...data];
+        this.refreshPricePrecision();
         this._dataChanged.fire();
     }
 
     updateData(data: TData): void {
+        const itemPrecision = Series._itemPrecision(data);
+        if (this._pricePrecision === null || itemPrecision > this._pricePrecision) {
+            this._pricePrecision = itemPrecision;
+        }
         // Find existing data point by time
         const index = this._data.findIndex(d => d.time === data.time);
         if (index >= 0) {

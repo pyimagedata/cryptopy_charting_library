@@ -1051,7 +1051,8 @@ export class PaneWidget implements Disposable {
             const prevBar = barIndex > 0 ? mainSeriesData[barIndex - 1] : null;
 
             if (bar && 'open' in bar) {
-                const format = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const legendDecimals = this._model.rightPriceScale.precision() ?? 2;
+                const format = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: legendDecimals, maximumFractionDigits: legendDecimals });
                 const formatVol = (v: number) => {
                     if (v >= 1000000) return (v / 1000000).toFixed(2) + 'M';
                     if (v >= 1000) return (v / 1000).toFixed(2) + 'K';
@@ -1102,7 +1103,7 @@ export class PaneWidget implements Disposable {
         }
 
         // Indicator rows (title + parameters, values at the crosshair bar, hover buttons)
-        this._overlayLegend.update(this._overlayRenderer.indicators, legendBarIndex, this._currentTheme);
+        this._overlayLegend.update(this._overlayRenderer.indicators, legendBarIndex, this._currentTheme, this._model.rightPriceScale.precision());
     }
 
 

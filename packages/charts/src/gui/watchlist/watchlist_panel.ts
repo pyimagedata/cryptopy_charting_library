@@ -350,7 +350,7 @@ export class WatchlistPanel {
         const flashes = new Map<string, 'up' | 'down'>();
         for (const r of rows) {
             const k = key(r);
-            const dir = flashDirection(this._prevLast.get(k), r.price, this._decimals.get(k, r.price, r.asset_class));
+            const dir = flashDirection(this._prevLast.get(k), r.price, this._decimals.get(k, r.price, r.asset_class, r.code));
             if (dir) flashes.set(k, dir);
             this._prevLast.set(k, r.price);
         }
@@ -1036,7 +1036,7 @@ export class WatchlistPanel {
         const k = key(row);
         const flag = this._model.flagOf(k);
         const cols = this._visibleCols();
-        const dec = this._decimals.get(k, row.price, row.asset_class);
+        const dec = this._decimals.get(k, row.price, row.asset_class, row.code);
         el.className = 'wl-row';
         el.dataset.wlId = id;
         el.dataset.code = row.code;
@@ -1174,7 +1174,7 @@ export class WatchlistPanel {
             body.appendChild(h('div', `padding:10px 0;color:${c.muted};`, 'Ayrıntılar için bir sembol seç.'));
             return;
         }
-        const dec = this._decimals.get(key(row), row.price, row.asset_class);
+        const dec = this._decimals.get(key(row), row.price, row.asset_class, row.code);
         const chg = changeOf(row);
         const pctTrend = trendOf(row.change_pct, 2);
         const chgTrend = chg === null ? pctTrend : trendOf(chg, dec);

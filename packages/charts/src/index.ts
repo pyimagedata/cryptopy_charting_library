@@ -18,6 +18,7 @@ export { AreaRenderer } from './renderers/area-renderer';
 export { GridRenderer } from './renderers/grid-renderer';
 
 // GUI Widgets
+export { prefetchSymbolCatalog } from './gui/symbol_search/symbol_data';
 export { setIndicatorAccess, getIndicatorAccess, isIndicatorAllowed, IndicatorAccess } from './gui/indicator_search/indicator_access';
 export { ChartWidget, createChart } from './gui/chart-widget';
 export {
