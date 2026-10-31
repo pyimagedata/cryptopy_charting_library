@@ -1,3 +1,4 @@
+import { toEpochMs } from '../helpers/time';
 import { BarData } from '../model/data';
 import { t } from '../helpers/translations';
 
@@ -61,6 +62,8 @@ export class RemoteCompute<T> {
     private _params: Record<string, unknown> = {};
     private _onDone: (() => void) | null = null;
     private _queued = false;
+    /** request() arrived before any context existed; fired by the first setContext(). */
+    private _pendingNoCtx = false;
 
     constructor(
         private readonly _indicatorId: string,
@@ -94,13 +97,21 @@ export class RemoteCompute<T> {
             this._queued = false;
             this._onResult(null);
         }
+        if (this._pendingNoCtx && this._onDone) {
+            this._pendingNoCtx = false;
+            this.request(this._params, this._onDone);
+        }
     }
 
     /** Hesap parametreleri (yalnızca algoritmayı etkileyenler) ile sonucu ister; debounce'lu. */
     request(params: Record<string, unknown>, onDone: () => void): void {
-        if (!this._ctx) return;
         this._params = params;
         this._onDone = onDone;
+        if (!this._ctx) {
+            // Context not known yet (indicator calculated before chart-widget pushed it): remember and fire on setContext().
+            this._pendingNoCtx = true;
+            return;
+        }
         if (this._ctx.end !== undefined) {
             // Replay: throttle instead of trailing debounce (a debounce would never fire at 10x speed).
             if (this._timer === null) this._timer = setTimeout(() => this._fire(), REPLAY_THROTTLE_MS);
@@ -131,6 +142,7 @@ export class RemoteCompute<T> {
         if (this._timer !== null) clearTimeout(this._timer);
         this._timer = null;
         this._queued = false;
+        this._pendingNoCtx = false;
         this._token++;
     }
 
@@ -184,7 +196,7 @@ export function legendIndex(points: ReadonlyArray<{ value: number }>, index?: nu
 }
 
 export function barTimeMs(bar: BarData): number {
-    return bar.time > 1e12 ? bar.time : bar.time * 1000;
+    return toEpochMs(bar.time);
 }
 
 /**

@@ -1,3 +1,4 @@
+import { toEpochMs } from '../helpers/time';
 import { PanelIndicator, IndicatorOptions, IndicatorRange } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, accessNoticeText, legendIndex, timeIndexMap } from './remote-compute';
@@ -143,7 +144,7 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
     }
 
     private _toMs(time: number): number {
-        return time > 1e12 ? time : time * 1000;
+        return toEpochMs(time);
     }
 
     destroy(): void {

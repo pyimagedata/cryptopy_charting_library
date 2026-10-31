@@ -11,6 +11,7 @@
  */
 
 import { BarData } from './data';
+import { toEpochMs } from '../helpers/time';
 
 export interface SpotBar {
     time: number; // epoch ms (ya da sn)
@@ -66,7 +67,7 @@ const POLL_LIMIT = 5;
 const LIVE_FRESH_MS = 30_000;
 
 function toMs(t: number): number {
-    return t > 1e12 ? t : t * 1000;
+    return toEpochMs(t);
 }
 
 function normalizeInterval(tf: string): string {

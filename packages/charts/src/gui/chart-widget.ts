@@ -1,3 +1,4 @@
+import { toEpochMs } from '../helpers/time';
 import { ChartModel, ChartModelOptions, GridOptions, InvalidateReason } from '../model/chart-model';
 import { Delegate } from '../helpers/delegate';
 import { t, setLanguage, getCurrentLanguage } from '../helpers/translations';
@@ -117,7 +118,7 @@ export interface CrosshairSyncInfo {
 }
 
 function toMsTime(t: number): number {
-    return t > 1e12 ? t : t * 1000;
+    return toEpochMs(t);
 }
 
 /** Spot modunda fiyat ekseninin basligi ve son fiyat etiketi rengi. */

@@ -1,3 +1,4 @@
+import { MS_THRESHOLD } from '../helpers/time';
 import { BarData } from '../model/data';
 
 /**
@@ -19,7 +20,7 @@ export interface TfSpec {
 
 export function detectTimeUnit(bars: ReadonlyArray<{ time: number }>): TimeUnit {
     const t = bars.length > 0 ? bars[0].time : 0;
-    return t > 1e12 || t === 0 ? 1 : 1000;
+    return t > MS_THRESHOLD || t === 0 ? 1 : 1000;
 }
 
 /** '1m' '15m' '1h' '4h' '1d'/'D' '1w'/'W' '1M'/'M'/'1mo' ('M' = month, 'm' = minute); bare number = minutes. */

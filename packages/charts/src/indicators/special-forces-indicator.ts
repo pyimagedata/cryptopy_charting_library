@@ -1,3 +1,4 @@
+import { toEpochMs } from '../helpers/time';
 import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
 import { t } from '../helpers/translations';
@@ -325,7 +326,7 @@ export class SpecialForcesIndicator extends OverlayIndicator {
     }
 
     private _toMs(time: number): number {
-        return time > 1e12 ? time : time * 1000;
+        return toEpochMs(time);
     }
 
     private _currentTimeframeGuess(sourceData: BarData[]): string {

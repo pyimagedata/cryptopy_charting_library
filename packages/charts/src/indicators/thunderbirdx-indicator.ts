@@ -1,3 +1,4 @@
+import { toEpochMs } from '../helpers/time';
 import { PanelIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, accessNoticeText, legendIndex, timeIndexMap } from './remote-compute';
@@ -173,7 +174,7 @@ export class ThunderbirdxIndicator extends PanelIndicator {
         const fills = [neutral, withAlpha(o.positiveFillColor, o.fillOpacity), withAlpha(o.negativeFillColor, o.fillOpacity)];
 
         for (const bar of bars) {
-            const j = this._rawIndex.get(bar.time > 1e12 ? bar.time : bar.time * 1000);
+            const j = this._rawIndex.get(toEpochMs(bar.time));
             const hist = j === undefined || raw.hist[j] === null ? NaN : (raw.hist[j] as number);
             const delta = j === undefined || raw.delta[j] === null ? NaN : (raw.delta[j] as number);
             const ma = j === undefined || raw.ma[j] === null ? NaN : (raw.ma[j] as number);

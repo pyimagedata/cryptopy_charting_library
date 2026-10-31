@@ -1,3 +1,4 @@
+import { toEpochMs } from '../helpers/time';
 import { PanelIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, accessNoticeText, legendIndex, timeIndexMap } from './remote-compute';
@@ -79,7 +80,7 @@ export class TdojiMomIndicator extends PanelIndicator {
         if (!raw || raw.times.length === 0 || bars.length === 0) return;
 
         for (const bar of bars) {
-            const j = this._rawIndex.get(bar.time > 1e12 ? bar.time : bar.time * 1000);
+            const j = this._rawIndex.get(toEpochMs(bar.time));
             this._data.push({ time: bar.time, value: j === undefined ? NaN : raw.value[j] });
         }
     }
