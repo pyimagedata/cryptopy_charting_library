@@ -19,6 +19,7 @@ export interface EqHLIndicatorV2Options {
     hideSwept: boolean;
     confirmBars: number;
     confirmCloseInside: boolean;
+    confirmCandleType: 'regular' | 'heikin_ashi';
     showConfirmation: boolean;
     hideUnconfirmed: boolean;
     showLabels: boolean;
@@ -44,6 +45,7 @@ const defaultEqHLOptions: EqHLIndicatorV2Options = {
     hideSwept: false,
     confirmBars: 3,
     confirmCloseInside: false,
+    confirmCandleType: 'regular',
     showConfirmation: true,
     hideUnconfirmed: false,
     showLabels: true,
@@ -59,7 +61,7 @@ const defaultEqHLOptions: EqHLIndicatorV2Options = {
 const ALGO_KEYS = [
     'pivotBars', 'atrLength', 'useAcademicGamma', 'toleranceMult', 'gammaToleranceMult',
     'strictSideRatio', 'safeSideRatio', 'minGapBars', 'maxLookbackBars', 'hideSwept',
-    'confirmBars', 'confirmCloseInside',
+    'confirmBars', 'confirmCloseInside', 'confirmCandleType',
 ] as const;
 
 type ConfirmStatus = 'confirmed' | 'failed' | 'pending' | null;
@@ -116,6 +118,21 @@ export class EqHLIndicatorV2 extends OverlayIndicator {
 
     protected _getAllOptions(): Record<string, any> {
         return { ...this._eOptions };
+    }
+
+    /** Otomatik ayar listesi metin seçeneklerini üretmez: onay mum tipi seçimi buraya eklenir. */
+    getSettingsConfig(): any {
+        const cfg = super.getSettingsConfig();
+        const rows: any[] | undefined = cfg?.tabs?.[0]?.sections?.[0]?.rows;
+        if (rows) {
+            const row = {
+                type: 'select', key: 'confirmCandleType', label: 'Confirm Candle Type', defaultValue: 'regular',
+                options: [{ value: 'regular', label: 'Normal' }, { value: 'heikin_ashi', label: 'Heikin Ashi' }],
+            };
+            const at = rows.findIndex(r => r.key === 'confirmCloseInside');
+            rows.splice(at >= 0 ? at + 1 : rows.length, 0, row);
+        }
+        return cfg;
     }
 
     setContext(ctx: RemoteContext): void {
@@ -196,8 +213,9 @@ export class EqHLIndicatorV2 extends OverlayIndicator {
             : `ATR x${this._eOptions.toleranceMult.toFixed(2)}`;
         const conf = this._levels.filter(l => l.confirmStatus === 'confirmed').length;
         const failed = this._levels.filter(l => l.confirmStatus === 'failed').length;
+        const haText = this._eOptions.confirmCandleType === 'heikin_ashi' ? ', HA' : '';
         const confText = this._eOptions.showConfirmation && (conf > 0 || failed > 0) ? `, ${conf} onayli, ${failed} kirildi` : '';
-        return `EQH/EQL V2: ${active} aktif, ${swept} supurulmus${confText} (${method})`;
+        return `EQH/EQL V2: ${active} aktif, ${swept} supurulmus${confText} (${method}${haText})`;
     }
 
     drawOverlay(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {

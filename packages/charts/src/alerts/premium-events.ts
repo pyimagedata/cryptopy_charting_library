@@ -82,7 +82,7 @@ export const PREMIUM_EVENT_DEFS: readonly PremiumEventTypeSpec[] = [
             e('equal_high_sweep_confirmed', 'EQH Sweep Confirmed', 'EQH süpürmesi onaylandı'),
             e('equal_low_sweep_confirmed', 'EQL Sweep Confirmed', 'EQL süpürmesi onaylandı')],
         paramKeys: ['pivotBars', 'atrLength', 'useAcademicGamma', 'toleranceMult', 'gammaToleranceMult', 'strictSideRatio', 'safeSideRatio', 'minGapBars',
-            'maxLookbackBars', 'hideSwept', 'confirmBars', 'confirmCloseInside'],
+            'maxLookbackBars', 'hideSwept', 'confirmBars', 'confirmCloseInside', 'confirmCandleType'],
     },
     {
         type: 'bobbin', title: 'Bobbin',
