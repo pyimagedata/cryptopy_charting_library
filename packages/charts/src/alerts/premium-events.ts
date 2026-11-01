@@ -78,9 +78,11 @@ export const PREMIUM_EVENT_DEFS: readonly PremiumEventTypeSpec[] = [
     },
     {
         type: 'eqhl-v2', title: 'Equal Highs/Lows V2',
-        events: [e('equal_highs', 'Equal Highs', 'Eşit Tepeler'), e('equal_lows', 'Equal Lows', 'Eşit Dipler')],
+        events: [e('equal_highs', 'Equal Highs', 'Eşit Tepeler'), e('equal_lows', 'Equal Lows', 'Eşit Dipler'),
+            e('equal_high_sweep_confirmed', 'EQH Sweep Confirmed', 'EQH süpürmesi onaylandı'),
+            e('equal_low_sweep_confirmed', 'EQL Sweep Confirmed', 'EQL süpürmesi onaylandı')],
         paramKeys: ['pivotBars', 'atrLength', 'useAcademicGamma', 'toleranceMult', 'gammaToleranceMult', 'strictSideRatio', 'safeSideRatio', 'minGapBars',
-            'maxLookbackBars', 'hideSwept'],
+            'maxLookbackBars', 'hideSwept', 'confirmBars', 'confirmCloseInside'],
     },
     {
         type: 'bobbin', title: 'Bobbin',

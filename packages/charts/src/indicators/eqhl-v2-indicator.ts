@@ -17,9 +17,14 @@ export interface EqHLIndicatorV2Options {
     minGapBars: number;
     maxLookbackBars: number;
     hideSwept: boolean;
+    confirmBars: number;
+    confirmCloseInside: boolean;
+    showConfirmation: boolean;
+    hideUnconfirmed: boolean;
     showLabels: boolean;
     eqhColor: string;
     eqlColor: string;
+    confirmColor: string;
     sweptOpacity: number;
     lineWidth: number;
     visible: boolean;
@@ -37,9 +42,14 @@ const defaultEqHLOptions: EqHLIndicatorV2Options = {
     minGapBars: 5,
     maxLookbackBars: 50,
     hideSwept: false,
+    confirmBars: 3,
+    confirmCloseInside: false,
+    showConfirmation: true,
+    hideUnconfirmed: false,
     showLabels: true,
     eqhColor: '#ef5350',
     eqlColor: '#26a69a',
+    confirmColor: '#ffca28',
     sweptOpacity: 35,
     lineWidth: 1,
     visible: true,
@@ -49,7 +59,10 @@ const defaultEqHLOptions: EqHLIndicatorV2Options = {
 const ALGO_KEYS = [
     'pivotBars', 'atrLength', 'useAcademicGamma', 'toleranceMult', 'gammaToleranceMult',
     'strictSideRatio', 'safeSideRatio', 'minGapBars', 'maxLookbackBars', 'hideSwept',
+    'confirmBars', 'confirmCloseInside',
 ] as const;
+
+type ConfirmStatus = 'confirmed' | 'failed' | 'pending' | null;
 
 interface EqLevel {
     type: 'high' | 'low';
@@ -59,6 +72,8 @@ interface EqLevel {
     touches: number;
     swept: boolean;
     sweptBar: number | null;
+    confirmStatus: ConfirmStatus;
+    confirmBar: number | null;
 }
 
 interface RemoteEqHL {
@@ -70,6 +85,8 @@ interface RemoteEqHL {
         touches: number;
         swept: boolean;
         swept_time: number | null;
+        confirm_status?: ConfirmStatus;
+        confirm_time?: number | null;
     }>;
 }
 
@@ -133,7 +150,15 @@ export class EqHLIndicatorV2 extends OverlayIndicator {
             const lastBar = barIndexAtTime(bars, r.last_time);
             const sweptBar = r.swept_time === null ? null : barIndexAtTime(bars, r.swept_time);
             if (firstBar < 0 || lastBar < 0 || sweptBar === -1) continue;
-            this._levels.push({ type: r.type, price: r.price, firstBar, lastBar, touches: r.touches, swept: r.swept, sweptBar });
+            // Eski sunucu: alanlar yok -> onay bilgisi yok (null) olarak ele alınır.
+            let confirmStatus: ConfirmStatus = r.confirm_status ?? null;
+            let confirmBar: number | null = null;
+            if (r.confirm_time !== null && r.confirm_time !== undefined) {
+                const cb = barIndexAtTime(bars, r.confirm_time);
+                if (cb >= 0) confirmBar = cb;
+                else confirmStatus = null;
+            }
+            this._levels.push({ type: r.type, price: r.price, firstBar, lastBar, touches: r.touches, swept: r.swept, sweptBar, confirmStatus, confirmBar });
         }
 
         const byBar: Record<number, EqLevel[]> = {};
@@ -169,7 +194,10 @@ export class EqHLIndicatorV2 extends OverlayIndicator {
         const method = this._eOptions.useAcademicGamma
             ? `gamma x${this._eOptions.gammaToleranceMult.toFixed(2)}`
             : `ATR x${this._eOptions.toleranceMult.toFixed(2)}`;
-        return `EQH/EQL V2: ${active} aktif, ${swept} supurulmus (${method})`;
+        const conf = this._levels.filter(l => l.confirmStatus === 'confirmed').length;
+        const failed = this._levels.filter(l => l.confirmStatus === 'failed').length;
+        const confText = this._eOptions.showConfirmation && (conf > 0 || failed > 0) ? `, ${conf} onayli, ${failed} kirildi` : '';
+        return `EQH/EQL V2: ${active} aktif, ${swept} supurulmus${confText} (${method})`;
     }
 
     drawOverlay(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {
@@ -184,6 +212,7 @@ export class EqHLIndicatorV2 extends OverlayIndicator {
         for (const lvl of this._levels) {
             if (lvl.touches < 2) continue;
             if (lvl.swept && this._eOptions.hideSwept) continue;
+            if (lvl.confirmStatus === 'failed' && this._eOptions.hideUnconfirmed) continue;
 
             const color = lvl.type === 'high' ? this._eOptions.eqhColor : this._eOptions.eqlColor;
             const endBar = lvl.swept && lvl.sweptBar !== null ? lvl.sweptBar : lastBar;
@@ -213,13 +242,69 @@ export class EqHLIndicatorV2 extends OverlayIndicator {
                 ctx.stroke();
             }
 
+            const showConf = this._eOptions.showConfirmation;
+            if (showConf && lvl.confirmStatus === 'confirmed' && lvl.confirmBar !== null) {
+                // Ters yönde onay: EQH -> aşağı, EQL -> yukarı bakan küçük üçgen (seviyenin dışında, uca doğru).
+                const cx = timeScale.indexToCoordinate(lvl.confirmBar as any) * hpr;
+                const w = 4.5 * hpr;
+                const h = 6 * hpr;
+                const gap = 3 * hpr;
+                const down = lvl.type === 'high';
+                const baseY = down ? y - gap - h : y + gap + h;
+                const tipY = down ? y - gap : y + gap;
+                ctx.fillStyle = rgbaFrom(this._eOptions.confirmColor, 0.95);
+                ctx.setLineDash([]);
+                ctx.beginPath();
+                ctx.moveTo(cx - w, baseY);
+                ctx.lineTo(cx + w, baseY);
+                ctx.lineTo(cx, tipY);
+                ctx.closePath();
+                ctx.fill();
+            }
+
             if (this._eOptions.showLabels) {
-                const label = `${lvl.type === 'high' ? 'EQH' : 'EQL'}${lvl.touches > 2 ? ' x' + lvl.touches : ''}${lvl.swept ? ' (supuruldu)' : ''}`;
+                let suffix = lvl.swept ? ' (supuruldu)' : '';
+                if (showConf && lvl.swept) {
+                    if (lvl.confirmStatus === 'confirmed') suffix = ' (süpürüldü ✓)';
+                    else if (lvl.confirmStatus === 'failed') suffix = ' (kırıldı)';
+                    else if (lvl.confirmStatus === 'pending') suffix = ' (bekliyor)';
+                }
+                const label = `${lvl.type === 'high' ? 'EQH' : 'EQL'}${lvl.touches > 2 ? ' x' + lvl.touches : ''}${suffix}`;
                 ctx.font = `${10 * hpr}px sans-serif`;
-                ctx.fillStyle = rgbaFrom(color, Math.min(1, alpha + 0.15));
                 ctx.textAlign = 'left';
-                ctx.textBaseline = lvl.type === 'high' ? 'bottom' : 'top';
-                ctx.fillText(label, x2 + 4 * hpr, y);
+                const stateLabel = showConf && lvl.swept && lvl.confirmStatus !== null;
+                if (stateLabel) {
+                    // Onay durumu etiketi: tam opaklıkta metin + tema uyumlu yarı saydam zemin; çizgi sweptOpacity'de kalır.
+                    // Onaylıda üçgenin sağına, çizginin dışına (EQH üstte, EQL altta) yerleştirilir.
+                    let lx = x2 + 4 * hpr;
+                    if (lvl.confirmStatus === 'confirmed' && lvl.confirmBar !== null) {
+                        const cx = timeScale.indexToCoordinate(lvl.confirmBar as any) * hpr;
+                        lx = Math.max(lx, cx + 4.5 * hpr + 4 * hpr);
+                    }
+                    const above = lvl.type === 'high';
+                    const tw = ctx.measureText(label).width;
+                    const th = 12 * hpr;
+                    const padX = 4 * hpr;
+                    const ly = above ? y - 4 * hpr - th : y + 4 * hpr;
+                    ctx.fillStyle = this.isDark ? 'rgba(19, 23, 34, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+                    ctx.beginPath();
+                    const rr = 3 * hpr;
+                    const rx = lx - padX, rw = tw + 2 * padX;
+                    ctx.moveTo(rx + rr, ly);
+                    ctx.arcTo(rx + rw, ly, rx + rw, ly + th, rr);
+                    ctx.arcTo(rx + rw, ly + th, rx, ly + th, rr);
+                    ctx.arcTo(rx, ly + th, rx, ly, rr);
+                    ctx.arcTo(rx, ly, rx + rw, ly, rr);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = rgbaFrom(color, 1);
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, lx, ly + th / 2);
+                } else {
+                    ctx.fillStyle = rgbaFrom(color, Math.min(1, alpha + 0.15));
+                    ctx.textBaseline = lvl.type === 'high' ? 'bottom' : 'top';
+                    ctx.fillText(label, x2 + 4 * hpr, y);
+                }
             }
         }
         ctx.restore();
