@@ -38,6 +38,7 @@ import { BobbinIndicator } from './bobbin-indicator';
 import { FVGIndicator } from './fvg-indicator';
 import { FvgInversionIndicator } from './fvg-inversion-indicator';
 import { EqHLIndicatorV2 } from './eqhl-v2-indicator';
+import { NewsIndicator } from './news-indicator';
 import { JudasSwingIndicator } from './judas-swing-indicator';
 import { SMTDivergenceIndicator } from './smt-divergence-indicator';
 import { SpecialForcesIndicator } from './special-forces-indicator';
@@ -351,6 +352,7 @@ export class IndicatorManager {
         else if (indicator instanceof FVGIndicator) typeId = 'FVG';
         else if (indicator instanceof FvgInversionIndicator) typeId = 'FvgInversion';
         else if (indicator instanceof EqHLIndicatorV2) typeId = 'EqHLV2';
+        else if (indicator instanceof NewsIndicator) typeId = 'News';
         else if (indicator instanceof JudasSwingIndicator) typeId = 'JudasSwing';
         else if (indicator instanceof SMTDivergenceIndicator) typeId = 'SMTDivergence';
         else if (indicator instanceof SpecialForcesIndicator) typeId = 'SpecialForces';
@@ -494,6 +496,9 @@ export class IndicatorManager {
                 break;
             case 'EqHLV2':
                 indicator = new EqHLIndicatorV2(item.options as any);
+                break;
+            case 'News':
+                indicator = new NewsIndicator(item.options as any);
                 break;
             case 'JudasSwing':
                 indicator = new JudasSwingIndicator(item.options as any);

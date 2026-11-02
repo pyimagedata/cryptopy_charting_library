@@ -48,6 +48,7 @@ export const TYPE_ID_TO_CATALOG_ID: Record<string, string> = {
     FVG: 'fvg',
     FvgInversion: 'fvg-inversion',
     EqHLV2: 'eqhl-v2',
+    News: 'news-overlay',
     JudasSwing: 'judas-swing',
     SMTDivergence: 'smt-divergence',
     SpecialForces: 'special-forces',

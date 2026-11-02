@@ -299,6 +299,14 @@ const BASE_INDICATORS: BaseIndicator[] = [
         category: 'pattern',
         type: 'overlay'
     },
+    {
+        id: 'news-overlay',
+        name: 'Haberler',
+        shortName: 'News',
+        description: 'Haber akışını grafiğin altındaki olay şeridinde mumlara hizalı işaretlerle gösterir; üzerine gelince haber kartı açılır',
+        category: 'pattern',
+        type: 'overlay'
+    },
 ];
 
 /** Volume related indicators (everything else with category 'standard' is "technical"). */
@@ -312,7 +320,7 @@ const REMOTE_IDS = new Set([
     'tdoji', 'thunderbirdx', 'tdoji-sr', 'demark-pivot', 'tdoji-mom', 'zigzag',
     'abcd-pattern', 'harmonic-patterns', 'chart-patterns', 'zigzag-trendline',
     'trendline-breakout', 'smc', 'special-forces', 'bobbin', 'fvg', 'fvg-inversion',
-    'eqhl-v2', 'judas-swing', 'smt-divergence',
+    'eqhl-v2', 'judas-swing', 'smt-divergence', 'news-overlay',
 ]);
 
 function sectionOf(ind: IndicatorItem): IndicatorSection {

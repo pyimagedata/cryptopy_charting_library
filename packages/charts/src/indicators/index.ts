@@ -58,5 +58,6 @@ export { BobbinIndicator, BobbinIndicatorOptions } from './bobbin-indicator';
 export { FVGIndicator, FVGIndicatorOptions } from './fvg-indicator';
 export { FvgInversionIndicator, FvgInversionIndicatorOptions } from './fvg-inversion-indicator';
 export { EqHLIndicatorV2, EqHLIndicatorV2Options } from './eqhl-v2-indicator';
+export { NewsIndicator, NewsIndicatorOptions, NewsProvider, NewsQuery, NewsResponse, NewsItem } from './news-indicator';
 export { JudasSwingIndicator, JudasSwingIndicatorOptions } from './judas-swing-indicator';
 export { SMTDivergenceIndicator, SMTDivergenceIndicatorOptions } from './smt-divergence-indicator';
