@@ -49,6 +49,7 @@ export const TYPE_ID_TO_CATALOG_ID: Record<string, string> = {
     FvgInversion: 'fvg-inversion',
     EqHLV2: 'eqhl-v2',
     News: 'news-overlay',
+    LiqHeatmap: 'liq-heatmap',
     JudasSwing: 'judas-swing',
     SMTDivergence: 'smt-divergence',
     SpecialForces: 'special-forces',

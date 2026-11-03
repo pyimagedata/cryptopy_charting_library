@@ -29,7 +29,7 @@ import { AlertsPanel, AlertsPanelChart } from './alerts/alerts-panel';
 import { indicatorRowSignature } from './object_tree/object_tree_model';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorType, IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, NewsIndicator, JudasSwingIndicator, SMTDivergenceIndicator } from '../indicators';
+import { IndicatorType, IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, NewsIndicator, LiqHeatmapIndicator, JudasSwingIndicator, SMTDivergenceIndicator } from '../indicators';
 import { IndicatorSearchModal, IndicatorAccess, isIndicatorAllowed, getIndicatorAccess, setIndicatorAccess, subscribeIndicatorAccess } from './indicator_search';
 import { IndicatorSettingsModal, applySavedDefaults, withCommonSettings, safeLocalStorage } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -4713,6 +4713,9 @@ export class ChartWidget implements Disposable {
                 break;
             case 'news-overlay':
                 this.addOverlayIndicator(new NewsIndicator({}));
+                break;
+            case 'liq-heatmap':
+                this.addOverlayIndicator(new LiqHeatmapIndicator({}));
                 break;
             case 'judas-swing':
                 this.addOverlayIndicator(new JudasSwingIndicator({}));

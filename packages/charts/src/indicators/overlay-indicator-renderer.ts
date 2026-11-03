@@ -61,7 +61,9 @@ export class OverlayIndicatorRenderer {
             if (!indicator.shown) continue;
 
             // Apply filter if provided
-            const isHistogram = indicator.options.style === 'histogram';
+            // Background layer = histogram style (Volume) or an indicator that opts in with `drawBehind`
+            // (e.g. the liquidation heatmap): both are painted BEFORE the candles.
+            const isHistogram = indicator.options.style === 'histogram' || (indicator as any).drawBehind === true;
             if (styleFilter === 'histogram' && !isHistogram) continue;
             if (styleFilter === 'non-histogram' && isHistogram) continue;
 
