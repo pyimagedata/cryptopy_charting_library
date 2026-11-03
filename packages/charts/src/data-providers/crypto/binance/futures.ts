@@ -50,7 +50,12 @@ const DEFAULT_CONFIG: Required<BinanceFuturesConfig> = {
 // ============================================================================
 
 const REST_BASE_URL = 'https://fapi.binance.com';
-const WS_BASE_URL = 'wss://fstream.binance.com/ws';
+// Binance USDT-M futures stream yollari ayrildi: depth/bookTicker -> /public/ws, digerleri -> /market/ws
+function wsUrlFor(streamName: string): string {
+    const isPublic = streamName.includes('@depth') || streamName.includes('@bookTicker');
+    const base = isPublic ? 'wss://fstream.binance.com/public/ws' : 'wss://fstream.binance.com/market/ws';
+    return `${base}/${streamName}`;
+}
 
 const INTERVAL_MAP: Record<CandleInterval, string> = {
     '1s': '1s', '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
@@ -388,7 +393,7 @@ export class BinanceFuturesProvider extends BaseDataProvider implements
 
         // Connect to all-market liquidation stream if not connected
         if (!this._liquidationWs) {
-            const wsUrl = `${WS_BASE_URL}/!forceOrder@arr`;
+            const wsUrl = wsUrlFor('!forceOrder@arr');
             this._liquidationWs = new WebSocket(wsUrl);
 
             this._liquidationWs.onopen = () => this.log('Liquidation stream connected');
@@ -517,7 +522,7 @@ export class BinanceFuturesProvider extends BaseDataProvider implements
         type: string,
         onMessage: (data: any) => void
     ): WebSocket {
-        const wsUrl = `${WS_BASE_URL}/${streamName}`;
+        const wsUrl = wsUrlFor(streamName);
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => this.log(`${type} stream connected: ${streamName}`);

@@ -117,7 +117,8 @@ export const FETCHERS: SourceFetcher[] = [
         fetch: async () => {
             const data = await getJson('https://fapi.binance.com/fapi/v1/exchangeInfo', 'Binance Futures');
             return data.symbols
-                .filter((s: any) => s.status === 'TRADING' && s.contractType === 'PERPETUAL' && s.quoteAsset === 'USDT')
+                // TRADIFI_PERPETUAL: XAUUSDT / XAGUSDT gibi emtia perp'leri
+                .filter((s: any) => s.status === 'TRADING' && (s.contractType === 'PERPETUAL' || s.contractType === 'TRADIFI_PERPETUAL') && s.quoteAsset === 'USDT')
                 .map((s: any) => cryptoPerp(s.symbol, s.baseAsset, 'BINANCE-FUTURES', 'binance-futures'));
         },
     },

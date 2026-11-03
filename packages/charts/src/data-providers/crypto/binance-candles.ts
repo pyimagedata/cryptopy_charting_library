@@ -73,7 +73,7 @@ export class BinanceCandleProvider extends BaseDataProvider implements ICandlePr
 
     private get _wsBaseUrl(): string {
         return this._config.market === 'futures'
-            ? 'wss://fstream.binance.com/ws'
+            ? 'wss://fstream.binance.com/market/ws'
             : 'wss://stream.binance.com:9443/ws';
     }
 

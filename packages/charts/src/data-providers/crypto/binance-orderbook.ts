@@ -61,7 +61,7 @@ export class BinanceOrderbookProvider extends BaseDataProvider implements IOrder
 
     private get _wsBaseUrl(): string {
         return this._config.market === 'futures'
-            ? 'wss://fstream.binance.com/ws'
+            ? 'wss://fstream.binance.com/public/ws'
             : 'wss://stream.binance.com:9443/ws';
     }
 
