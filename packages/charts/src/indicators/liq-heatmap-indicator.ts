@@ -1,6 +1,7 @@
 // Likidasyon Haritasi (Liquidation Heatmap): CoinGlass tarzi isi haritasi, mumlarin ARKASINDA.
-// Veri backend'den gelir (host `LiqHeatmapIndicator.defaultProvider` ile istegi yapar, oturum ve
-// premium yetki orada kontrol edilir); burada yalnizca ayristirma, renklendirme ve cizim var.
+// Veri varsayilan olarak TARAYICIDA hesaplanir (liq-heatmap-binance + liq-heatmap-model: Binance fapi
+// REST'ten 5m mum + OI, son 30 gun). Yalnizca 3 aylik periyot + BTCUSDT/ETHUSDT icin (30 gunden uzun
+// gecmis sadece DB'de var) host'un `LiqHeatmapIndicator.defaultProvider` backend saglayicisi kullanilir.
 //
 // Cizim: gorunur kosular bir ImageData tamponuna (bitmap cozunurlugunde) rasterlanir, tek
 // drawImage ile (opacity = globalAlpha) basilir. Dikdortgenler birbirini ortmedigi icin
@@ -11,6 +12,7 @@ import { BarData } from '../model/data';
 import { RemoteContext, barTimeMs } from './remote-compute';
 import { IndicatorLegendInfo } from './legend-info';
 import { parseTimeframe } from '../drawings/intervals-visibility';
+import { computeLiqHeatmapLocal } from './liq-heatmap-binance';
 
 export type LiqHeatmapPeriod = '12h' | '24h' | '3d' | '1w' | '2w' | '1m' | '3m';
 /** Setting value: a real period or 'auto' (follows the chart timeframe). */
@@ -70,7 +72,7 @@ export interface LiqHeatmapQuery {
 }
 
 /** Host-supplied fetcher. Throw an Error with `status` 401/403/404 on those responses; return null for "no data". */
-export type LiqHeatmapProvider = (query: LiqHeatmapQuery) => Promise<LiqHeatmapResponse | null>;
+export type LiqHeatmapProvider = (query: LiqHeatmapQuery, opts?: { signal?: AbortSignal }) => Promise<LiqHeatmapResponse | null>;
 
 const PERIODS: LiqHeatmapPeriod[] = ['12h', '24h', '3d', '1w', '2w', '1m', '3m'];
 const PERIOD_LABELS: Record<LiqHeatmapPeriod, string> = {
@@ -191,7 +193,7 @@ interface Cells {
 }
 
 export class LiqHeatmapIndicator extends OverlayIndicator {
-    /** Host sets this once (page script), like NewsIndicator.defaultProvider. */
+    /** Host sets this once (page script), like NewsIndicator.defaultProvider. Backend path: only 3m + BTCUSDT/ETHUSDT. */
     static defaultProvider: LiqHeatmapProvider | null = null;
 
     /** Read by OverlayIndicatorRenderer: drawn in the pass BEFORE the candles. */
@@ -205,6 +207,8 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     private _extent: { t0: number; t1: number; pMin: number; pMax: number } | null = null;
     private _loadedKey = '';
     private _gen = 0;
+    /** Cancels the in-flight local load (symbol switch / reset / destroy). */
+    private _abort: AbortController | null = null;
     private _inFlight = false;
     private _again = false;
     private _denied: 401 | 403 | null = null;
@@ -414,6 +418,8 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
 
     private _resetData(): void {
         this._gen++;
+        this._abort?.abort();
+        this._abort = null;
         this._cells = null;
         this._extent = null;
         this._colorIdx = null;
@@ -456,6 +462,15 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         this._retryTimer = setTimeout(() => { this._retryTimer = null; this._scheduleEnsure(); }, WARMING_RETRY_MS + 50);
     }
 
+    /** Backend (DB) path only for 3m on symbols with long history; everything else is computed locally. */
+    private _useBackend(sym: string): boolean {
+        return this._period() === '3m' && LONG_HISTORY.has(sym);
+    }
+
+    private _canLoad(sym: string): boolean {
+        return !this._useBackend(sym) || !!LiqHeatmapIndicator.defaultProvider;
+    }
+
     private _blocked(): boolean {
         return this._denied !== null || this._unsupportedMap || this._unsupportedSrv || this._periodUnavailable || Date.now() < this._retryAt;
     }
@@ -491,23 +506,25 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     }
 
     private _ensure(): void {
-        if (this._blocked() || !LiqHeatmapIndicator.defaultProvider || !this._ctx || !this.shown) return;
+        if (this._blocked() || !this._ctx || !this.shown) return;
         const sym = this._backendSymbol();
-        if (!sym) return;
+        if (!sym || !this._canLoad(sym)) return;
         if (this._wantKey(sym) === this._loadedKey) return;
         void this._fetch(sym);
     }
 
     private async _fetch(sym: string): Promise<void> {
-        const provider = LiqHeatmapIndicator.defaultProvider;
+        const provider: LiqHeatmapProvider | null = this._useBackend(sym) ? LiqHeatmapIndicator.defaultProvider : computeLiqHeatmapLocal;
         if (!provider) return;
         if (this._inFlight) { this._again = true; return; }
         this._inFlight = true;
         const gen = this._gen;
         const key = this._wantKey(sym);
         const end = this._end();
+        const ctl = new AbortController();
+        this._abort = ctl;
         try {
-            const resp = await provider({ symbol: sym, period: this._period(), ...(end !== undefined ? { end } : {}) });
+            const resp = await provider({ symbol: sym, period: this._period(), ...(end !== undefined ? { end } : {}) }, { signal: ctl.signal });
             if (gen !== this._gen) return;
             if (resp && Array.isArray(resp.bins) && resp.bin_size > 0 && resp.scale > 0) {
                 this._cells = buildCells(resp);
@@ -547,6 +564,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
                 }
             }
         } finally {
+            if (this._abort === ctl) this._abort = null;
             if (gen === this._gen) {
                 this._inFlight = false;
                 this._dataChanged.fire();
@@ -556,7 +574,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     }
 
     private _poll(): void {
-        if (this._blocked() || !LiqHeatmapIndicator.defaultProvider || !this._ctx || !this.shown) return;
+        if (this._blocked() || !this._ctx || !this.shown) return;
         if (this._end() !== undefined) return; // replay: imlec hareketi yeniler
         if (typeof document !== 'undefined' && document.hidden) return;
         this._loadedKey = ''; // force a refetch (bucket granularity is 60 s)
@@ -623,9 +641,9 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
 
     drawOverlay(ctx: CanvasRenderingContext2D, timeScale: any, priceScale: any, hpr: number, vpr: number): void {
         const cells = this._cells;
-        if (!this._blocked() && LiqHeatmapIndicator.defaultProvider && this._ctx) {
+        if (!this._blocked() && this._ctx) {
             const sym = this._backendSymbol();
-            if (sym && this._wantKey(sym) !== this._loadedKey) this._scheduleEnsure();
+            if (sym && this._canLoad(sym) && this._wantKey(sym) !== this._loadedKey) this._scheduleEnsure();
         }
         if (!cells || cells.n === 0 || this._denied !== null || this._unsupportedMap || this._unsupportedSrv || this._periodUnavailable || this._times.length === 0) return;
 
@@ -733,6 +751,8 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
 
     destroy(): void {
         this._gen++;
+        this._abort?.abort();
+        this._abort = null;
         if (this._ensureTimer !== null) clearTimeout(this._ensureTimer);
         this._ensureTimer = null;
         this._clearRetry();
