@@ -24,6 +24,8 @@ export interface LiqHeatmapOptions {
     threshold: number;
     palette: LiqHeatmapPalette;
     opacity: number;
+    /** Paint the whole payload extent with the palette's lowest colour (CoinGlass look). */
+    fillBackground: boolean;
     visible: boolean;
 }
 
@@ -33,6 +35,7 @@ const defaultLiqHeatmapOptions: LiqHeatmapOptions = {
     threshold: 0.85,
     palette: 'viridis',
     opacity: 0.85,
+    fillBackground: true,
     visible: true,
 };
 
@@ -181,6 +184,8 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     private _cells: Cells | null = null;
     private _colorIdx: Uint8Array | null = null;
     private _colorKey = '';
+    /** Payload extent: time (epoch ms) and price. */
+    private _extent: { t0: number; t1: number; pMin: number; pMax: number } | null = null;
     private _loadedKey = '';
     private _gen = 0;
     private _inFlight = false;
@@ -258,6 +263,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
                             ],
                         },
                         { type: 'slider', key: 'opacity', label: 'Opaklık', min: 0.1, max: 1, step: 0.05, defaultValue: this._o.opacity },
+                        { type: 'checkbox', key: 'fillBackground', label: 'Arka planı doldur', defaultValue: this._o.fillBackground },
                     ] }],
                 },
             ],
@@ -385,6 +391,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     private _resetData(): void {
         this._gen++;
         this._cells = null;
+        this._extent = null;
         this._colorIdx = null;
         this._colorKey = '';
         this._loadedKey = '';
@@ -466,6 +473,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
             if (gen !== this._gen) return;
             if (resp && Array.isArray(resp.bins) && resp.bin_size > 0 && resp.scale > 0) {
                 this._cells = buildCells(resp);
+                this._extent = computeExtent(resp, this._cells);
                 this._colorIdx = null;
                 this._colorKey = '';
                 this._loadedKey = key;
@@ -615,6 +623,23 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
             binY1[b] = Math.min(H, y1);
         }
 
+        const ext = this._extent;
+        if (this._o.fillBackground && ext) {
+            const fb = Math.min(ext.t1, cutoff);
+            if (fb > ext.t0) {
+                const xa = Math.max(0, Math.floor((xBase + (this._msToFi(ext.t0) - 0.5) * spacing) * hpr));
+                const xb = Math.min(W, Math.ceil((xBase + (this._msToFi(fb) - 0.5) * spacing) * hpr));
+                const ya = (priceScale.priceToCoordinate(ext.pMax) as number) * vpr;
+                const yb = (priceScale.priceToCoordinate(ext.pMin) as number) * vpr;
+                const ya0 = Math.max(0, Math.floor(Math.min(ya, yb)));
+                const yb0 = Math.min(H, Math.ceil(Math.max(ya, yb)));
+                if (isFinite(ya0) && isFinite(yb0) && xb > xa && yb0 > ya0) {
+                    const bg = lut[0];
+                    for (let y = ya0; y < yb0; y++) px.fill(bg, y * W + xa, y * W + xb);
+                }
+            }
+        }
+
         const { t0, t1, bin } = cells;
         let drawn = 0;
         for (let i = 0; i < cells.n; i++) {
@@ -671,6 +696,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         if (this._pollTimer !== null) clearInterval(this._pollTimer);
         this._pollTimer = null;
         this._cells = null;
+        this._extent = null;
         this._colorIdx = null;
         this._img = null;
         this._px = null;
@@ -678,6 +704,23 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         this._offCtx = null;
         super.destroy();
     }
+}
+
+function computeExtent(resp: LiqHeatmapResponse, cells: Cells): { t0: number; t1: number; pMin: number; pMax: number } | null {
+    if (cells.n === 0) return null;
+    let t0 = Infinity, t1 = -Infinity;
+    if (typeof resp.start === 'number' && isFinite(resp.start)) t0 = resp.start;
+    else for (let i = 0; i < cells.n; i++) if (cells.t0[i] < t0) t0 = cells.t0[i];
+    if (typeof resp.end === 'number' && isFinite(resp.end)) t1 = resp.end;
+    else for (let i = 0; i < cells.n; i++) if (cells.t1[i] > t1) t1 = cells.t1[i];
+    let pMin = Infinity, pMax = -Infinity;
+    for (let b = 0; b < cells.binP.length; b++) {
+        if (cells.binP[b] < pMin) pMin = cells.binP[b];
+        if (cells.binP[b] > pMax) pMax = cells.binP[b];
+    }
+    pMax += cells.binSize;
+    if (!(t1 > t0) || !(pMax > pMin)) return null;
+    return { t0, t1, pMin, pMax };
 }
 
 // --- Payload -> cells -----------------------------------------------------------
