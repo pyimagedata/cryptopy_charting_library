@@ -82,9 +82,23 @@ const PERIOD_MINUTES: Record<LiqHeatmapPeriod, number> = {
 /** 'auto' target: the period should span about this many bars. */
 const AUTO_TARGET_BARS = 120;
 
-/** Resolves a period setting to a real backend period. 'auto' picks the smallest period covering ~120 bars of `timeframe`. */
-export function resolveLiqHeatmapPeriod(period: LiqHeatmapPeriodOption, timeframe?: string | null): LiqHeatmapPeriod {
+/** Symbols with data older than 30 days on the backend (DB); every other Binance USDT-M perp is limited to 1 month. */
+const LONG_HISTORY = new Set(['BTCUSDT', 'ETHUSDT']);
+const SHORT_HISTORY_MAX: LiqHeatmapPeriod = '1m';
+
+/**
+ * Resolves a period setting to a real backend period. 'auto' picks the smallest period covering ~120 bars of `timeframe`.
+ * When `symbol` (backend symbol) is given and is not in LONG_HISTORY, the auto result is capped at '1m'.
+ * Without `symbol` the result is uncapped (same as before).
+ */
+export function resolveLiqHeatmapPeriod(period: LiqHeatmapPeriodOption, timeframe?: string | null, symbol?: string | null): LiqHeatmapPeriod {
     if (period !== 'auto') return period;
+    const p = autoPeriod(timeframe);
+    if (symbol && !LONG_HISTORY.has(symbol) && PERIOD_MINUTES[p] > PERIOD_MINUTES[SHORT_HISTORY_MAX]) return SHORT_HISTORY_MAX;
+    return p;
+}
+
+function autoPeriod(timeframe?: string | null): LiqHeatmapPeriod {
     const tf = parseTimeframe(timeframe);
     if (!tf || tf.kind === 'ticks' || tf.kind === 'ranges') return '24h';
     const mult = tf.mult;
@@ -104,10 +118,13 @@ const ENSURE_DEBOUNCE_MS = 300;
 const REPLAY_DEBOUNCE_MS = 250;
 const REPLAY_MAX_WAIT_MS = 1000;
 const POLL_MS = 60_000;
+const WARMING_RETRY_MS = 3000;
+/** After this many consecutive 202 warming answers (~3 min) treat it as a failure (backoff). */
+const WARMING_MAX_TRIES = 60;
 const BUCKET_MS = 60_000;
 /** x below this is not drawn (chart background stays). */
 const X_EPS = 0.002;
-const SUPPORTED = new Set(['BTCUSDT', 'ETHUSDT']);
+const SYMBOL_RE = /^[A-Z0-9]{2,20}USDT$/;
 
 // --- Palettes -----------------------------------------------------------------
 
@@ -151,12 +168,12 @@ function paletteLut(name: LiqHeatmapPalette): Uint32Array {
     return lut;
 }
 
-/** Chart symbol/exchange -> backend symbol, or null when unsupported. */
+/** Chart symbol/exchange -> backend symbol, or null when not a Binance USDT pair (the server decides the rest). */
 export function liqHeatmapSymbol(symbol: string, exchange?: string): string | null {
     const ex = (exchange ?? '').toUpperCase();
     if (ex !== 'BINANCE' && ex !== 'BINANCE-FUTURES') return null;
     const s = symbol.toUpperCase().replace(/\.P$/, '');
-    return SUPPORTED.has(s) ? s : null;
+    return SYMBOL_RE.test(s) ? s : null;
 }
 
 /** Flattened, long+short-combined cells. */
@@ -193,13 +210,16 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     private _denied: 401 | 403 | null = null;
     /** Backend said 404 unsupported_symbol (reset on period / replay cursor change). */
     private _unsupportedSrv = false;
-    /** Symbol/exchange is not BTCUSDT/ETHUSDT on Binance (client-side mapping). */
+    /** Backend said 404 period_unavailable (period longer than the symbol's 30-day history; reset like _unsupportedSrv). */
+    private _periodUnavailable = false;
+    /** Symbol/exchange is not a Binance USDT pair (client-side mapping). */
     private _unsupportedMap = false;
     /** Backend 404 other than unsupported_symbol (e.g. not enough data yet). */
     private _noData = false;
     private _ensureSince = 0;
     private _tz = '';
     private _failed = false;
+    private _warmingTries = 0;
     private _warned = false;
     private _updatedAt = 0;
     private _ensureTimer: ReturnType<typeof setTimeout> | null = null;
@@ -278,6 +298,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
             this._resetData();
             this._denied = null;
             this._unsupportedSrv = false;
+            this._periodUnavailable = false;
             this._scheduleEnsure();
         }
         this._dataChanged.fire();
@@ -294,6 +315,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
             this._resetData();
             this._denied = null;
             this._unsupportedSrv = false;
+            this._periodUnavailable = false;
             this._unsupportedMap = this._backendSymbol() === null;
             this._scheduleEnsure();
         } else if (tfPeriodChanged || prev.end !== ctx.end) {
@@ -307,6 +329,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
             const backward = prev.end !== undefined && ctx.end !== undefined && ctx.end < prev.end;
             if (enterLeave || backward) this._resetData();
             this._unsupportedSrv = false;
+            this._periodUnavailable = false;
             this._noData = false;
             this._clearRetry();
             this._scheduleEnsure(); // yalnizca dakika kovasi degisince gercekten istek atilir
@@ -350,7 +373,8 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     private _statusText(): string {
         if (this._denied === 401) return 'giriş gerekli';
         if (this._denied === 403) return 'premium gerekli';
-        if (this._unsupportedMap || this._unsupportedSrv) return 'desteklenmeyen sembol (yalnız Binance BTCUSDT/ETHUSDT)';
+        if (this._unsupportedMap || this._unsupportedSrv) return 'desteklenmeyen sembol (yalnız Binance vadeli)';
+        if (this._periodUnavailable) return 'bu periyot bu sembolde yok (en fazla ~1 ay geçmiş)';
         const parts: string[] = [
             this._o.period === 'auto' ? `Otomatik (${PERIOD_LABELS[this._period()]})` : this._o.period,
             'Binance',
@@ -399,6 +423,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         this._again = false;
         this._failed = false;
         this._noData = false;
+        this._warmingTries = 0;
         this._warned = false;
         this._updatedAt = 0;
         this._clearRetry();
@@ -418,8 +443,21 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         this._retryTimer = setTimeout(() => { this._retryTimer = null; this._scheduleEnsure(); }, this._retryDelay + 50);
     }
 
+    /** Server is still fetching the symbol (202 warming): fixed short retry, no backoff, not a failure. */
+    private _retryWarming(): void {
+        if (++this._warmingTries > WARMING_MAX_TRIES) {
+            this._warmingTries = 0;
+            this._failed = true;
+            this._backoff();
+            return;
+        }
+        this._retryAt = Date.now() + WARMING_RETRY_MS;
+        if (this._retryTimer !== null) clearTimeout(this._retryTimer);
+        this._retryTimer = setTimeout(() => { this._retryTimer = null; this._scheduleEnsure(); }, WARMING_RETRY_MS + 50);
+    }
+
     private _blocked(): boolean {
-        return this._denied !== null || this._unsupportedMap || this._unsupportedSrv || Date.now() < this._retryAt;
+        return this._denied !== null || this._unsupportedMap || this._unsupportedSrv || this._periodUnavailable || Date.now() < this._retryAt;
     }
 
     /** Replay cursor, or undefined when live. */
@@ -429,7 +467,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
 
     /** Real period to send/key: 'auto' resolved from the chart timeframe. */
     private _period(): LiqHeatmapPeriod {
-        return resolveLiqHeatmapPeriod(this._o.period, this._ctx?.timeframe);
+        return resolveLiqHeatmapPeriod(this._o.period, this._ctx?.timeframe, this._backendSymbol());
     }
 
     private _wantKey(sym: string): string {
@@ -479,6 +517,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
                 this._loadedKey = key;
                 this._failed = false;
                 this._noData = false;
+                this._warmingTries = 0;
                 this._updatedAt = typeof resp.oi_last_time === 'number' && resp.oi_last_time > 0 ? resp.oi_last_time : Date.now();
                 this.stats.totalRuns = this._cells.n;
                 this._clearRetry();
@@ -492,6 +531,10 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
             if (status === 401 || status === 403) this._denied = status;
             else if (status === 404 && (error as { detail?: unknown }).detail === 'unsupported_symbol') {
                 this._unsupportedSrv = true; // yeniden deneme yok (periyot / replay imleci degisince sifirlanir)
+            } else if (status === 404 && (error as { detail?: unknown }).detail === 'period_unavailable') {
+                this._periodUnavailable = true; // yeniden deneme yok (periyot / sembol / replay imleci degisince sifirlanir)
+            } else if (status === 202) {
+                this._retryWarming(); // {detail:'warming'}: durum "yükleniyor…" kalir
             } else if (status === 404) {
                 this._noData = true; // "yeterli veri yok" gibi: gecici, backoff ile tekrar dene
                 this._backoff();
@@ -584,7 +627,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
             const sym = this._backendSymbol();
             if (sym && this._wantKey(sym) !== this._loadedKey) this._scheduleEnsure();
         }
-        if (!cells || cells.n === 0 || this._denied !== null || this._unsupportedMap || this._unsupportedSrv || this._times.length === 0) return;
+        if (!cells || cells.n === 0 || this._denied !== null || this._unsupportedMap || this._unsupportedSrv || this._periodUnavailable || this._times.length === 0) return;
 
         this._tz = timeScale.timeMarks?.timezone ?? '';
         const tStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
