@@ -10,13 +10,16 @@ import { OverlayIndicator } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteContext, barTimeMs } from './remote-compute';
 import { IndicatorLegendInfo } from './legend-info';
+import { parseTimeframe } from '../drawings/intervals-visibility';
 
 export type LiqHeatmapPeriod = '12h' | '24h' | '3d' | '1w' | '2w' | '1m' | '3m';
+/** Setting value: a real period or 'auto' (follows the chart timeframe). */
+export type LiqHeatmapPeriodOption = LiqHeatmapPeriod | 'auto';
 export type LiqHeatmapPalette = 'viridis' | 'magma' | 'jet' | 'cividis';
 
 export interface LiqHeatmapOptions {
     name: string;
-    period: LiqHeatmapPeriod;
+    period: LiqHeatmapPeriodOption;
     /** "Liquidity Threshold" 0..1 (CoinGlass slider benzeri; bkz. _satValue) */
     threshold: number;
     palette: LiqHeatmapPalette;
@@ -26,7 +29,7 @@ export interface LiqHeatmapOptions {
 
 const defaultLiqHeatmapOptions: LiqHeatmapOptions = {
     name: 'Likidasyon Haritası',
-    period: '24h',
+    period: 'auto',
     threshold: 0.85,
     palette: 'viridis',
     opacity: 0.85,
@@ -70,6 +73,29 @@ const PERIODS: LiqHeatmapPeriod[] = ['12h', '24h', '3d', '1w', '2w', '1m', '3m']
 const PERIOD_LABELS: Record<LiqHeatmapPeriod, string> = {
     '12h': '12 saat', '24h': '24 saat', '3d': '3 gün', '1w': '1 hafta', '2w': '2 hafta', '1m': '1 ay', '3m': '3 ay',
 };
+const PERIOD_MINUTES: Record<LiqHeatmapPeriod, number> = {
+    '12h': 720, '24h': 1440, '3d': 4320, '1w': 10080, '2w': 20160, '1m': 43200, '3m': 129600,
+};
+/** 'auto' target: the period should span about this many bars. */
+const AUTO_TARGET_BARS = 120;
+
+/** Resolves a period setting to a real backend period. 'auto' picks the smallest period covering ~120 bars of `timeframe`. */
+export function resolveLiqHeatmapPeriod(period: LiqHeatmapPeriodOption, timeframe?: string | null): LiqHeatmapPeriod {
+    if (period !== 'auto') return period;
+    const tf = parseTimeframe(timeframe);
+    if (!tf || tf.kind === 'ticks' || tf.kind === 'ranges') return '24h';
+    const mult = tf.mult;
+    const perBar = tf.kind === 'seconds' ? mult / 60
+        : tf.kind === 'minutes' ? mult
+        : tf.kind === 'hours' ? mult * 60
+        : tf.kind === 'days' ? mult * 1440
+        : tf.kind === 'weeks' ? mult * 10080
+        : mult * 43200;
+    const target = AUTO_TARGET_BARS * perBar;
+    for (const p of PERIODS) if (PERIOD_MINUTES[p] >= target) return p;
+    return '3m';
+}
+
 const ENSURE_DEBOUNCE_MS = 300;
 /** Replay stepping: trailing debounce, with a max wait so continuous play still refreshes. */
 const REPLAY_DEBOUNCE_MS = 250;
@@ -215,7 +241,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
                     id: 'inputs', label: 'Inputs', sections: [{ rows: [
                         {
                             type: 'select', key: 'period', label: 'Periyot', defaultValue: this._o.period,
-                            options: PERIODS.map(p => ({ value: p, label: PERIOD_LABELS[p] })),
+                            options: [{ value: 'auto', label: 'Otomatik' }, ...PERIODS.map(p => ({ value: p, label: PERIOD_LABELS[p] }))],
                         },
                         { type: 'slider', key: 'threshold', label: 'Likidite Eşiği', min: 0, max: 1, step: 0.01, defaultValue: this._o.threshold },
                     ] }],
@@ -255,14 +281,20 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     /** chart-widget her veri guncellemesinden once cagirir. */
     setContext(ctx: RemoteContext): void {
         const prev = this._ctx;
+        const prevPeriod = this._period();
         this._ctx = ctx;
+        const tfPeriodChanged = !!prev && this._period() !== prevPeriod;
         if (!prev || prev.symbol !== ctx.symbol || (prev.exchange ?? '') !== (ctx.exchange ?? '')) {
             this._resetData();
             this._denied = null;
             this._unsupportedSrv = false;
             this._unsupportedMap = this._backendSymbol() === null;
             this._scheduleEnsure();
-        } else if (prev.end !== ctx.end) {
+        } else if (tfPeriodChanged || prev.end !== ctx.end) {
+            if (tfPeriodChanged) {
+                this._resetData();
+                this._denied = null;
+            }
             // Replay enter/leave or cursor moved backward: a later-end payload must not stay on screen
             // (same rule as RemoteCompute.setContext).
             const enterLeave = (prev.end === undefined) !== (ctx.end === undefined);
@@ -313,7 +345,10 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         if (this._denied === 401) return 'giriş gerekli';
         if (this._denied === 403) return 'premium gerekli';
         if (this._unsupportedMap || this._unsupportedSrv) return 'desteklenmeyen sembol (yalnız Binance BTCUSDT/ETHUSDT)';
-        const parts: string[] = [this._o.period, 'Binance'];
+        const parts: string[] = [
+            this._o.period === 'auto' ? `Otomatik (${PERIOD_LABELS[this._period()]})` : this._o.period,
+            'Binance',
+        ];
         if (this._cells) {
             const ts = this._updatedAt;
             if (ts > 0) parts.push(this._fmtTime(ts));
@@ -385,9 +420,14 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         return this._ctx?.end;
     }
 
+    /** Real period to send/key: 'auto' resolved from the chart timeframe. */
+    private _period(): LiqHeatmapPeriod {
+        return resolveLiqHeatmapPeriod(this._o.period, this._ctx?.timeframe);
+    }
+
     private _wantKey(sym: string): string {
         const end = this._end();
-        return `${sym}|${this._o.period}|${end === undefined ? 'live' : Math.floor(end / BUCKET_MS)}`;
+        return `${sym}|${this._period()}|${end === undefined ? 'live' : Math.floor(end / BUCKET_MS)}`;
     }
 
     private _scheduleEnsure(): void {
@@ -422,7 +462,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         const key = this._wantKey(sym);
         const end = this._end();
         try {
-            const resp = await provider({ symbol: sym, period: this._o.period, ...(end !== undefined ? { end } : {}) });
+            const resp = await provider({ symbol: sym, period: this._period(), ...(end !== undefined ? { end } : {}) });
             if (gen !== this._gen) return;
             if (resp && Array.isArray(resp.bins) && resp.bin_size > 0 && resp.scale > 0) {
                 this._cells = buildCells(resp);
