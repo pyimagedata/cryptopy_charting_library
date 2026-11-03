@@ -209,7 +209,7 @@ const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const CACHE_DB = 'evo-symbol-catalog';
 const CACHE_STORE = 'kv';
 /** Bump when the SymbolInfo mapping of any cached source changes: entries of other schemas are ignored. */
-const CATALOG_SCHEMA = 1;
+const CATALOG_SCHEMA = 2; // 2: Binance Futures listesine TRADIFI_PERPETUAL eklendi
 const CACHE_KEY = `external-v${CATALOG_SCHEMA}`;
 /** IndexedDB can stall (blocked / private mode): never let it hold up the network fetch. */
 const CACHE_IO_TIMEOUT_MS = 1000;
