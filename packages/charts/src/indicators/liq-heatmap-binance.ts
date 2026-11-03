@@ -193,11 +193,13 @@ export async function isBinancePerp(code: string, signal?: AbortSignal): Promise
 
 interface Raw {
     kt: Float64Array; kh: Float64Array; kl: Float64Array; kc: Float64Array;
+    /** taker alis payi = kline[9]/kline[5] (hacim 0 -> 0.5) */
+    ks: Float64Array;
     ot: Float64Array; ov: Float64Array;
     covStart: number; covEnd: number;
 }
 
-type KRow = [number, number, number, number];
+type KRow = [number, number, number, number, number];
 type ORow = [number, number];
 
 async function fetchKlines(code: string, startMs: number, endMs: number | null, signal?: AbortSignal): Promise<KRow[]> {
@@ -208,7 +210,12 @@ async function fetchKlines(code: string, startMs: number, endMs: number | null, 
         const params: Record<string, string | number> = { symbol: code, interval: '5m', limit: KLINE_LIMIT, startTime: cursor };
         if (endMs !== null) params.endTime = endMs;
         const rows: any[] = await httpGet('/fapi/v1/klines', params, REQUEST_TIMEOUT_MS, 1, signal);
-        for (const r of rows) out.push([Number(r[0]), parseFloat(r[2]), parseFloat(r[3]), parseFloat(r[4])]);
+        for (const r of rows) {
+            // taker alis payi: kline[9] (taker buy base vol) / kline[5] (volume); hacim 0 -> 0.5 (sunucu liqremote ile ayni)
+            const vol = parseFloat(r[5]);
+            const tbv = parseFloat(r[9]);
+            out.push([Number(r[0]), parseFloat(r[2]), parseFloat(r[3]), parseFloat(r[4]), vol > 0 ? tbv / vol : 0.5]);
+        }
         if (rows.length < KLINE_LIMIT) break;
         cursor = Number(rows[rows.length - 1][0]) + BAR_MS;
         if (cursor > stop) break;
@@ -287,11 +294,11 @@ function mergeCols(oldT: Float64Array, oldCols: Float64Array[], rows: number[][]
 
 function applyRows(raw: Raw | null, knew: KRow[], onew: ORow[], floor: number, covStart: number, covEnd: number): Raw {
     const z = new Float64Array(0);
-    const r = raw ?? { kt: z, kh: z, kl: z, kc: z, ot: z, ov: z, covStart: 0, covEnd: 0 };
-    const k = mergeCols(r.kt, [r.kh, r.kl, r.kc], knew, floor);
+    const r = raw ?? { kt: z, kh: z, kl: z, kc: z, ks: z, ot: z, ov: z, covStart: 0, covEnd: 0 };
+    const k = mergeCols(r.kt, [r.kh, r.kl, r.kc, r.ks], knew, floor);
     const o = mergeCols(r.ot, [r.ov], onew, floor);
     return {
-        kt: k.t, kh: k.cols[0], kl: k.cols[1], kc: k.cols[2], ot: o.t, ov: o.cols[0],
+        kt: k.t, kh: k.cols[0], kl: k.cols[1], kc: k.cols[2], ks: k.cols[3], ot: o.t, ov: o.cols[0],
         covStart: Math.max(covStart, floor), covEnd,
     };
 }
@@ -389,7 +396,7 @@ async function ensureRaw(code: string, need: number, endMs: number, live: boolea
 
 /** Ham seriden girdiler (load_inputs_remote): sadece onbellek okur. */
 export function sliceInputs(raw: Raw, startMs: number, endMs: number, live: boolean) {
-    const { kt, kh, kl, kc, ot, ov } = raw;
+    const { kt, kh, kl, kc, ks, ot, ov } = raw;
     const kIdx: number[] = [];
     for (let i = 0; i < kt.length; i++) {
         if (kt[i] < startMs - BAR_MS || kt[i] >= endMs) continue;
@@ -405,7 +412,7 @@ export function sliceInputs(raw: Raw, startMs: number, endMs: number, live: bool
         for (let i = 0; i < ix.length; i++) o[i] = a[ix[i]];
         return o;
     };
-    return alignInputs(pick(kt, kIdx), pick(kh, kIdx), pick(kl, kIdx), pick(kc, kIdx), pick(ot, oIdx), pick(ov, oIdx));
+    return alignInputs(pick(kt, kIdx), pick(kh, kIdx), pick(kl, kIdx), pick(kc, kIdx), pick(ot, oIdx), pick(ov, oIdx), pick(ks, kIdx));
 }
 
 /**
@@ -439,7 +446,7 @@ export async function computeLiqHeatmapLocal(query: LiqHeatmapQuery, opts?: { si
     }
     const inputs = sliceInputs(raw, startMs, endMs, live);
     if (!inputs) throw new LiqBinanceError(404, 'no_data');
-    return buildHeatmapPayload(inputs, query.period, startMs, endMs, live, code);
+    return buildHeatmapPayload(inputs, query.period, startMs, endMs, live, code, query.split ?? 'equal');
 }
 
 /** Test: onbellekleri temizler. */

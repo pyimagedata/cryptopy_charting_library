@@ -23,13 +23,19 @@ async function getJson(url) {
 async function makeFixture() {
     mkdirSync(fx, { recursive: true });
     const sym = 'BTCUSDT';
-    const end = Math.floor((Date.now() - 24 * 3600e3) / BAR) * BAR; // fixed once, saved in the fixture
+    // fixed once, saved in the fixture; re-fetching keeps the existing window (closed bars are immutable)
+    const prevPath = join(fx, 'liq-raw.json');
+    const end = existsSync(prevPath) ? JSON.parse(readFileSync(prevPath, 'utf8')).end : Math.floor((Date.now() - 24 * 3600e3) / BAR) * BAR;
     const from = end - 7 * 86400e3 - 2 * 3600e3;
     const to = end + 2 * 3600e3; // a few bars past `end` to exercise the end filters
-    const kt = [], kh = [], kl = [], kc = [];
+    const kt = [], kh = [], kl = [], kc = [], ks = [];
     for (let cur = from; cur < to;) {
         const rows = await getJson(`https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=5m&limit=1500&startTime=${cur}&endTime=${to}`);
-        for (const r of rows) { kt.push(+r[0]); kh.push(+r[2]); kl.push(+r[3]); kc.push(+r[4]); }
+        for (const r of rows) {
+            kt.push(+r[0]); kh.push(+r[2]); kl.push(+r[3]); kc.push(+r[4]);
+            const vol = parseFloat(r[5]), tbv = parseFloat(r[9]); // taker buy share: same rule as liq-heatmap-binance.ts
+            ks.push(vol > 0 ? tbv / vol : 0.5);
+        }
         if (rows.length < 1500) break;
         cur = +rows[rows.length - 1][0] + BAR;
     }
@@ -41,7 +47,7 @@ async function makeFixture() {
         cur = we + 1;
     }
     const oe = [...m.entries()].sort((a, b) => a[0] - b[0]);
-    writeFileSync(join(fx, 'liq-raw.json'), JSON.stringify({ symbol: sym, end, kt, kh, kl, kc, ot: oe.map(x => x[0]), ov: oe.map(x => x[1]) }));
+    writeFileSync(join(fx, 'liq-raw.json'), JSON.stringify({ symbol: sym, end, kt, kh, kl, kc, ks, ot: oe.map(x => x[0]), ov: oe.map(x => x[1]) }));
     console.log(`fixture: ${kt.length} klines, ${oe.length} OI rows, end=${new Date(end).toISOString()}`);
 }
 
@@ -66,7 +72,7 @@ const M = await import(pathToFileURL(await bundle()).href);
 const raw = JSON.parse(readFileSync(join(fx, 'liq-raw.json'), 'utf8'));
 const exp = JSON.parse(readFileSync(join(fx, 'liq-expected.json'), 'utf8'));
 const rawF = {
-    kt: Float64Array.from(raw.kt), kh: Float64Array.from(raw.kh), kl: Float64Array.from(raw.kl), kc: Float64Array.from(raw.kc),
+    kt: Float64Array.from(raw.kt), kh: Float64Array.from(raw.kh), kl: Float64Array.from(raw.kl), kc: Float64Array.from(raw.kc), ks: Float64Array.from(raw.ks),
     ot: Float64Array.from(raw.ot), ov: Float64Array.from(raw.ov), covStart: 0, covEnd: 0,
 };
 
@@ -78,15 +84,16 @@ let niceBad = 0;
 for (const [p, v] of exp.nice) if (M.niceBinSize(p) !== v) { niceBad++; fail(`niceBinSize(${p}) = ${M.niceBinSize(p)} vs ${v}`); }
 console.log(`niceBinSize: ${exp.nice.length - niceBad}/${exp.nice.length} exact`);
 
-for (const [period, e] of Object.entries(exp.payloads)) {
+for (const split of ['taker', 'equal'])
+for (const [period, e] of Object.entries(exp.payloads[split])) {
     const end = exp.end, start = e.start;
     const t0 = performance.now();
     const inputs = M.sliceInputs(rawF, start, end, false);
-    const a = M.buildHeatmapPayload(inputs, period, start, end, false, 'BTCUSDT');
+    const a = M.buildHeatmapPayload(inputs, period, start, end, false, 'BTCUSDT', split);
     const ms = performance.now() - t0;
-    console.log(`[${period}] bars=${inputs.t.length} bins py=${e.bins.length} ts=${a.bins.length} compute=${ms.toFixed(1)}ms`);
+    console.log(`[${split} ${period}] bars=${inputs.t.length} bins py=${e.bins.length} ts=${a.bins.length} compute=${ms.toFixed(1)}ms`);
     let ok = true;
-    const bad = (m) => { ok = false; fail(`${period}: ${m}`); };
+    const bad = (m) => { ok = false; fail(`${split} ${period}: ${m}`); };
     if (a.bin_size !== e.bin_size) bad(`bin_size ${a.bin_size} vs ${e.bin_size}`);
     const rel = Math.abs(a.scale - e.scale) / e.scale;
     if (!(rel <= 1e-9)) bad(`scale rel diff ${rel}`);

@@ -18,10 +18,13 @@ export type LiqHeatmapPeriod = '12h' | '24h' | '3d' | '1w' | '2w' | '1m' | '3m';
 /** Setting value: a real period or 'auto' (follows the chart timeframe). */
 export type LiqHeatmapPeriodOption = LiqHeatmapPeriod | 'auto';
 export type LiqHeatmapPalette = 'viridis' | 'magma' | 'jet' | 'cividis';
+/** Long/short attribution of new OI: 'equal' = fixed 50/50 (default), 'taker' = per-bar taker buy share. */
+export type LiqHeatmapSideSplit = 'taker' | 'equal';
 
 export interface LiqHeatmapOptions {
     name: string;
     period: LiqHeatmapPeriodOption;
+    sideSplit: LiqHeatmapSideSplit;
     /** "Liquidity Threshold" 0..1 (CoinGlass slider benzeri; bkz. _satValue) */
     threshold: number;
     palette: LiqHeatmapPalette;
@@ -34,6 +37,7 @@ export interface LiqHeatmapOptions {
 const defaultLiqHeatmapOptions: LiqHeatmapOptions = {
     name: 'Likidasyon Haritası',
     period: 'auto',
+    sideSplit: 'equal',
     threshold: 0.85,
     palette: 'viridis',
     opacity: 0.85,
@@ -67,6 +71,8 @@ export interface LiqHeatmapQuery {
     /** Backend symbol (BTCUSDT / ETHUSDT) */
     symbol: string;
     period: LiqHeatmapPeriod;
+    /** Long/short split (backend query param `split`); undefined = 'equal' */
+    split?: LiqHeatmapSideSplit;
     /** Replay cursor (epoch ms); undefined = live */
     end?: number;
 }
@@ -272,6 +278,10 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
                             type: 'select', key: 'period', label: 'Periyot', defaultValue: this._o.period,
                             options: [{ value: 'auto', label: 'Otomatik' }, ...PERIODS.map(p => ({ value: p, label: PERIOD_LABELS[p] }))],
                         },
+                        {
+                            type: 'select', key: 'sideSplit', label: 'Long/Short ayrımı', defaultValue: this._o.sideSplit,
+                            options: [{ value: 'taker', label: 'Taker akışı' }, { value: 'equal', label: 'Eşit (50/50)' }],
+                        },
                         { type: 'slider', key: 'threshold', label: 'Likidite Eşiği', min: 0, max: 1, step: 0.01, defaultValue: this._o.threshold },
                     ] }],
                 },
@@ -298,7 +308,10 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         const old = (this._options as any)[key];
         if (old === value) return false;
         (this._options as any)[key] = value;
-        if (key === 'period') {
+        if (key === 'sideSplit') {
+            this._resetData(); // cache key carries the split; drop the old map so it is not shown as the new mode
+            this._scheduleEnsure();
+        } else if (key === 'period') {
             this._resetData();
             this._denied = null;
             this._unsupportedSrv = false;
@@ -487,7 +500,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
 
     private _wantKey(sym: string): string {
         const end = this._end();
-        return `${sym}|${this._period()}|${end === undefined ? 'live' : Math.floor(end / BUCKET_MS)}`;
+        return `${sym}|${this._period()}|${this._o.sideSplit}|${end === undefined ? 'live' : Math.floor(end / BUCKET_MS)}`;
     }
 
     private _scheduleEnsure(): void {
@@ -524,7 +537,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
         const ctl = new AbortController();
         this._abort = ctl;
         try {
-            const resp = await provider({ symbol: sym, period: this._period(), ...(end !== undefined ? { end } : {}) }, { signal: ctl.signal });
+            const resp = await provider({ symbol: sym, period: this._period(), split: this._o.sideSplit, ...(end !== undefined ? { end } : {}) }, { signal: ctl.signal });
             if (gen !== this._gen) return;
             if (resp && Array.isArray(resp.bins) && resp.bin_size > 0 && resp.scale > 0) {
                 this._cells = buildCells(resp);

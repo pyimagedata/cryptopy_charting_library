@@ -6,11 +6,14 @@ import type { LiqHeatmapBin, LiqHeatmapResponse } from './liq-heatmap-indicator'
 
 export const BAR_MS = 5 * 60 * 1000;
 
-/** kaldirac -> yeni acilan notional payi (toplama 1'e normalize edilir); sira Python dict sirasi. */
+/** kaldirac -> yeni acilan notional payi (toplama 1'e normalize edilir); sira Python dict sirasi.
+ *  Kalibre (liqcalib): ~3.5 ay gerceklesen Binance BTC/ETH likidasyonu (Tem-Kas 2026), 1h Spearman 0.72 -> 0.85
+ *  (held-out). 3x/5x uzak katmanlar (%20) veriyle tanimlanamaz, uzak bant gorunurlugu icin tutuldu;
+ *  mmr fitlenmis bir mesafe parametresi gibi davranir. Rapor: liqcalib/calib/report.md */
 export const LEV_TIERS: ReadonlyArray<readonly [number, number]> = [
-    [100, 0.412], [50, 0.188], [25, 0.047], [5, 0.289], [3, 0.065],
+    [33, 0.456], [50, 0.112], [75, 0.168], [100, 0.064], [5, 0.163], [3, 0.037],
 ];
-export const MMR = 0.0;
+export const MMR = 0.0075;
 export const LONG_SHARE = 0.5;
 export const GRID_PAD = 0.25;
 export const BIN_PCT = 0.00065;
@@ -45,7 +48,12 @@ export interface AlignedInputs {
     c: Float64Array;
     oi: Float64Array;
     oiLast: number;
+    /** bar basina taker alis payi (0..1) ya da yok (esit bolme) */
+    bs?: Float64Array;
 }
+
+/** Long/short ayrimi: 'equal' = 50/50 (varsayilan), 'taker' = bar taker alis payina gore. */
+export type LiqSideSplit = 'taker' | 'equal';
 
 /** pct*fiyat'a log-uzayda en yakin 1/2/5 x 10^k adimi. */
 export function niceBinSize(medianPrice: number, pct: number = BIN_PCT): number {
@@ -105,7 +113,7 @@ function pairwiseSum(a: Float64Array, off: number, n: number): number {
 /** 5m barlardan paket-bazli likidasyon matrisleri (liq_model). Indeks 0 yalniz dOI/izgara icin. */
 export function liqModel(
     t: Float64Array, h: Float64Array, l: Float64Array, c: Float64Array, oiUsd: Float64Array,
-    bucketMs: number, binsz: number,
+    bucketMs: number, binsz: number, buyShare?: Float64Array | null,
 ): LiqModelResult {
     const n = t.length;
     const pad = GRID_PAD, mmr = MMR, longShare = LONG_SHARE;
@@ -140,6 +148,8 @@ export function liqModel(
 
     const lq = new Float64Array(nl), sq = new Float64Array(nl);
     const dBuf = new Float64Array(n), dtBuf = new Float64Array(n);
+    // taker modu: bar payi [0,1]'e kirpilir (NaN -> 0.5); dsBuf = d*s, dnBuf = d*(1-s)
+    const dsBuf = buyShare ? new Float64Array(n) : null, dnBuf = buyShare ? new Float64Array(n) : null;
     let gi = 1; // bar gostergesi (indeks 0 haric); bid artmayan siralidir
     for (let j = 0; j < nbk; j++) {
         const gs = gi;
@@ -160,6 +170,12 @@ export function liqModel(
                 const d = Math.max(doi[gs + i], 0.0);
                 dBuf[i] = d;
                 dtBuf[i] = d * typ[gs + i];
+                if (buyShare) {
+                    let s = buyShare[gs + i];
+                    s = Number.isNaN(s) ? 0.5 : s < 0 ? 0 : s > 1 ? 1 : s;
+                    dsBuf![i] = d * s;
+                    dnBuf![i] = d * (1.0 - s);
+                }
             }
             const acca = pairwiseSum(dBuf, 0, m);
             if (acca > 0) {
@@ -168,13 +184,19 @@ export function liqModel(
                     lq[i] = pb(e * (1 - 1 / levs[i] + mmr));
                     sq[i] = pb(e * (1 + 1 / levs[i] - mmr));
                 }
+                let accL: number, accS: number;
+                if (buyShare) {
+                    accL = pairwiseSum(dsBuf!, 0, m); accS = pairwiseSum(dnBuf!, 0, m);
+                } else {
+                    accL = acca * longShare; accS = acca * (1 - longShare);
+                }
                 for (let i = 0; i < nl; i++) {
                     const q = lq[i];
-                    if (q >= 0 && q < nb) curL[q] += acca * longShare * w[i];
+                    if (q >= 0 && q < nb) curL[q] += accL * w[i];
                 }
                 for (let i = 0; i < nl; i++) {
                     const q = sq[i];
-                    if (q >= 0 && q < nb) curS[q] += acca * (1 - longShare) * w[i];
+                    if (q >= 0 && q < nb) curS[q] += accS * w[i];
                 }
             }
         }
@@ -236,6 +258,7 @@ export function encodeRuns(
  */
 export function alignInputs(
     t: Float64Array, h: Float64Array, l: Float64Array, c: Float64Array, ot: Float64Array, ov: Float64Array,
+    bs?: Float64Array | null,
 ): AlignedInputs | null {
     if (t.length < 3 || ot.length === 0) return null;
     const n = t.length;
@@ -250,13 +273,15 @@ export function alignInputs(
     if (keep < 3) return null;
     const T = new Float64Array(keep), H = new Float64Array(keep), Lw = new Float64Array(keep);
     const C = new Float64Array(keep), OI = new Float64Array(keep);
+    const BS = bs ? new Float64Array(keep) : null;
     let k = 0;
     for (let i = 0; i < n; i++) {
         if (ix[i] < 0) continue;
         T[k] = t[i]; H[k] = h[i]; Lw[k] = l[i]; C[k] = c[i]; OI[k] = ov[ix[i]];
+        if (BS) BS[k] = bs![i];
         k++;
     }
-    return { t: T, h: H, l: Lw, c: C, oi: OI, oiLast: ot[ot.length - 1] };
+    return { t: T, h: H, l: Lw, c: C, oi: OI, oiLast: ot[ot.length - 1], ...(BS ? { bs: BS } : {}) };
 }
 
 function median(a: Float64Array): number {
@@ -274,11 +299,12 @@ function round8(x: number): number {
 /** build_heatmap'in yuk olusturma kismi. `live` payload'i etkilemez (girdi secimi veri tarafinda yapilir). */
 export function buildHeatmapPayload(
     inputs: AlignedInputs, period: string, startMs: number, endMs: number, _live: boolean, symbol = '',
+    split: LiqSideSplit = 'equal',
 ): LiqHeatmapResponse {
     const [, bucketSec] = PERIODS[period];
     const bucketMs = bucketSec * 1000;
     const binsz = niceBinSize(median(inputs.c));
-    const res = liqModel(inputs.t, inputs.h, inputs.l, inputs.c, inputs.oi, bucketMs, binsz);
+    const res = liqModel(inputs.t, inputs.h, inputs.l, inputs.c, inputs.oi, bucketMs, binsz, split === 'taker' ? inputs.bs : null);
     const { L, S, bucketStarts, lo, nb, nbk } = res;
     let scale = -Infinity;
     for (let i = 0; i < L.length; i++) { if (L[i] > scale) scale = L[i]; if (S[i] > scale) scale = S[i]; }
