@@ -942,3 +942,15 @@ calculateAngle(p1, p2): number {
 ---
 
 **End of Documentation**
+
+## Backtest datasets (MCP server)
+
+Large historical CSVs for draft backtests are declared in `$BACKTEST_DATA_DIR/datasets.json`
+(default `charting_library/backtest_data/`). See `backtest_data/datasets.example.json`.
+On a VPS: set `BACKTEST_DATA_DIR` to a writable directory, put the CSV inside it (or use an
+absolute path), and copy `datasets.example.json` to `datasets.json` there; `source` is resolved
+relative to `BACKTEST_DATA_DIR`. The first use ingests the CSV into `cache/` (once; re-ingested
+automatically if the CSV changes); `npm run ingest` in `mcp-server` does it ahead of time.
+Env knobs: `BACKTEST_MAX_BARS` (default 2000000 bars per load), `BACKTEST_MAX_RESIDENT_MB`
+(default 1024, in-memory dataset budget). Check any proxy/tunnel WS frame-size limit before
+raising the bar cap (a 2M-bar load is a 96 MB binary frame).

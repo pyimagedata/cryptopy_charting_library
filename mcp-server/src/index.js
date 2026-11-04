@@ -23,6 +23,7 @@ import {
     listDraftBacktests,
     compileDraftBacktest,
 } from './draft-backtests.js';
+import { buildBacktestSlice, listBacktestDatasets, MAX_BARS, TIMEFRAMES } from './backtest-data.js';
 
 const MCP_PORT = Number(process.env.MCP_PORT || 8766);
 const BEARER_TOKEN = process.env.MCP_BEARER_TOKEN;
@@ -502,6 +503,38 @@ const DRAFT_INDICATOR_GUIDE =
     'production automatically. Once an experiment is abandoned or superseded, use delete_draft_indicator to remove ' +
     'its file so list_draft_indicators stays accurate.';
 
+const BT_ENGINE_GUIDE =
+    'BACKTEST ENGINE `bt` (v1.0.0) -- already in scope in every draft (do not import/declare it); write only strategy logic.\n' +
+    'DATA: bt.data() -> {t,o,h,l,c,v,meta,length} (dataset mode); await bt.chartData() -> same shape from the chart (+barIndex[]). ' +
+    'bt.slice(d, fromMs, toMs, warmupBars).\n' +
+    'INDICATORS (Float64Array in/out, NaN warm-up, causal: value[i] uses bars <= i): sma ema rma(=wilder) wma stdev highest lowest (x,n); ' +
+    'atr(d,n) tr(d) rsi(x,n) change(x,k) roc(x,k) shift(x,k) bollinger(x,n,m)->{mid,upper,lower} donchian(h,l,n)->{upper,lower,mid} ' +
+    'macd(x,f,s,sig)->{macd,signal,hist} vwap(d,{reset:"1d"|"1d_ny"}) crossover/crossunder(a,b) (series or number -> Uint8Array). ' +
+    'A channel that includes bar i is NOT "previous bars": for a breakout use bt.shift(bt.highest(h,20),1) and compare close[i] to it.\n' +
+    'HTF: const H = bt.resample(d,"1d"); const x = H.align(bt.ema(H.c,20)) -> base-length series; value of an HTF bar appears only after that bar CLOSED (no look-ahead). Never index HTF arrays with base indices.\n' +
+    'RUN: const res = bt.run({ data, params, init(ctx), onBar(ctx,i), capital=10000, contractSize (default 100 for XAU*, else 1; PnL = move*lots*contractSize), ' +
+    'costs:{spread (price units), commissionPerLot (per side), slippage (price units, market+stop fills, not TP)}, priceBasis:"mid"|"bid" (default meta.priceBasis, XAU_1m = bid), periodsPerYear=252 (use 365 for 24/7 assets), ' +
+    'sizing:{mode:"fixed",lots}|{mode:"riskPct",riskPct}(needs sl/slDist; riskIncludesCosts=true sizes so a stop-out at the stop loses riskPct incl. costs; gaps can exceed)|{mode:"notionalPct",pct}, maxLots=100, lotStep=0.01, maxLeverageWarn=30, allowShort=true, pyramiding=false, ' +
+    'fill:"nextOpen"|"close", sameBar:"sl"|"tp", sessionFilter:(tMs)=>bool (entries only), startIndex, output:{maxTrades=300,monthly} }).\n' +
+    'ctx: buy(o)/sell(o) o={sl,tp (prices) | slDist,tpDist (distance from fill price) | tpR (multiple of stop distance), lots, tag}; close(tag); cancel(); setStop(p)/setTarget(p); ' +
+    'ctx.position (null or {side,lots,entry,sl,tp,barsHeld,openPnl}); ctx.equity, ctx.balance, ctx.i, ctx.time, ctx.params, ctx.state (scratch), ctx.data.\n' +
+    'SEMANTICS: onBar(i) runs after bar i closed; use only data[0..i]. Orders fill at open[i+1] (last order in a bar wins; reversal = close then open). ' +
+    'SL/TP are checked intrabar from the fill bar on (setStop/setTarget take effect next bar); gap through SL/TP fills at the open; if one bar hits both SL and TP, SL wins (sameBar:"tp" flips). ' +
+    'COST MODEL: mid data: ask=px+spread/2, bid=px-spread/2 (SL/TP triggers padded by half spread); bid data: ask=px+spread. Longs enter at ask, exit at bid; shorts enter at bid, exit at ask; long SL/TP trigger on bid, short on ask. ' +
+    'Exposure/barsHeld count a bar if the position was open at any time in it. Equity<=0 -> reason "wipeout", halt. Orders on the final bar are dropped. Position open at the end of data closes at the last close. Orders with a stop/target on the wrong side of the fill, or riskPct without a stop, are rejected (counted in warnings).\n' +
+    'RESULT: {config, summary{netProfit,netPct,cagr,trades,winRate,profitFactor (999 = no losing trades),avgTrade,avgWin,avgLoss,expectancyR,maxDrawdown,maxDrawdownPct,maxDDDurationDays,sharpe,sortino(daily,sqrt252),exposurePct,avgBarsHeld,long,short,costsPaid,finalEquity}, ' +
+    'byYear[] (net = mark-to-market equity change in the calendar year; trades/winRate by EXIT year), trades (first+last maxTrades), tradesTotal, equity (<=500 pts), warnings}. Set globalThis.__draftBacktestResult = res (or a trimmed copy: pass output:{maxTrades:30} to keep MCP output small). READ res.warnings.\n' +
+    'OPTIMISE: await bt.sweep({fast:[10,20],slow:[50,100]}, p => bt.run({...cfg, params:p, onBar...}), {metric:"profitFactor", maxCombos:500, minTrades:10, top:20}) -> in-sample ranking (overfits!). ' +
+    'await bt.walkForward({data, train:"3y", test:"1y", grid, metric, run:(p, slice)=>bt.run({data:slice, params:p, ...})}) -> out-of-sample folds + oos summary. Pass the slice as data (keeps warm-up/startIndex).\n' +
+    'CHART: await bt.plotTrades(res,{max:200}) draws entry->exit lines on the chart (needs the chart on the same symbol/dates; others skipped).\n' +
+    'ALWAYS model costs (XAUUSD 1h example: spread 0.3, commissionPerLot 3.5) and a stop; prefer 100+ trades; check byYear and warnings before trusting a result. ' +
+    'Recommended: XAU_1m dataset on 1h or 4h over the full range (125k 1h bars, run in <1 s); 15m for intraday; 1m only on 1-2 year slices.\n' +
+    'MINIMAL EXAMPLE (dataset mode, load_draft_backtest {dataset:"XAU_1m", timeframe:"1h"}):\n' +
+    'const D = bt.data(); const atr = bt.atr(D,14); const up = bt.shift(bt.highest(D.h,20),1), dn = bt.shift(bt.lowest(D.l,10),1);\n' +
+    'const res = bt.run({ data: D, costs:{spread:0.3, commissionPerLot:3.5}, sizing:{mode:"riskPct", riskPct:1}, output:{maxTrades:30},\n' +
+    '  onBar(ctx,i){ if(!(atr[i]>0)||isNaN(up[i])) return; if(!ctx.position){ if(D.c[i]>up[i]) ctx.buy({slDist:2*atr[i]}); } else if(D.c[i]<dn[i]) ctx.close(); } });\n' +
+    'globalThis.__draftBacktestResult = res;';
+
 const DRAFT_BACKTEST_GUIDE =
     'Backtest drafts are PLAIN TypeScript scripts (NOT Indicator subclasses — no calculate()/getRange()/ ' +
     'getDescription() contract) that run with full access to window.__agentBridge.handleCommand, the exact same ' +
@@ -526,7 +559,28 @@ const DRAFT_BACKTEST_GUIDE =
     'be, not just trust the summary numbers. Iterate with write_draft_backtest + load_draft_backtest — a previous ' +
     'run\'s drawings are NOT auto-cleared, so call clear_all_drawings first if re-running the same script would ' +
     'otherwise double up markers. Once done, delete_draft_backtest to keep list_draft_backtests accurate — ' +
-    'these are throwaway experiments, never wired into anything else automatically.';
+    'these are throwaway experiments, never wired into anything else automatically.\n\n' +
+    'LARGE HISTORICAL DATA (external datasets). Instead of the few thousand bars loaded on the chart, a script can ' +
+    'run on a server-side CSV dataset (call list_backtest_datasets to see names, UTC ranges, bar counts, data ' +
+    'quality). Pass dataset (+ timeframe, from, to) to load_draft_backtest and the script finds, BEFORE it runs:\n' +
+    '  globalThis.__backtestData = { meta: { dataset, symbol, timeframe, from, to, count, tz: "UTC", firstT, lastT },\n' +
+    '    t: Float64Array, o: Float64Array, h: Float64Array, l: Float64Array, c: Float64Array, v: Float64Array };\n' +
+    'Access it as `const D = (globalThis as any).__backtestData;` and loop `for (let i = 0; i < D.meta.count; i++)`. ' +
+    'Columnar arrays, ascending time, all of length meta.count. t is the bar OPEN time in UTC epoch MILLISECONDS ' +
+    '(Date: new Date(D.t[i])). Volume v is tick volume for most FX/metals CSVs. It is deleted after the run, so copy ' +
+    'what you need into your own variables and put results in globalThis.__draftBacktestResult. Bars are complete ' +
+    'buckets; from is inclusive, to is exclusive (ISO string such as "2020-01-01" / "2020-01-01T08:00:00Z", or ' +
+    'epoch ms; no zone = UTC). Timeframes: ' + TIMEFRAMES.join(', ') + ' (UTC-aligned buckets; "1d" = UTC day, ' +
+    '"1d_ny" = trading day starting 17:00 New York, the usual FX/metals daily candle; data gaps/holidays simply ' +
+    'produce no bars -- sparse early years have many missing minutes). A single load is capped at ' + MAX_BARS.toLocaleString('en-US') + ' bars ' +
+    '(error otherwise): the cap is on the OUTPUT bar count. For ~24h-market data like XAU_1m (~350k 1m bars per ' +
+    'year): 1m fits about 5 years, while 5m (1.45M bars), 15m, 30m, 1h, 4h and 1d fit the FULL 2004-2026 history. ' +
+    'Recommended: develop on 1h/4h over the full range or a 1m slice of 1-2 years, then widen. Chart-context mode (get_chart_context + drawing) still works in the same script; with a ' +
+    'dataset, bar indices of the dataset are NOT chart bar indices -- draw by converting times with the chart\'s ' +
+    'own bars (get_chart_context time) only for trades that fall inside the loaded chart range, and prefer ' +
+    'summarizing large runs (equity curve sampled, top/bottom trades) over drawing thousands of shapes. First use of ' +
+    'a dataset triggers a one-time CSV ingest that can take a few seconds to minutes.\n\n' +
+    BT_ENGINE_GUIDE;
 
 server.registerTool(
     'list_indicator_sources',
@@ -735,6 +789,26 @@ server.registerTool(
 );
 
 server.registerTool(
+    'list_backtest_datasets',
+    {
+        title: 'List external historical datasets for draft backtests',
+        description:
+            'List the server-side historical OHLCV datasets a backtest script can run on (see load_draft_backtest\'s ' +
+            'dataset/timeframe/from/to arguments): name, symbol, UTC range, bar count, original timezone, and a data ' +
+            'quality summary (gaps, duplicates, OHLC violations). All times exposed to scripts are UTC epoch ms. ' +
+            'Datasets that were never loaded are reported as "not_ingested" without range/quality unless ingest=true ' +
+            '(ingest = parse the CSV into the binary cache once; large files can take up to a minute).',
+        inputSchema: {
+            ingest: z.boolean().optional().describe('Ingest not-yet-cached datasets now so range/quality are shown. Default false.'),
+        },
+    },
+    async (args) => {
+        const result = await listBacktestDatasets({ ingest: !!args.ingest });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+);
+
+server.registerTool(
     'load_draft_backtest',
     {
         title: 'Compile and run a draft backtest script against the live chart',
@@ -745,15 +819,40 @@ server.registerTool(
             'whole run happens in ONE call, with the strategy\'s decisions ending up as real drawings on the chart ' +
             'for visual verification — not just a number. Returns whatever the script set as ' +
             'globalThis.__draftBacktestResult. This only works in the browser (chart must be open). A run can take ' +
-            'a while if it processes many bars/trades — this is expected.',
+            'a while if it processes many bars/trades — this is expected.\n\n' +
+            'OPTIONAL external dataset: pass dataset (see list_backtest_datasets) with timeframe/from/to to run on ' +
+            'large historical data instead of the chart\'s loaded bars. The script then reads ' +
+            'globalThis.__backtestData = { meta, t, o, h, l, c, v } (Float64Arrays of length meta.count, t = bar open ' +
+            'time in UTC epoch ms) — set before it runs, deleted after. Max ' + MAX_BARS.toLocaleString('en-US') + ' bars per load; if ' +
+            'exceeded you get an error: use a larger timeframe or a narrower from/to. Omit dataset for the ' +
+            'unchanged chart-context mode.',
         inputSchema: {
             name: z.string().describe('Draft name, e.g. "sp_bobin_test_bt".'),
+            dataset: z.string().optional().describe('External dataset name from list_backtest_datasets, e.g. "XAU_1m".'),
+            timeframe: z.enum(TIMEFRAMES).optional().describe('Bar timeframe for the dataset slice (UTC-aligned; "1d_ny" = 17:00 New York session day). Default "1h". Only used with dataset.'),
+            from: z.union([z.string(), z.number()]).optional().describe('Range start, inclusive: ISO date/time (no zone = UTC) or epoch ms. Only used with dataset.'),
+            to: z.union([z.string(), z.number()]).optional().describe('Range end, exclusive: ISO date/time (no zone = UTC) or epoch ms. Only used with dataset.'),
         },
     },
     async (args) => {
         const { js } = await compileDraftBacktest({ name: args.name });
-        const result = await bridge.call('load_draft_backtest', { name: args.name, js }, 60000);
-        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        if (!args.dataset) {
+            const result = await bridge.call('load_draft_backtest', { name: args.name, js }, 60000);
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        }
+        const t0 = Date.now();
+        const slice = await buildBacktestSlice({
+            dataset: args.dataset, timeframe: args.timeframe, from: args.from, to: args.to,
+        });
+        const sliceMs = Date.now() - t0;
+        console.error(`[backtest-data] ${args.dataset} ${slice.meta.timeframe}: ${slice.meta.count} bars sliced in ${sliceMs} ms, ${(slice.buffer.byteLength / 1048576).toFixed(1)} MiB`);
+        const result = await bridge.call(
+            'load_draft_backtest',
+            { name: args.name, js, dataMeta: slice.meta },
+            300000,
+            slice.buffer
+        );
+        return { content: [{ type: 'text', text: JSON.stringify({ ...result, dataset: slice.meta }) }] };
     }
 );
 

@@ -1,0 +1,13 @@
+[
+  {
+    "name": "XAU_1m",
+    "symbol": "XAUUSD",
+    "source": "XAU_1m_data.csv",
+    "tz": [
+      { "tz": "ny+7", "until": "2020-03-29T00:00:00" },
+      { "tz": "Europe/Athens" }
+    ],
+    "timeframe": "1m",
+    "note": "source may be relative to BACKTEST_DATA_DIR (as here) or absolute. tz: \"UTC\", \"ny+7\", an IANA name, or [{tz, until?}] segments."
+  }
+]

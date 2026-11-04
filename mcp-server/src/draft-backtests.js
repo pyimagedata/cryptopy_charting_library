@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { transform } from 'esbuild';
+import { createBt } from './bt-engine.js';
 
 // Sandbox: LLM-authored backtest drafts may only ever be written to this
 // directory, and only as files ending in "_bt.ts" -- kept PHYSICALLY SEPARATE
@@ -77,6 +78,21 @@ export async function listDraftBacktests() {
     return { drafts };
 }
 
+// The bt engine (bt-engine.js) is minified once and injected into every draft
+// as the `bt` parameter of the draft's async wrapper, so scripts get
+// indicators/run/sweep without any frontend deploy. The draft body lives in an
+// inner function, so a draft that declares its own `bt` simply shadows it.
+let _engineJs = null;
+export async function getBtEngineJs() {
+    if (!_engineJs) {
+        const r = await transform(`var createBt = ${createBt.toString()};`, { minify: true, target: 'es2020' });
+        _engineJs = `(() => { ${r.code.trim()} return createBt(globalThis); })()`;
+    }
+    return _engineJs;
+}
+
+const BT_PLACEHOLDER = '__BT_ENGINE_PLACEHOLDER__';
+
 /** Compile a backtest draft's TypeScript to plain JS (browser-ready). */
 export async function compileDraftBacktest({ name }) {
     const { code: tsCode } = await readDraftBacktest({ name });
@@ -90,7 +106,9 @@ export async function compileDraftBacktest({ name }) {
     // about this -- it just writes plain top-level await like any async
     // script. The `return` matters: the browser loader awaits this IIFE's
     // promise to know when the backtest run has actually finished.
-    const wrapped = `return (async () => {\n${tsCode}\n})();`;
+    // The engine is spliced in AFTER esbuild (placeholder below) so it stays
+    // minified instead of being re-formatted by the transform.
+    const wrapped = `return (async (bt) => { return (async () => {\n${tsCode}\n})(); })(${BT_PLACEHOLDER});`;
     // NOT format:'iife' -- esbuild's own IIFE wrapping would wrap this as a
     // plain (non-returning) statement, swallowing the `return` above so the
     // caller's `new Function(js)()` could never observe/await the inner
@@ -102,5 +120,7 @@ export async function compileDraftBacktest({ name }) {
         loader: 'ts',
         target: 'es2020',
     });
-    return { name, js: result.code };
+    const engine = await getBtEngineJs();
+    const js = result.code.replace(BT_PLACEHOLDER, () => engine);
+    return { name, js };
 }

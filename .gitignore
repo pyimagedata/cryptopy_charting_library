@@ -22,3 +22,8 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.temp
+
+# Backtest datasets: binary caches and raw CSVs are large, keep datasets.json only
+backtest_data/cache/
+backtest_data/*.csv
+backtest_data/datasets.json

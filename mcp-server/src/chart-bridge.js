@@ -2,6 +2,21 @@ import { WebSocketServer } from 'ws';
 import { randomUUID } from 'node:crypto';
 
 /**
+ * Binary frame: [uint32 LE headerLen][header JSON, space-padded so the payload
+ * starts on an 8-byte boundary][payload]. Decoded in demo-ts.html
+ * (decodeBridgeMessage). Exported for tests.
+ */
+export function encodeBinaryFrame(headerJson, binary) {
+    let header = Buffer.from(headerJson, 'utf-8');
+    const pad = (8 - ((4 + header.length) % 8)) % 8;
+    if (pad) header = Buffer.concat([header, Buffer.alloc(pad, 0x20)]);
+    const lenBuf = Buffer.alloc(4);
+    lenBuf.writeUInt32LE(header.length, 0);
+    const body = Buffer.isBuffer(binary) ? binary : Buffer.from(binary.buffer, binary.byteOffset, binary.byteLength);
+    return Buffer.concat([lenBuf, header, body]);
+}
+
+/**
  * Holds WebSocket connections to one or more open chart tabs (browsers) and
  * dispatches tool commands to whichever is currently "active", matching
  * responses back to callers by request id.
@@ -59,6 +74,14 @@ export class ChartBridge {
         socket.on('message', (data) => this._handleMessage(data));
         socket.on('close', () => {
             console.error(`[chart-bridge] tab disconnected: ${tabId}`);
+            // Fail this tab's in-flight requests now instead of waiting for their timeouts.
+            for (const [id, p] of this._pending) {
+                if (p.socket !== socket) continue;
+                this._pending.delete(id);
+                clearTimeout(p.timeout);
+                p.reject(new Error(`Chart tab disconnected before responding to '${p.tool}'`));
+            }
+            if (this._connections.get(tabId) !== socket) return; // superseded by a newer socket with the same id
             this._connections.delete(tabId);
             if (this._activeTabId === tabId) {
                 // Fall back to any other still-open tab, if one exists.
@@ -89,15 +112,30 @@ export class ChartBridge {
         }
     }
 
-    /** Send a tool command to the currently active chart tab and await its response. */
-    call(tool, args, timeoutMs = 5000) {
+    /**
+     * Send a tool command to the currently active chart tab and await its response.
+     *
+     * `binary` (optional Buffer/TypedArray) is shipped as ONE binary WebSocket
+     * frame instead of JSON number arrays: [uint32 LE headerLen][header JSON,
+     * space-padded so the payload starts on an 8-byte boundary][payload bytes].
+     * The browser (demo-ts.html decodeBridgeMessage) puts the payload on
+     * args.dataBuffer / args.dataOffset. No size limit is applied on this send
+     * path (ws maxPayload only limits INCOMING frames: the default 100 MiB
+     * covers the small JSON replies the browser sends back).
+     */
+    call(tool, args, timeoutMs = 5000, binary = null) {
         const socket = this._activeTabId ? this._connections.get(this._activeTabId) : null;
         if (!socket || socket.readyState !== socket.OPEN) {
             return Promise.reject(new Error('No chart connected. Open the chart page (demo-ts.html) first.'));
         }
 
         const id = randomUUID();
-        const payload = JSON.stringify({ id, tool, args });
+        let payload = JSON.stringify({ id, tool, args });
+        let sendOpts;
+        if (binary) {
+            payload = encodeBinaryFrame(payload, binary);
+            sendOpts = { binary: true };
+        }
 
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
@@ -105,8 +143,13 @@ export class ChartBridge {
                 reject(new Error(`Timed out waiting for chart response to '${tool}'`));
             }, timeoutMs);
 
-            this._pending.set(id, { resolve, reject, timeout });
-            socket.send(payload);
+            this._pending.set(id, { resolve, reject, timeout, socket, tool });
+            socket.send(payload, sendOpts, (err) => {
+                if (!err) return;
+                if (!this._pending.delete(id)) return;
+                clearTimeout(timeout);
+                reject(new Error(`Failed to send '${tool}' to the chart: ${err.message}`));
+            });
         });
     }
 
