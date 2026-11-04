@@ -23,7 +23,8 @@ import {
     listDraftBacktests,
     compileDraftBacktest,
 } from './draft-backtests.js';
-import { buildBacktestSlice, listBacktestDatasets, MAX_BARS, TIMEFRAMES } from './backtest-data.js';
+import { buildBacktestSlice, listBacktestDatasets, MAX_BARS, CHART_MAX_BARS, TIMEFRAMES } from './backtest-data.js';
+import { loadDatasetToChart } from './chart-dataset.js';
 
 const MCP_PORT = Number(process.env.MCP_PORT || 8766);
 const BEARER_TOKEN = process.env.MCP_BEARER_TOKEN;
@@ -579,7 +580,8 @@ const DRAFT_BACKTEST_GUIDE =
     'dataset, bar indices of the dataset are NOT chart bar indices -- draw by converting times with the chart\'s ' +
     'own bars (get_chart_context time) only for trades that fall inside the loaded chart range, and prefer ' +
     'summarizing large runs (equity curve sampled, top/bottom trades) over drawing thousands of shapes. First use of ' +
-    'a dataset triggers a one-time CSV ingest that can take a few seconds to minutes.\n\n' +
+    'a dataset triggers a one-time CSV ingest that can take a few seconds to minutes. To SEE the dataset bars on the chart ' +
+    '(so plotTrades / indicators line up visually), call load_dataset_to_chart with the same dataset/timeframe/from/to first.\n\n' +
     BT_ENGINE_GUIDE;
 
 server.registerTool(
@@ -853,6 +855,35 @@ server.registerTool(
             slice.buffer
         );
         return { content: [{ type: 'text', text: JSON.stringify({ ...result, dataset: slice.meta }) }] };
+    }
+);
+
+server.registerTool(
+    'load_dataset_to_chart',
+    {
+        title: 'Show a backtest dataset as the chart\'s candles',
+        description:
+            'Display a server-side backtest dataset (see list_backtest_datasets, e.g. "XAU_1m") as the candles of the ' +
+            'active chart tab, so you can look at it and run add_indicator / draft indicators / drawings / screenshots on ' +
+            'those bars. REPLACES the chart\'s candles (file data, shown as "<dataset> · dosya (<tf>)") until the symbol or ' +
+            'timeframe is changed (UI or change_symbol), which restores normal live data; live updates and exchange ' +
+            'history loading are off meanwhile, and a page reload also returns to live data. Not available during bar ' +
+            'replay. Display cap: ' + CHART_MAX_BARS.toLocaleString('en-US') + ' bars (env BACKTEST_CHART_MAX_BARS): without ' +
+            'from, a longer slice keeps the most recent bars (reported as truncated); an explicit from/to range over the ' +
+            'cap is an error (use a higher timeframe or narrower range). Pairs with load_draft_backtest: use the SAME ' +
+            'dataset/timeframe/from/to there so bt.plotTrades lines up with these bars. get_chart_context reports ' +
+            'datasetMode while active. Targets the active chart tab (set_active_chart to switch). Returns dataset, ' +
+            'timeframe, bars shown, first/last bar UTC, truncated.',
+        inputSchema: {
+            dataset: z.string().describe('Dataset name from list_backtest_datasets, e.g. "XAU_1m".'),
+            timeframe: z.enum(TIMEFRAMES).describe('Bar timeframe (UTC-aligned; "1d_ny" = 17:00 New York session day).'),
+            from: z.union([z.string(), z.number()]).optional().describe('Range start, inclusive: ISO date/time (no zone = UTC) or epoch ms. Omit for "most recent bars".'),
+            to: z.union([z.string(), z.number()]).optional().describe('Range end, exclusive: ISO date/time (no zone = UTC) or epoch ms.'),
+        },
+    },
+    async (args) => {
+        const result = await loadDatasetToChart(bridge, args);
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
 );
 

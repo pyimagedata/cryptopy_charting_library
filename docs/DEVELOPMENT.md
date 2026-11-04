@@ -954,3 +954,14 @@ automatically if the CSV changes); `npm run ingest` in `mcp-server` does it ahea
 Env knobs: `BACKTEST_MAX_BARS` (default 2000000 bars per load), `BACKTEST_MAX_RESIDENT_MB`
 (default 1024, in-memory dataset budget). Check any proxy/tunnel WS frame-size limit before
 raising the bar cap (a 2M-bar load is a 96 MB binary frame).
+
+### Showing a dataset on the chart (`load_dataset_to_chart`)
+
+`load_dataset_to_chart {dataset, timeframe, from?, to?}` sends the sliced bars to the active chart tab
+(binary frame, same path as `load_draft_backtest`) and replaces that slot's candles. The slot is then in
+"dataset mode" (in-memory only in demo-ts.html, `slotDataset`): live WS candles and scroll-left exchange
+history are blocked, a notice reads `<dataset> · dosya (<tf>)`, and `get_chart_context` returns `datasetMode`.
+Changing symbol/timeframe (UI or `change_symbol`) or reloading the page restores live data. Not available
+during bar replay. Env `BACKTEST_CHART_MAX_BARS` (default 300000): without `from` a longer slice keeps the
+most recent bars (`truncated: true`); an explicit over-cap range is an error. Use the same
+dataset/timeframe/from/to with `load_draft_backtest` so `bt.plotTrades` lines up.

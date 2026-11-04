@@ -42,9 +42,9 @@ test('encodeBinaryFrame: header length, 8-byte padding, payload alignment', () =
     }
 });
 
-test('binary frame round trip through ChartBridge using the browser decodeBridgeMessage', async () => {
+test('binary frame round trip through ChartBridge using the browser decodeBridgeMessage', { skip: !existsSync(HTML) && 'demo-ts.html not found (EvoTrading repo not next to the library)' }, async () => {
     const decode = browserDecode();
-    assert.ok(decode, 'demo-ts.html not found');
+    assert.ok(decode, 'decodeBridgeMessage not found in demo-ts.html');
     const { server, bridge, ws } = await setup();
     try {
         ws.on('message', (data, isBinary) => {

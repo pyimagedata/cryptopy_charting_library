@@ -1287,6 +1287,14 @@ export class ChartWidget implements Disposable {
         return this._model.rightPriceScale;
     }
 
+    /** Override the legend header text (symbol / timeframe / exchange) without touching model state or firing change events; null restores it. */
+    setLegendOverride(o: { symbol: string; marketType?: string; timeframe: string; exchange: string } | null): void {
+        if (this._paneWidget) {
+            this._paneWidget.legendOverride = o ? { marketType: '', ...o } as any : null;
+        }
+        this._scheduleDraw();
+    }
+
     /** Small non-blocking message inside the chart (null clears it); e.g. "no data" after a failed load. */
     setNotice(message: string | null): void {
         if (!this._element) return;

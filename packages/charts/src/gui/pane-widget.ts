@@ -163,6 +163,8 @@ export class PaneWidget implements Disposable {
     // Callback for indicator legend actions (toggle, settings, remove, more menu)
     public onLegendAction: LegendActionHandler | null = null;
 
+    /** Optional header text override (e.g. file/dataset data); null = model symbol/timeframe/exchange. */
+    legendOverride: { symbol: string; marketType: string; timeframe: string; exchange: string } | null = null;
     // Legend header (symbol line) rebuild cache: only symbol / timeframe / theme change it
     private _lastHeaderKey: string = '';
     private _legendHeaderEl: HTMLElement | null = null;
@@ -1024,9 +1026,12 @@ export class PaneWidget implements Disposable {
         const textColor = isDark ? '#d1d4dc' : '#131722';
         const secondaryColor = isDark ? '#787b86' : '#5d606b';
 
-        const symbol = this._model.symbol || '---';
-        const shownSymbol = displaySymbol(symbol);
-        const timeframe = this._model.timeframe || '---';
+        const lo = this.legendOverride;
+        const symbol = lo ? lo.symbol : (this._model.symbol || '---');
+        const shownSymbol = lo ? lo.symbol : displaySymbol(symbol);
+        const timeframe = lo ? lo.timeframe : (this._model.timeframe || '---');
+        const headerMarket = lo ? lo.marketType : this._model.marketTypeDisplayName;
+        const headerExchange = lo ? lo.exchange : this._model.exchangeDisplayName;
 
         // Find main series for OHLC
         const mainSeries = this._model.serieses[0];
@@ -1084,14 +1089,14 @@ export class PaneWidget implements Disposable {
         }
 
         // Header (symbol line) is rebuilt only when symbol / timeframe / theme change
-        const headerKey = `${symbol}|${timeframe}|${this._currentTheme}|${this._model.marketTypeDisplayName}|${this._model.exchangeDisplayName}`;
+        const headerKey = `${symbol}|${timeframe}|${this._currentTheme}|${headerMarket}|${headerExchange}`;
         if (headerKey !== this._lastHeaderKey && this._legendHeaderEl) {
             this._lastHeaderKey = headerKey;
             this._legendHeaderEl.innerHTML = `
                 <div style="width: 16px; height: 16px; border-radius: 50%; background: #2962ff; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: white; margin-right: 6px;">${shownSymbol[0]}</div>
                 <span style="font-weight: bold; color: ${textColor}; font-size: 13px;">${shownSymbol}</span>
-                <span style="margin-left: 6px; color: ${secondaryColor}; font-size: 13px;">${this._model.marketTypeDisplayName}</span>
-                <span style="margin-left: 6px; color: ${textColor}; font-size: 13px;">• ${timeframe} • ${this._model.exchangeDisplayName}</span>
+                <span style="margin-left: 6px; color: ${secondaryColor}; font-size: 13px;">${headerMarket}</span>
+                <span style="margin-left: 6px; color: ${textColor}; font-size: 13px;">• ${timeframe} • ${headerExchange}</span>
                 <div style="width: 8px; height: 8px; border-radius: 50%; background: #26a69a; margin-left: 8px; box-shadow: 0 0 5px #26a69a;"></div>
                 <span class="ohlc-text"></span>
             `;

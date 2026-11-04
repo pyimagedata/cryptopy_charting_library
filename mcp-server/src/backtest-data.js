@@ -30,6 +30,8 @@ function positiveEnv(name, dflt) {
 }
 
 export const MAX_BARS = positiveEnv('BACKTEST_MAX_BARS', 2_000_000);
+// load_dataset_to_chart: max candles pushed onto a chart (the browser builds one object per bar).
+export const CHART_MAX_BARS = positiveEnv('BACKTEST_CHART_MAX_BARS', 300_000);
 // Total bytes of decoded datasets kept in memory (LRU-evicted beyond this).
 const MAX_RESIDENT_BYTES = positiveEnv('BACKTEST_MAX_RESIDENT_MB', 1024) * 1024 * 1024;
 
@@ -749,9 +751,12 @@ function lowerBound(arr, x) {
  * first/last bars are always COMPLETE buckets (a bucket that starts before
  * `from` is dropped, never truncated). Exported for tests.
  *
+ * `keepLast`: instead of throwing when the range has more than `maxBars` buckets,
+ * keep only the most recent `maxBars` (res.totalBars = the untrimmed count).
+ *
  * Returns { count, buffer: Float64Array(6*count) laid out t,o,h,l,c,v, views }.
  */
-export function aggregateSlice(base, { timeframe, from = null, to = null, maxBars = MAX_BARS, baseTimeframe = '1m' }) {
+export function aggregateSlice(base, { timeframe, from = null, to = null, maxBars = MAX_BARS, baseTimeframe = '1m', keepLast = false }) {
     if (timeframe !== '1d_ny' && !TF_MS[timeframe]) throw new Error(`Unsupported timeframe "${timeframe}". Use one of: ${TIMEFRAMES.join(', ')}.`);
     const baseMs = TF_MS[baseTimeframe];
     if (timeframe !== '1d_ny' && TF_MS[timeframe] < baseMs) throw new Error(`Timeframe "${timeframe}" is finer than the dataset's base timeframe ${baseTimeframe}.`);
@@ -777,11 +782,20 @@ export function aggregateSlice(base, { timeframe, from = null, to = null, maxBar
             if (b >= fromB) count++;
         }
     }
+    const totalBars = count;
+    let skip = 0;
     if (count > maxBars) {
-        throw new Error(
-            `Requested slice has ${count.toLocaleString('en-US')} ${timeframe} bars (> max ${maxBars.toLocaleString('en-US')} per load). ` +
-            'Use a larger timeframe (e.g. 5m/15m/1h/4h/1d) or a narrower from/to range.'
-        );
+        if (!keepLast) {
+            const err = new Error(
+                `Requested slice has ${count.toLocaleString('en-US')} ${timeframe} bars (> max ${maxBars.toLocaleString('en-US')} per load). ` +
+                'Use a larger timeframe (e.g. 5m/15m/1h/4h/1d) or a narrower from/to range.'
+            );
+            err.code = 'SLICE_CAP';
+            err.totalBars = count;
+            throw err;
+        }
+        skip = count - maxBars;
+        count = maxBars;
     }
 
     const out = new Float64Array(6 * count);
@@ -790,23 +804,25 @@ export function aggregateSlice(base, { timeframe, from = null, to = null, maxBar
     const { t: ot, o: oo, h: oh, l: ol, c: oc, v: ov } = views;
 
     // pass 2: fill
-    let k = -1;
+    let k = -1, seen = -1;
     prev = NaN;
     for (let i = lo, end = lo + rowsInRange; i < end; i++) {
         const b = bucket(t[i]);
         if (b < fromB) continue;
         if (b !== prev) {
             prev = b;
+            seen++;
+            if (seen < skip) continue;
             k++;
             ot[k] = b; oo[k] = o[i]; oh[k] = h[i]; ol[k] = l[i]; oc[k] = c[i]; ov[k] = v[i];
-        } else {
+        } else if (seen >= skip) {
             if (h[i] > oh[k]) oh[k] = h[i];
             if (l[i] < ol[k]) ol[k] = l[i];
             oc[k] = c[i];
             ov[k] += v[i];
         }
     }
-    return { count, buffer: out, views, rowsInRange };
+    return { count, buffer: out, views, rowsInRange, totalBars };
 }
 
 /**
@@ -814,14 +830,14 @@ export function aggregateSlice(base, { timeframe, from = null, to = null, maxBar
  * Returns { meta, buffer: Float64Array, fields } where `buffer` holds the six
  * columns back to back in `fields` order, each `meta.count` long.
  */
-export async function buildBacktestSlice({ dataset, timeframe, from, to, maxBars = MAX_BARS }) {
+export async function buildBacktestSlice({ dataset, timeframe, from, to, maxBars = MAX_BARS, keepLast = false }) {
     const tf = timeframe || '1h';
     const fromMs = parseTimeInput(from, 'from');
     const toMs = parseTimeInput(to, 'to');
     const { meta, cols } = await loadBase(dataset);
     // priceBasis comes from the manifest (not the ingest cache) so editing it needs no re-ingest.
     const manifestEntry = (await loadManifest()).find((e) => e.name === dataset);
-    const res = aggregateSlice(cols, { timeframe: tf, from: fromMs, to: toMs, maxBars, baseTimeframe: meta.timeframe });
+    const res = aggregateSlice(cols, { timeframe: tf, from: fromMs, to: toMs, maxBars, baseTimeframe: meta.timeframe, keepLast });
     if (res.count === 0) {
         throw new Error(
             `No bars in the requested range for dataset "${dataset}" (${tf}). Available data: ${meta.from} to ${meta.to} (UTC). ` +
@@ -845,7 +861,29 @@ export async function buildBacktestSlice({ dataset, timeframe, from, to, maxBars
         },
         buffer: res.buffer,
         fields: FIELDS,
+        totalBars: res.totalBars,
+        truncated: res.totalBars > res.count,
     };
+}
+
+/**
+ * Slice for load_dataset_to_chart. Display cap = CHART_MAX_BARS. No `from`: an
+ * over-cap range keeps the most recent bars (truncated=true). Explicit `from`:
+ * an over-cap range is an error (the caller asked for exactly that range).
+ */
+export async function buildChartSlice({ dataset, timeframe, from, to, chartMaxBars = CHART_MAX_BARS }) {
+    const explicitFrom = parseTimeInput(from, 'from') !== null;
+    try {
+        return await buildBacktestSlice({ dataset, timeframe, from, to, maxBars: chartMaxBars, keepLast: !explicitFrom });
+    } catch (e) {
+        if (e && e.code === 'SLICE_CAP') {
+            throw new Error(
+                `Requested range has ${e.totalBars.toLocaleString('en-US')} ${timeframe || '1h'} bars, over the chart display cap of ` +
+                `${chartMaxBars.toLocaleString('en-US')} (BACKTEST_CHART_MAX_BARS). Use a higher timeframe (e.g. 5m/15m/1h/4h/1d) or a narrower from/to range.`
+            );
+        }
+        throw e;
+    }
 }
 
 /** Manifest + (optionally ingested) metadata for list_backtest_datasets. */
