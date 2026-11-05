@@ -1,6 +1,6 @@
 /**
  * Alerts manager panel (right sidebar, same geometry / theming as the watchlist panel).
- * Two tabs: the user's alerts (filter / sort / search, per-row stop-restart / edit / delete) and the fired-alert log.
+ * Segmented tabs: active / triggered / stopped alerts (search, sort, per-row stop-restart / edit / delete) and the fired-alert log.
  * Data comes from the page-level alertsStore; the panel only needs the ACTIVE chart (via `getChart`) for price
  * formatting, the create / edit dialogs and symbol switching, so it works the same in single and multi-chart mode.
  */
@@ -8,17 +8,19 @@ import { Delegate } from '../../helpers/delegate';
 import { t } from '../../helpers/translations';
 import { alertsStore, AlertsStoreEvent } from '../../alerts/alerts-store';
 import { alertErrorText, alertMatchesSymbol, alertTicker, conditionLabel, indicatorAlertSummary, exactPrice, isMovingCondition, movingSummary, triggerLabel, DEFAULT_ALERT_INTERVAL } from '../../alerts/alert-text';
+import { AlertsError } from '../../alerts/types';
 import type { AlertLogEntry, AlertStatus, ChartAlert } from '../../alerts/types';
 import { ContextMenu, ContextMenuItem } from '../context_menu/context_menu';
 import type { SymbolInfo } from '../symbol_search/symbol_model';
 import { isFuturesExchange, sourceOf } from '../symbol_search/symbol_model';
 import { symbolCatalog } from '../symbol_search/symbol_data';
 import { WL_COLORS, WlColors } from '../watchlist/watchlist_theme';
+import { applyRpTokens, ensureRpStyles, rpEmptyState, RP_MENU_SKIN, RP_SEARCH_SVG, RP_FONT as RP_FONT_SANS } from '../right_panel/rp_tokens';
 import { showToast } from '../toast/toast';
 import { AlertDialogChart, openAlertDialog } from './alert-dialog';
 import {
-    AlertSortKey, AlertStatusFilter, SORT_KEYS, STATUS_FILTERS, UnreadCounter,
-    filterAlerts, filterLabel, formatLogTime, mergeLog, prependLog, relativeTime, sortAlerts, sortLabel, statusLabel,
+    AlertListTab, AlertSortKey, LIST_TABS, SORT_KEYS, UnreadCounter,
+    activeBySource, countByTab, filterAlerts, formatLogTime, mergeLog, normStatus, prependLog, relativeTime, sortAlerts, sortLabel, statusLabel, tabOfStatus,
 } from './alerts-panel-model';
 
 /** The slice of ChartWidget the panel uses. */
@@ -36,15 +38,16 @@ const WL_WIDTH_STORAGE = 'chart.watchlist.width';
 const DEFAULT_WIDTH = 360;
 const MIN_WIDTH = 240;
 const TICK_MS = 30000;
-const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
+const FONT = RP_FONT_SANS;
 
-const PLUS_SVG = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M9 3.5v11M3.5 9h11"/></svg>';
+const BELL_PLUS_SVG = '<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 15.2h2.4M2.9 13.4l1-1.1V8.1a4.6 4.6 0 0 1 6-4.4M14.9 8.1v4.2l1 1.1H5.9"/><path d="M13.6 2v4.4M11.4 4.2h4.4"/></svg>';
 const CLOSE_SVG = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4.5 4.5l9 9M13.5 4.5l-9 9"/></svg>';
-const FILTER_SVG = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 5h12M5.5 9h7M8 13h2"/></svg>';
+const SORT_SVG = '<svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 5h12M5.5 9h7M8 13h2"/></svg>';
 const TRASH_SVG = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5h11M7 5V3.5h4V5M5 5l.7 9h6.6L13 5M7.5 7.5v4.5M10.5 7.5v4.5"/></svg>';
 const PAUSE_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="3" width="2.8" height="10" rx="0.6"/><rect x="9.2" y="3" width="2.8" height="10" rx="0.6"/></svg>';
 const PLAY_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 3l8 5-8 5z" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>';
 const EDIT_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l.6-2.8 7.2-7.2 2.2 2.2-7.2 7.2L3 13zM9.6 4.2l2.2 2.2"/></svg>';
+const BELL_SVG = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 1.5h-13zM8.5 17.5h3"/></svg>';
 const CHECK_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 7.5l3.5 3.5L12 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function readStorage(name: string): string | null {
@@ -68,12 +71,62 @@ function ensureStyles(): void {
     const st = document.createElement('style');
     st.id = 'al-styles';
     st.textContent = `
-        .tv-alerts-panel * { scrollbar-width: thin; scrollbar-color: var(--al-scroll) transparent; }
-        .tv-alerts-panel ::-webkit-scrollbar { width: 6px; height: 6px; }
-        .tv-alerts-panel ::-webkit-scrollbar-thumb { background: var(--al-scroll); border-radius: 3px; }
-        .tv-alerts-panel ::-webkit-scrollbar-track { background: transparent; }
-        .tv-alerts-panel .al-search:focus { border-color: var(--al-accent) !important; }
-        .tv-alerts-panel .al-search::placeholder { color: var(--al-muted); }
+        .tv-alerts-panel { container-type: inline-size; container-name: alp; }
+        .tv-alerts-panel .al-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 60px; padding: 0 10px 0 16px; flex-shrink: 0; box-sizing: border-box; border-bottom: 1px solid var(--rp-border); }
+        .tv-alerts-panel .al-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--rp-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tv-alerts-panel .al-sum { display: flex; align-items: center; gap: 12px; padding: 14px 16px 14px; flex-shrink: 0; box-sizing: border-box; }
+        .tv-alerts-panel .al-sum-text { flex: 1 1 0; min-width: 0; font-size: 12px; line-height: 1.4; color: var(--rp-muted); overflow-wrap: anywhere; }
+        .tv-alerts-panel .al-new { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: none; height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--rp-text); color: var(--rp-bg); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: opacity .12s; }
+        .tv-alerts-panel .al-new:hover { opacity: .88; }
+        .tv-alerts-panel .al-new svg { flex: none; }
+        .tv-alerts-panel .al-seg { display: flex; gap: 2px; height: 40px; padding: 3px; margin: 0 16px 12px; flex-shrink: 0; box-sizing: border-box; border: 1px solid var(--rp-border); border-radius: 12px; }
+        .tv-alerts-panel .al-tab { flex: 1 1 auto; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 6px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--rp-muted); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+        .tv-alerts-panel .al-tab:hover:not([data-on="1"]) { color: var(--rp-text); }
+        .tv-alerts-panel .al-tab[data-on="1"] { background: var(--rp-chip); border-color: var(--rp-border); color: var(--rp-text); }
+        .tv-alerts-panel .al-tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .tv-alerts-panel .al-tab-n { flex: none; font-size: 11px; font-weight: 400; color: var(--rp-muted); }
+        .tv-alerts-panel .al-srow { display: flex; align-items: center; gap: 8px; padding: 0 16px 14px; flex-shrink: 0; box-sizing: border-box; }
+        .tv-alerts-panel .al-srow .rp-search { flex: 1 1 auto; min-width: 0; margin: 0; }
+        .tv-alerts-panel .al-srow .rp-search > input { height: 38px; border-radius: 10px; }
+        .tv-alerts-panel .al-sort-btn { flex: none; width: 38px; height: 38px; border: 1px solid var(--rp-border); border-radius: 10px; }
+        .tv-alerts-panel .al-logbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 16px 14px; flex-shrink: 0; box-sizing: border-box; font-size: 12px; color: var(--rp-muted); }
+        .tv-alerts-panel .al-clear-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--rp-border); border-radius: 10px; background: transparent; color: var(--rp-text); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; transition: background .12s; }
+        .tv-alerts-panel .al-clear-btn:hover { background: var(--rp-hover); }
+        .tv-alerts-panel .al-list { border-top: 1px solid var(--rp-border); }
+        .tv-alerts-panel .al-row, .tv-alerts-panel .al-log-row { position: relative; padding: 12px 16px; border-bottom: 1px solid var(--rp-border); cursor: pointer; box-sizing: border-box; }
+        .tv-alerts-panel .al-row:hover, .tv-alerts-panel .al-log-row:hover { background: var(--rp-hover); }
+        .tv-alerts-panel .al-confirm { display: flex; align-items: center; gap: 8px; margin: 0 16px 14px; padding: 8px 8px 8px 12px; border-radius: 12px; background: var(--rp-chip); font-size: 12px; flex-shrink: 0; box-sizing: border-box; }
+        .tv-alerts-panel .al-confirm-text { flex: 1 1 auto; min-width: 0; }
+        .tv-alerts-panel .al-line1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+        .tv-alerts-panel .al-ticker, .tv-alerts-panel .al-log-ticker { flex: 1 1 auto; min-width: 0; font-size: 13.5px; font-weight: 500; letter-spacing: -0.005em; color: var(--rp-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tv-alerts-panel .al-pill { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 500; line-height: 16px; transition: opacity .12s; }
+        .tv-alerts-panel .al-line2, .tv-alerts-panel .al-sub { margin-top: 2px; font-size: 12px; line-height: 1.4; color: var(--rp-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tv-alerts-panel .al-log-msg { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+        .tv-alerts-panel .al-actions { position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; padding: 0 12px 0 28px; background: linear-gradient(to right, transparent, var(--rp-hover) 22px); opacity: 0; pointer-events: none; transition: opacity .12s; }
+        .tv-alerts-panel .al-row:hover .al-actions, .tv-alerts-panel .al-row:focus-within .al-actions { opacity: 1; pointer-events: auto; }
+        .tv-alerts-panel .al-row:hover .al-pill, .tv-alerts-panel .al-row:focus-within .al-pill { opacity: 0; }
+        .tv-alerts-panel .al-act { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--rp-muted); cursor: pointer; }
+        .tv-alerts-panel .al-act:hover:not(:disabled) { background: var(--rp-chip); color: var(--rp-text); }
+        .tv-alerts-panel .al-act-delete:hover:not(:disabled) { color: var(--rp-down); }
+        .tv-alerts-panel .al-act:disabled { opacity: .4; cursor: default; }
+        .tv-alerts-panel .al-empty-create { margin-top: 10px; }
+        @container alp (max-width: 319px) {
+            .tv-alerts-panel .al-new-label { display: none; }
+            .tv-alerts-panel .al-new { padding: 0 11px; }
+            .tv-alerts-panel .al-tab { font-size: 12px; padding: 0 4px; }
+        }
+        @container alp (max-width: 399px) {
+            .tv-alerts-panel .al-tab { font-size: 12px; gap: 4px; padding: 0 4px; }
+            .tv-alerts-panel .al-tab-n { font-size: 10.5px; }
+        }
+        @container alp (max-width: 279px) {
+            .tv-alerts-panel .al-tab-n { display: none; }
+            .tv-alerts-panel .al-sum { gap: 8px; padding-left: 12px; padding-right: 12px; }
+            .tv-alerts-panel .al-seg, .tv-alerts-panel .al-srow, .tv-alerts-panel .al-logbar { margin-left: 12px; margin-right: 12px; padding-left: 0; padding-right: 0; }
+            .tv-alerts-panel .al-confirm { margin-left: 12px; margin-right: 12px; }
+            .tv-alerts-panel .al-row, .tv-alerts-panel .al-log-row { padding-left: 12px; padding-right: 12px; }
+        }
+        @media (prefers-reduced-motion: reduce) { .tv-alerts-panel * { transition: none !important; } }
     `;
     document.head.appendChild(st);
 }
@@ -82,7 +135,7 @@ interface StatusColor { fg: string; bg: string }
 
 function statusColor(status: AlertStatus, theme: 'dark' | 'light'): StatusColor {
     const dark = theme === 'dark';
-    switch (status) {
+    switch (normStatus(status)) {
         case 'active': return { fg: dark ? '#22ab94' : '#089981', bg: dark ? 'rgba(8,153,129,0.18)' : 'rgba(8,153,129,0.12)' };
         case 'triggered': return { fg: dark ? '#ff9800' : '#e07b00', bg: dark ? 'rgba(255,152,0,0.18)' : 'rgba(255,152,0,0.14)' };
         case 'expired': return { fg: dark ? '#c9606a' : '#b5424d', bg: dark ? 'rgba(242,54,69,0.14)' : 'rgba(242,54,69,0.09)' };
@@ -90,7 +143,7 @@ function statusColor(status: AlertStatus, theme: 'dark' | 'light'): StatusColor 
     }
 }
 
-type TabId = 'alerts' | 'log';
+type TabId = AlertListTab | 'log';
 
 export class AlertsPanel {
     readonly visibilityChanged = new Delegate<boolean>();
@@ -102,25 +155,30 @@ export class AlertsPanel {
     private readonly _getChart: () => AlertsPanelChart | null;
     private readonly _el: HTMLElement;
     private _list: HTMLElement;
-    private _footer: HTMLElement;
-    private _clearBtn: HTMLButtonElement | null = null;
-    private _filterBtn: HTMLButtonElement | null = null;
     private _tabEls = new Map<TabId, HTMLElement>();
-    private _searchWrap: HTMLElement | null = null;
+    private _countEls = new Map<AlertListTab, HTMLElement>();
+    private _sumText: HTMLElement | null = null;
+    private _searchRow: HTMLElement | null = null;
+    private _logBar: HTMLElement | null = null;
+    private _confirmEl: HTMLElement | null = null;
+    private _sortBtn: HTMLButtonElement | null = null;
     private _ctx: ContextMenu | null = null;
 
     private _width = DEFAULT_WIDTH;
+    /** true once docked in the shared right panel container (it owns width, border and visibility). */
+    private _embedded = false;
     private _visible = false;
     private _theme: 'dark' | 'light' = 'dark';
-    private _tab: TabId = 'alerts';
-    private _filter: AlertStatusFilter = 'all';
+    private _tab: TabId = 'active';
     private _sort: AlertSortKey = 'created';
     private _query = '';
     private _loading = false;
     private _loadError = false;
+    private _authError = false;
     private _log: AlertLogEntry[] | null = null;
     private _logLoading = false;
     private _logError = false;
+    private _logAuthError = false;
     private _liveDuringLoad: AlertLogEntry[] = [];
     private _logToken = 0;
     private _confirmClear = false;
@@ -136,17 +194,26 @@ export class AlertsPanel {
         this._parent = parent;
         this._getChart = getChart;
         this._el = document.createElement('div');
-        this._el.className = 'tv-alerts-panel';
+        this._el.className = 'tv-alerts-panel rp-root';
         this._el.style.cssText = `
             position: absolute; top: ${top}px; right: 0; bottom: 0;
             width: ${this._width}px; display: none; flex-direction: column;
             z-index: 30; font-size: 12px; font-family: ${FONT}; box-sizing: border-box; user-select: none; outline: none;
         `;
         this._list = document.createElement('div');
-        this._footer = document.createElement('div');
         ensureStyles();
+        ensureRpStyles();
         parent.appendChild(this._el);
         this._unsubStore = alertsStore.onChange((ev) => this._onStore(ev));
+        this._render();
+    }
+
+    /** Docks the panel inside the shared right panel container (fills it; the container owns width / border / visibility). */
+    embed(container: HTMLElement): void {
+        this._embedded = true;
+        this._el.style.cssText = `position:relative;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;`
+            + `font-size:12px;font-family:${FONT};box-sizing:border-box;user-select:none;outline:none;`;
+        container.appendChild(this._el);
         this._render();
     }
 
@@ -182,14 +249,14 @@ export class AlertsPanel {
         if (opts.persist !== false) writeStorage(OPEN_STORAGE, visible ? '1' : '0');
         if (visible) {
             this._applyStoredWidth();
-            this._el.style.display = 'flex';
+            if (!this._embedded) this._el.style.display = 'flex';
             if (this._unread.reset()) this.unreadChanged.fire(0);
             this._renderList();
             void this._refresh();
             if (this._tab === 'log') void this._loadLog();
             this._tick = setInterval(() => this._renderList(), TICK_MS);
         } else {
-            this._el.style.display = 'none';
+            if (!this._embedded) this._el.style.display = 'none';
             if (this._tick) clearInterval(this._tick);
             this._tick = null;
             this._ctx?.hide();
@@ -214,6 +281,7 @@ export class AlertsPanel {
 
     /** Same width as the watchlist panel (its stored width), so switching panels does not jump. */
     private _applyStoredWidth(): void {
+        if (this._embedded) return;
         const stored = Number(readStorage(WL_WIDTH_STORAGE));
         let w = Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_WIDTH;
         const max = Math.max(MIN_WIDTH, (this._parent.clientWidth || 1200) - 320);
@@ -254,12 +322,14 @@ export class AlertsPanel {
         if (!alertsStore.hasBackend) return;
         this._loading = true;
         this._loadError = false;
+        this._authError = false;
         this._renderList();
         this._selfRefresh = true;
         try {
             await alertsStore.refresh();
-        } catch {
+        } catch (e) {
             this._loadError = true;
+            this._authError = e instanceof AlertsError && e.code === 'auth';
         } finally {
             this._selfRefresh = false;
             this._loading = false;
@@ -272,14 +342,18 @@ export class AlertsPanel {
         const token = ++this._logToken;
         this._logLoading = true;
         this._logError = false;
+        this._logAuthError = false;
         this._liveDuringLoad = [];
         this._renderList();
         try {
             const fetched = await alertsStore.log();
             if (token !== this._logToken) return;
             this._log = mergeLog(fetched, this._liveDuringLoad);
-        } catch {
-            if (token === this._logToken) this._logError = true;
+        } catch (e) {
+            if (token === this._logToken) {
+                this._logError = true;
+                this._logAuthError = e instanceof AlertsError && e.code === 'auth';
+            }
         } finally {
             if (token === this._logToken) {
                 this._logLoading = false;
@@ -304,7 +378,7 @@ export class AlertsPanel {
         if (this._busy.has(a.id)) return;
         this._busy.add(a.id);
         try {
-            if (a.status === 'active') await alertsStore.stop(a.id);
+            if (normStatus(a.status) === 'active') await alertsStore.stop(a.id);
             else await alertsStore.restart(a.id);
         } catch (e) {
             this._failToast(e);
@@ -371,29 +445,22 @@ export class AlertsPanel {
         this._tab = tab;
         this._confirmClear = false;
         this._updateTabs();
+        this._list.scrollTop = 0;
         this._renderList();
         if (tab === 'log') void this._loadLog();
     }
 
     // ---- menus ----
 
-    private _openFilterMenu(anchor: HTMLElement): void {
-        const items: ContextMenuItem[] = [{ id: 'h-filter', label: t('Filter'), disabled: true }];
-        for (const f of STATUS_FILTERS) {
-            items.push({
-                id: `f-${f}`, label: filterLabel(f), icon: f === this._filter ? CHECK_SVG : '',
-                action: () => { this._filter = f; this._renderList(); },
-            });
-        }
-        items.push({ id: 's1', label: '', separator: true });
-        items.push({ id: 'h-sort', label: t('Sort'), disabled: true });
+    private _openSortMenu(anchor: HTMLElement): void {
+        const items: ContextMenuItem[] = [{ id: 'h-sort', label: t('Sort'), disabled: true }];
         for (const k of SORT_KEYS) {
             items.push({
                 id: `s-${k}`, label: sortLabel(k), icon: k === this._sort ? CHECK_SVG : '',
                 action: () => { this._sort = k; this._renderList(); },
             });
         }
-        if (!this._ctx) this._ctx = new ContextMenu({ items, container: this._parent, theme: this._theme });
+        if (!this._ctx) this._ctx = new ContextMenu({ items, container: this._parent, theme: this._theme, skin: RP_MENU_SKIN });
         else this._ctx.setItems(items);
         this._ctx.hide();
         this._ctx.showAnchored(anchor.getBoundingClientRect());
@@ -403,82 +470,120 @@ export class AlertsPanel {
 
     private get _c(): WlColors { return WL_COLORS[this._theme]; }
 
+    private _tabLabel(id: TabId): string {
+        switch (id) {
+            case 'active': return t('Active');
+            case 'triggered': return t('Fired');
+            case 'stopped': return t('Paused');
+            default: return t('Log');
+        }
+    }
+
     private _render(): void {
         const c = this._c;
+        applyRpTokens(this._el, this._theme);
         this._el.style.background = c.bg;
-        this._el.style.borderLeft = `1px solid ${c.border}`;
+        this._el.style.borderLeft = this._embedded ? 'none' : `1px solid ${c.border}`;
         this._el.style.color = c.text;
         this._el.style.setProperty('--al-scroll', c.scrollThumb);
         this._el.style.setProperty('--al-accent', c.accent);
         this._el.style.setProperty('--al-muted', c.muted);
         this._el.replaceChildren();
         this._tabEls.clear();
+        this._countEls.clear();
+        this._confirmEl = null;
 
-        const header = h('div', `display:flex;align-items:center;justify-content:space-between;height:44px;padding:0 8px 0 14px;border-bottom:1px solid ${c.border};flex-shrink:0;gap:4px;`);
-        header.appendChild(h('div', 'font-size:14px;font-weight:600;', t('Alerts'), 'al-title'));
-        const actions = h('div', 'display:flex;gap:2px;flex-shrink:0;');
-        const mkBtn = (svg: string, title: string, cls: string): HTMLButtonElement => {
-            const b = document.createElement('button');
-            b.className = cls;
-            b.innerHTML = svg;
-            b.title = title;
-            b.setAttribute('aria-label', title);
-            b.style.cssText = `position:relative;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:none;background:transparent;color:${c.muted};border-radius:4px;cursor:pointer;`;
-            b.addEventListener('mouseenter', () => { b.style.background = c.hover; b.style.color = c.text; });
-            b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; b.style.color = c.muted; });
-            return b;
-        };
-        const addBtn = mkBtn(PLUS_SVG, t('Create alert'), 'al-add-btn');
-        addBtn.addEventListener('click', () => this._createAlert());
-        const filterBtn = mkBtn(FILTER_SVG, t('Filter and sort'), 'al-filter-btn');
-        filterBtn.addEventListener('click', () => this._openFilterMenu(filterBtn));
-        this._filterBtn = filterBtn;
-        const clearBtn = mkBtn(TRASH_SVG, t('Clear log'), 'al-clear-btn');
-        clearBtn.addEventListener('click', () => { this._confirmClear = true; this._renderList(); });
-        this._clearBtn = clearBtn;
-        const closeBtn = mkBtn(CLOSE_SVG, t('Close'), 'al-close-btn');
+        // Header: title + close
+        const header = h('div', '', undefined, 'al-hdr');
+        header.appendChild(h('div', '', t('Alerts'), 'al-title'));
+        const actions = h('div', '', undefined, 'rp-acts');
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'rp-ib al-close-btn';
+        closeBtn.innerHTML = CLOSE_SVG;
+        closeBtn.title = t('Close');
+        closeBtn.setAttribute('aria-label', t('Close'));
         closeBtn.addEventListener('click', () => this.setVisible(false));
-        actions.append(addBtn, filterBtn, clearBtn, closeBtn);
+        actions.appendChild(closeBtn);
         header.appendChild(actions);
         this._el.appendChild(header);
 
-        const tabs = h('div', `display:flex;flex-shrink:0;border-bottom:1px solid ${c.border};padding:0 8px;gap:4px;`);
-        for (const [id, label] of [['alerts', t('Alerts')], ['log', t('Log')]] as [TabId, string][]) {
-            const tab = h('button', 'padding:0 10px;height:34px;border:none;background:transparent;font:inherit;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;', label, `al-tab al-tab-${id}`);
+        // Summary + new alert
+        const sum = h('div', '', undefined, 'al-sum');
+        this._sumText = h('div', '', undefined, 'al-sum-text');
+        const addBtn = document.createElement('button');
+        addBtn.className = 'al-new al-add-btn';
+        addBtn.title = t('Create alert');
+        addBtn.setAttribute('aria-label', t('Create alert'));
+        const addIc = h('span', 'display:flex;');
+        addIc.innerHTML = BELL_PLUS_SVG;
+        addBtn.append(addIc, h('span', '', t('New alert'), 'al-new-label'));
+        addBtn.addEventListener('click', () => this._createAlert());
+        sum.append(this._sumText, addBtn);
+        this._el.appendChild(sum);
+
+        // Segmented tabs
+        const seg = h('div', '', undefined, 'al-seg');
+        for (const id of [...LIST_TABS, 'log'] as TabId[]) {
+            const tab = h('button', '', undefined, `al-tab al-tab-${id}`);
+            tab.appendChild(h('span', '', this._tabLabel(id), 'al-tab-label'));
+            if (id !== 'log') {
+                const n = h('span', '', '0', 'rp-num al-tab-n');
+                this._countEls.set(id, n);
+                tab.appendChild(n);
+            }
             tab.addEventListener('click', () => this._setTab(id));
             this._tabEls.set(id, tab);
-            tabs.appendChild(tab);
+            seg.appendChild(tab);
         }
-        this._el.appendChild(tabs);
+        this._el.appendChild(seg);
 
-        const searchWrap = h('div', `padding:8px 12px;flex-shrink:0;border-bottom:1px solid ${c.border};`);
+        // Search + sort (alert tabs)
+        const searchRow = h('div', '', undefined, 'al-srow al-search-wrap');
+        const searchBox = h('div', '', undefined, 'rp-search');
+        const searchIc = h('span', 'position:absolute;left:11px;display:flex;pointer-events:none;color:var(--rp-muted,#787b86);');
+        searchIc.innerHTML = RP_SEARCH_SVG;
         const search = document.createElement('input');
         search.className = 'al-search';
         search.type = 'text';
-        search.placeholder = t('Search');
+        search.placeholder = t('Search alerts');
         search.value = this._query;
-        search.style.cssText = `width:100%;box-sizing:border-box;height:28px;padding:0 10px;border-radius:4px;border:1px solid ${c.border};background:${c.input};color:${c.text};font:inherit;font-size:13px;outline:none;user-select:text;`;
         search.addEventListener('input', () => { this._query = search.value; this._renderList(); });
-        searchWrap.appendChild(search);
-        this._searchWrap = searchWrap;
-        this._el.appendChild(searchWrap);
+        searchBox.append(searchIc, search);
+        const sortBtn = document.createElement('button');
+        sortBtn.className = 'rp-ib al-sort-btn al-filter-btn';
+        sortBtn.innerHTML = SORT_SVG;
+        sortBtn.title = t('Sort');
+        sortBtn.setAttribute('aria-label', t('Sort'));
+        sortBtn.addEventListener('click', () => this._openSortMenu(sortBtn));
+        this._sortBtn = sortBtn;
+        searchRow.append(searchBox, sortBtn);
+        this._searchRow = searchRow;
+        this._el.appendChild(searchRow);
+
+        // Log bar (log tab): entry count + clear
+        const logBar = h('div', '', undefined, 'al-logbar');
+        logBar.appendChild(h('span', '', '', 'al-logbar-n'));
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'al-clear-btn';
+        clearBtn.title = t('Clear log');
+        clearBtn.setAttribute('aria-label', t('Clear log'));
+        const trIc = h('span', 'display:flex;');
+        trIc.innerHTML = TRASH_SVG.replace('width="18" height="18"', 'width="15" height="15"');
+        clearBtn.append(trIc, h('span', '', t('Clear log')));
+        clearBtn.addEventListener('click', () => { this._confirmClear = true; this._renderList(); });
+        logBar.appendChild(clearBtn);
+        this._logBar = logBar;
+        this._el.appendChild(logBar);
 
         this._list = h('div', 'flex:1 1 auto;min-height:0;overflow-y:auto;', undefined, 'al-list');
         this._el.appendChild(this._list);
-        this._footer = h('div', `flex-shrink:0;padding:8px 14px;border-top:1px solid ${c.border};color:${c.muted};font-size:12px;`, undefined, 'al-footer');
-        this._el.appendChild(this._footer);
 
         this._updateTabs();
         this._renderList();
     }
 
     private _updateTabs(): void {
-        const c = this._c;
-        for (const [id, el] of this._tabEls) {
-            const on = id === this._tab;
-            el.style.color = on ? c.text : c.muted;
-            el.style.borderBottomColor = on ? c.accent : 'transparent';
-        }
+        for (const [id, el] of this._tabEls) el.dataset.on = id === this._tab ? '1' : '0';
     }
 
     private _priceText(symbol: string, price: number): string {
@@ -486,42 +591,52 @@ export class AlertsPanel {
         return chart && alertMatchesSymbol(symbol, chart.alertSymbolId()) ? chart.formatAlertPrice(price) : exactPrice(price);
     }
 
+    private _summaryText(): string {
+        if (!alertsStore.hasBackend) return '';
+        const k = activeBySource(alertsStore.alerts());
+        const plan = alertsStore.limit > 0 ? ` ${t('(in your plan: {limit})').replace('{limit}', String(alertsStore.limit))}` : '';
+        if (k.indicator > 0) {
+            return t('{p} price, {d} drawing and {i} indicator alerts active')
+                .replace('{p}', String(k.price)).replace('{d}', String(k.drawing)).replace('{i}', String(k.indicator)) + plan;
+        }
+        return t('{p} price alerts and {d} drawing alerts active')
+            .replace('{p}', String(k.price)).replace('{d}', String(k.drawing)) + plan;
+    }
+
     private _renderList(): void {
         if (this._destroyed) return;
         const c = this._c;
         const isLog = this._tab === 'log';
-        if (this._searchWrap) this._searchWrap.style.display = isLog ? 'none' : 'block';
-        if (this._clearBtn) this._clearBtn.style.display = isLog && this._log && this._log.length > 0 ? 'flex' : 'none';
-        if (this._filterBtn) {
-            this._filterBtn.style.display = isLog ? 'none' : 'flex';
-            const marked = this._filter !== 'all' || this._sort !== 'created';
-            this._filterBtn.style.color = marked ? c.accent : c.muted;
+        const keepScroll = this._list.scrollTop;
+        if (this._sumText) this._sumText.textContent = this._summaryText();
+        const counts = countByTab(alertsStore.alerts());
+        for (const [id, el] of this._countEls) el.textContent = String(counts[id]);
+        if (this._searchRow) this._searchRow.style.display = isLog ? 'none' : 'flex';
+        if (this._sortBtn) this._sortBtn.style.color = this._sort !== 'created' ? c.accent : '';
+        if (this._logBar) {
+            const n = this._log?.length ?? 0;
+            const show = isLog && n > 0;
+            this._logBar.style.display = show ? 'flex' : 'none';
+            const nEl = this._logBar.querySelector('.al-logbar-n');
+            if (nEl) nEl.textContent = show ? t('{n} entries').replace('{n}', String(n)) : '';
         }
+        this._renderConfirm(isLog && this._confirmClear);
         this._list.replaceChildren();
-        if (isLog) this._renderLog(c);
+        if (isLog) this._renderLog();
         else this._renderAlerts(c);
-        this._renderFooter();
+        this._list.scrollTop = keepScroll;
     }
 
-    private _renderFooter(): void {
-        const show = this._tab === 'alerts' && alertsStore.hasBackend;
-        this._footer.style.display = show ? 'block' : 'none';
-        if (!show) return;
-        this._footer.textContent = t('{n} / {limit} active alerts')
-            .replace('{n}', String(alertsStore.activeCount()))
-            .replace('{limit}', String(alertsStore.limit));
-    }
-
-    private _empty(text: string, extra?: HTMLElement, cls = 'al-empty'): void {
-        const c = this._c;
-        const box = h('div', `display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px 24px;text-align:center;color:${c.muted};font-size:13px;`, undefined, cls);
-        box.appendChild(h('div', '', text));
-        if (extra) box.appendChild(extra);
+    private _empty(text: string, extra?: HTMLElement, cls = 'al-empty', sub?: string): void {
+        const box = rpEmptyState(BELL_SVG, text, sub, cls);
+        if (extra) {
+            extra.style.marginTop = '10px';
+            box.appendChild(extra);
+        }
         this._list.appendChild(box);
     }
 
     private _renderStateBlockers(): boolean {
-        const c = this._c;
         if (!alertsStore.hasBackend) {
             this._empty(t('Sign in to view alerts'), undefined, 'al-empty al-empty-auth');
             return true;
@@ -533,7 +648,11 @@ export class AlertsPanel {
         }
         const failed = this._tab === 'log' ? this._logError && !this._log : this._loadError && alertsStore.alerts().length === 0;
         if (failed) {
-            const retry = h('button', `padding:6px 14px;border-radius:4px;border:1px solid ${c.border};background:transparent;color:${c.text};font:inherit;font-size:13px;cursor:pointer;`, t('Retry'), 'al-retry');
+            if (this._tab === 'log' ? this._logAuthError : this._authError) {
+                this._empty(t('Sign in to view alerts'), undefined, 'al-empty al-empty-auth');
+                return true;
+            }
+            const retry = h('button', '', t('Retry'), 'rp-pill al-retry');
             retry.addEventListener('click', () => { if (this._tab === 'log') void this._loadLog(); else void this._refresh(); });
             this._empty(t('Could not load alerts'), retry, 'al-empty al-error');
             return true;
@@ -544,13 +663,20 @@ export class AlertsPanel {
     private _renderAlerts(c: WlColors): void {
         if (this._renderStateBlockers()) return;
         const all = alertsStore.alerts();
-        if (all.length === 0) {
-            const btn = h('button', `padding:7px 16px;border-radius:4px;border:none;background:${c.accent};color:#fff;font:inherit;font-size:13px;font-weight:600;cursor:pointer;`, t('Create alert'), 'al-empty-create');
-            btn.addEventListener('click', () => this._createAlert());
-            this._empty(t('No alerts yet'), btn, 'al-empty al-empty-none');
+        const tab = this._tab as AlertListTab;
+        const inTab = all.filter((a) => tabOfStatus(a.status) === tab);
+        if (inTab.length === 0) {
+            if (all.length === 0) {
+                const btn = h('button', '', t('Create alert'), 'al-new al-empty-create');
+                btn.addEventListener('click', () => this._createAlert());
+                this._empty(t('No alerts yet'), btn, 'al-empty al-empty-none');
+            } else {
+                const text = tab === 'active' ? t('No active alerts') : tab === 'triggered' ? t('No triggered alerts') : t('No stopped alerts');
+                this._empty(text, undefined, 'al-empty al-empty-tab');
+            }
             return;
         }
-        const rows = sortAlerts(filterAlerts(all, this._filter, this._query), this._sort);
+        const rows = sortAlerts(filterAlerts(inTab, 'all', this._query), this._sort);
         if (rows.length === 0) {
             this._empty(t('No alerts match the filter'), undefined, 'al-empty al-empty-filter');
             return;
@@ -562,20 +688,10 @@ export class AlertsPanel {
 
     private _alertRow(a: ChartAlert, c: WlColors, activeSymbol: string, now: number): HTMLElement {
         const isActive = alertMatchesSymbol(a.symbol, activeSymbol);
-        const baseBg = 'transparent';
-        const el = h('div', `position:relative;padding:8px 14px;border-bottom:1px solid ${c.border};cursor:pointer;background:${baseBg};${isActive ? `box-shadow:inset 2px 0 0 ${c.accent};` : ''}`, undefined, 'al-row');
+        const el = h('div', '', undefined, 'al-row');
+        if (isActive) el.appendChild(h('span', `position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 2px 2px 0;background:${c.accent};pointer-events:none;`, undefined, 'al-active-bar'));
         el.dataset.alertId = a.id;
-        el.dataset.status = a.status;
-
-        const line1 = h('div', 'display:flex;align-items:center;gap:8px;min-width:0;');
-        line1.appendChild(h('span', 'font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', alertTicker(a.symbol), 'al-ticker'));
-        const sc = statusColor(a.status, this._theme);
-        line1.appendChild(h('span', `flex-shrink:0;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:600;line-height:14px;color:${sc.fg};background:${sc.bg};`, statusLabel(a.status), 'al-pill'));
-        const stamp = a.status === 'triggered' && a.triggeredAt ? a.triggeredAt : a.createdAt;
-        const time = h('span', `margin-left:auto;flex-shrink:0;font-size:11px;color:${c.muted};white-space:nowrap;`, relativeTime(stamp, now), 'al-time');
-        time.title = new Date(stamp).toLocaleString();
-        line1.appendChild(time);
-        el.appendChild(line1);
+        el.dataset.status = normStatus(a.status);
 
         let condText: string;
         if (a.source === 'drawing') {
@@ -588,33 +704,37 @@ export class AlertsPanel {
         } else {
             condText = `${conditionLabel(a.condition)} ${this._priceText(a.symbol, a.price)}`;
         }
-        const condEl = h('div', `margin-top:2px;display:flex;align-items:center;gap:4px;font-size:12px;color:${c.text};font-variant-numeric:tabular-nums;`, undefined, 'al-cond');
-        condEl.appendChild(h('span', 'min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', condText, 'al-cond-text'));
-        if (a.trigger && a.trigger !== 'once') {
-            const rec = h('span', `flex-shrink:0;font-size:12px;line-height:1;color:${c.muted};`, '\u21BB', 'al-recurring');
-            rec.title = triggerLabel(a.trigger);
-            condEl.appendChild(rec);
-        }
-        el.appendChild(condEl);
-        const sub = a.name || a.message;
-        if (sub) el.appendChild(h('div', `margin-top:1px;font-size:11px;color:${c.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`, sub, 'al-sub'));
 
-        const acts = h('div', `position:absolute;right:8px;top:6px;display:none;gap:2px;padding:2px;border-radius:5px;background:${c.hover};box-shadow:0 0 0 1px ${c.border};`, undefined, 'al-actions');
+        const line1 = h('div', '', undefined, 'al-line1');
+        const ticker = alertTicker(a.symbol);
+        line1.appendChild(h('span', '', `${ticker} ${condText}`, 'al-ticker'));
+        const sc = statusColor(a.status, this._theme);
+        line1.appendChild(h('span', `color:${sc.fg};background:${sc.bg};`, normStatus(a.status) === 'active' ? t('Live') : statusLabel(a.status), 'al-pill'));
+        el.appendChild(line1);
+
+        const parts = [a.symbol, condText, triggerLabel(a.trigger ?? 'once')];
+        const st = normStatus(a.status);
+        const stamp = st === 'triggered' && a.triggeredAt ? a.triggeredAt : a.createdAt;
+        if (st === 'triggered' && a.triggeredAt) parts.push(relativeTime(a.triggeredAt, now));
+        const line2 = h('div', '', parts.join(' · '), 'al-line2 al-cond');
+        line2.title = new Date(stamp).toLocaleString();
+        el.appendChild(line2);
+        const sub = a.name || a.message;
+        if (sub) el.appendChild(h('div', '', sub, 'al-sub'));
+
+        const acts = h('div', '', undefined, 'al-actions');
         const mk = (svg: string, title: string, cls: string, fn: () => void): HTMLButtonElement => {
             const b = document.createElement('button');
-            b.className = cls;
+            b.className = `al-act ${cls}`;
             b.innerHTML = svg;
             b.title = title;
             b.setAttribute('aria-label', title);
-            b.style.cssText = `display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:none;background:transparent;color:${c.muted};border-radius:4px;cursor:pointer;`;
             // a request of this alert is in flight: no double clicks
-            if (this._busy.has(a.id)) { b.disabled = true; b.style.opacity = '0.4'; b.style.cursor = 'default'; }
-            b.addEventListener('mouseenter', () => { if (b.disabled) return; b.style.background = c.active; b.style.color = c.text; });
-            b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; b.style.color = c.muted; });
+            if (this._busy.has(a.id)) b.disabled = true;
             b.addEventListener('click', (e) => { e.stopPropagation(); if (!b.disabled) fn(); });
             return b;
         };
-        const running = a.status === 'active';
+        const running = normStatus(a.status) === 'active';
         acts.append(
             mk(running ? PAUSE_SVG : PLAY_SVG, running ? t('Stop alert') : t('Restart alert'), running ? 'al-act-stop' : 'al-act-restart', () => void this._toggleStatus(a)),
             mk(EDIT_SVG, t('Edit alert'), 'al-act-edit', () => this._edit(a)),
@@ -622,44 +742,48 @@ export class AlertsPanel {
         );
         el.appendChild(acts);
 
-        el.addEventListener('mouseenter', () => { el.style.background = c.hover; time.style.visibility = 'hidden'; acts.style.display = 'flex'; });
-        el.addEventListener('mouseleave', () => { el.style.background = baseBg; time.style.visibility = 'visible'; acts.style.display = 'none'; });
         el.addEventListener('click', () => this._goTo(a.symbol));
         return el;
     }
 
-    private _renderLog(c: WlColors): void {
-        if (this._confirmClear) {
-            const bar = h('div', `display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid ${c.border};background:${c.hover};font-size:12px;`, undefined, 'al-confirm');
-            bar.appendChild(h('span', 'flex:1 1 auto;', t('Clear the log?')));
-            const cancel = h('button', `padding:4px 10px;border-radius:4px;border:1px solid ${c.border};background:transparent;color:${c.text};font:inherit;font-size:12px;cursor:pointer;`, t('Cancel'), 'al-confirm-cancel');
-            cancel.addEventListener('click', () => { this._confirmClear = false; this._renderList(); });
-            const ok = h('button', 'padding:4px 10px;border-radius:4px;border:1px solid #f23645;background:#f23645;color:#fff;font:inherit;font-size:12px;cursor:pointer;', t('Clear'), 'al-confirm-ok');
-            ok.addEventListener('click', () => void this._clearLog());
-            bar.append(cancel, ok);
-            this._list.appendChild(bar);
-        }
+    /** Clear-log confirmation lives under the log bar (outside the scrolling list) so it is always visible. */
+    private _renderConfirm(show: boolean): void {
+        this._confirmEl?.remove();
+        this._confirmEl = null;
+        if (!show || !this._logBar) return;
+        const bar = h('div', '', undefined, 'al-confirm');
+        bar.appendChild(h('span', '', t('Clear the log?'), 'al-confirm-text'));
+        const cancel = h('button', '', t('Cancel'), 'rp-pill al-confirm-cancel');
+        cancel.addEventListener('click', () => { this._confirmClear = false; this._renderList(); });
+        const ok = h('button', '', t('Clear'), 'rp-pill rp-danger al-confirm-ok');
+        ok.addEventListener('click', () => void this._clearLog());
+        bar.append(cancel, ok);
+        this._logBar.after(bar);
+        this._confirmEl = bar;
+    }
+
+    private _renderLog(): void {
         if (this._renderStateBlockers()) return;
         const entries = this._log ?? [];
         if (entries.length === 0) {
             this._empty(t('No alerts have fired yet'), undefined, 'al-empty al-empty-log');
             return;
         }
-        for (const e of entries) this._list.appendChild(this._logRow(e, c));
+        for (const e of entries) this._list.appendChild(this._logRow(e));
     }
 
-    private _logRow(e: AlertLogEntry, c: WlColors): HTMLElement {
-        const el = h('div', `padding:8px 14px;border-bottom:1px solid ${c.border};cursor:pointer;`, undefined, 'al-log-row');
+    private _logRow(e: AlertLogEntry): HTMLElement {
+        const el = h('div', '', undefined, 'al-log-row');
         el.dataset.entryId = e.id;
-        const line1 = h('div', 'display:flex;align-items:baseline;gap:8px;min-width:0;');
-        line1.appendChild(h('span', 'font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', alertTicker(e.symbol), 'al-log-ticker'));
-        line1.appendChild(h('span', `margin-left:auto;flex-shrink:0;font-size:11px;color:${c.muted};font-variant-numeric:tabular-nums;white-space:nowrap;`, formatLogTime(e.firedAt), 'al-log-time'));
+        const line1 = h('div', '', undefined, 'al-line1');
+        line1.appendChild(h('span', '', `${alertTicker(e.symbol)} ${this._priceText(e.symbol, e.price)}`, 'al-log-ticker'));
+        line1.appendChild(h('span', 'flex:none;font-size:12px;color:var(--rp-muted);white-space:nowrap;', formatLogTime(e.firedAt), 'rp-num al-log-time'));
         el.appendChild(line1);
         const msg = e.message || e.name;
-        if (msg) el.appendChild(h('div', `margin-top:2px;font-size:12px;color:${c.text};overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;`, msg, 'al-log-msg'));
-        el.appendChild(h('div', `margin-top:2px;font-size:11px;color:${c.muted};font-variant-numeric:tabular-nums;`, `${t('Price')} ${this._priceText(e.symbol, e.price)}`, 'al-log-price'));
-        el.addEventListener('mouseenter', () => { el.style.background = c.hover; });
-        el.addEventListener('mouseleave', () => { el.style.background = 'transparent'; });
+        const full = [e.symbol, conditionLabel(e.condition), msg].filter(Boolean).join(' · ');
+        const m = h('div', '', full, 'al-line2 al-log-msg');
+        m.title = full;
+        el.appendChild(m);
         el.addEventListener('click', () => this._goTo(e.symbol));
         return el;
     }

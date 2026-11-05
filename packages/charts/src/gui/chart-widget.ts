@@ -24,7 +24,7 @@ import { AlertLinesController } from './alerts/alert-lines';
 import { alertTicker, exactPrice, makeAlertSymbolId, snapAlertPrice } from '../alerts/alert-text';
 import { LegendAction, LegendPoint, LEGEND_ICONS } from './indicator_legend';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
-import { ObjectTreePanel } from './object_tree/object_tree_panel';
+import { ObjectTreePanel, type ObjectTreeHost } from './object_tree/object_tree_panel';
 import { AlertsPanel, AlertsPanelChart } from './alerts/alerts-panel';
 import { indicatorRowSignature } from './object_tree/object_tree_model';
 import { ToolbarWidget, ChartType } from './toolbar';
@@ -189,6 +189,9 @@ export class ChartWidget implements Disposable {
     private _alertsPanel: AlertsPanel | null = null;
     /** Object tree lives in a host-owned sidebar (multi-chart layout): it must not squeeze this chart. */
     private _objectTreeExternal: HTMLElement | null = null;
+    /** Layout-owned shared object tree (MultiChartLayout): this chart only contributes its data host. */
+    private _sharedTree: { panel: ObjectTreePanel; toggle: () => void; isActive: () => boolean } | null = null;
+    private _objectTreeHostObj: ObjectTreeHost | null = null;
     private _timeAxisRow: HTMLElement | null = null;
     private _indicatorContainer: HTMLElement | null = null;
 
@@ -374,8 +377,8 @@ export class ChartWidget implements Disposable {
         this._indicatorManager = new IndicatorManager();
         this._indicatorManager.onPaneAdded = this._onIndicatorPaneAdded.bind(this);
         this._indicatorManager.onPaneRemoved = this._onIndicatorPaneRemoved.bind(this);
-        this._indicatorManager.onIndicatorAdded = () => { this._updateMainLegend(); this._objectTreePanel?.refresh(); };
-        this._indicatorManager.onIndicatorRemoved = () => { this._updateMainLegend(); this._objectTreePanel?.refresh(); };
+        this._indicatorManager.onIndicatorAdded = () => { this._updateMainLegend(); this._ownTree()?.refresh(); };
+        this._indicatorManager.onIndicatorRemoved = () => { this._updateMainLegend(); this._ownTree()?.refresh(); };
 
         // Initialize drawing manager
         this._drawingManager = new DrawingManager();
@@ -2239,7 +2242,7 @@ export class ChartWidget implements Disposable {
         const watchlistWidth = this._watchlistPanel?.visible
             ? this._watchlistPanel.width
             : this._alertsPanel?.visible ? this._alertsPanel.width
-            : this._objectTreePanel?.visible && !this._objectTreeExternal ? this._objectTreePanel.width : 0;
+            : this._objectTreePanel?.visible && !this._objectTreeExternal && !this._sharedTree ? this._objectTreePanel.width : 0;
         const usableWidth = this._width - watchlistWidth;
         this._technicalRatingBadge?.setRightOffset(watchlistWidth);
         const paneWidth = usableWidth - priceAxisWidth - drawingToolbarWidth;
@@ -2559,8 +2562,8 @@ export class ChartWidget implements Disposable {
         this._drawingManager.setTimeframe(timeframe);
         for (const ind of this._indicatorManager.allIndicators) ind.setTimeframe(timeframe);
         this._drawingSettingsModal?.setTimeframe(timeframe);
-        this._objectTreePanel?.resetDeleteConfirm();
-        this._objectTreePanel?.refresh();
+        this._ownTree()?.resetDeleteConfirm();
+        this._ownTree()?.refresh();
         this._scheduleDraw();
         this._timeframeChanged.fire(timeframe);
 
@@ -2646,20 +2649,10 @@ export class ChartWidget implements Disposable {
 
     /** Nesne agaci: sag kenarda yerlesir (izleme listesiyle ayni anda acik olmaz). */
     private _createObjectTree(): void {
-        if (!this._element) return;
+        if (!this._element || this._sharedTree) return;
         this._objectTreePanel?.destroy();
-        const panel = new ObjectTreePanel(this._element, this._toolbarWidget?.height ?? 0, {
-            drawings: this._drawingManager,
-            indicators: this._indicatorManager,
-            openDrawingSettings: (d) => this._openDrawingSettings(d),
-            openIndicatorSettings: (ind) => this._openIndicatorSettings(ind),
-            toggleIndicator: (ind) => { ind.setVisible(!ind.visible); this._scheduleDraw(); },
-            removeIndicator: (ind) => { this._indicatorManager.removeIndicator(ind.id); this._scheduleDraw(); },
-            showDrawingMenu: (d, x, y) => this._showDrawingContextMenu(d, x, y),
-            requestDraw: () => this._scheduleDraw(),
-        });
+        const panel = new ObjectTreePanel(this._element, this._toolbarWidget?.height ?? 0, this.createObjectTreeHost());
         this._objectTreePanel = panel;
-        if (this._objectTreeExternal) panel.mountIn(this._objectTreeExternal, 0);
         panel.setTheme(this._currentTheme === 'light' ? 'light' : 'dark');
         panel.visibilityChanged.subscribe((visible) => {
             if (visible) {
@@ -2673,6 +2666,48 @@ export class ChartWidget implements Disposable {
         });
         if (ObjectTreePanel.wasOpen() && !this._watchlistPanel?.visible && !this._alertsPanel?.visible && !this._objectTreeExternal) panel.setVisible(true);
         this._drawingToolbarWidget?.setObjectTreeActive(panel.visible);
+    }
+
+    /** The data / action surface the object tree needs from this chart (one stable object per chart). */
+    createObjectTreeHost(): ObjectTreeHost {
+        if (!this._objectTreeHostObj) {
+            this._objectTreeHostObj = {
+                drawings: this._drawingManager,
+                indicators: this._indicatorManager,
+                openDrawingSettings: (d) => this._openDrawingSettings(d),
+                openIndicatorSettings: (ind) => this._openIndicatorSettings(ind),
+                toggleIndicator: (ind) => { ind.setVisible(!ind.visible); this._scheduleDraw(); },
+                removeIndicator: (ind) => { this._indicatorManager.removeIndicator(ind.id); this._scheduleDraw(); },
+                showDrawingMenu: (d, x, y) => this._showDrawingContextMenu(d, x, y),
+                requestDraw: () => this._scheduleDraw(),
+            };
+        }
+        return this._objectTreeHostObj;
+    }
+
+    /**
+     * Hands the object tree over to the layout's shared right panel (null = back to an own panel). The shared panel is
+     * never destroyed by this chart; `toggle` opens / closes it and `isActive` tells whether it currently shows THIS chart.
+     */
+    attachSharedObjectTree(shared: { panel: ObjectTreePanel; toggle: () => void; isActive: () => boolean } | null): void {
+        if (this._sharedTree === shared) return;
+        if (shared) {
+            if (this._objectTreePanel && this._objectTreePanel !== shared.panel) this._objectTreePanel.destroy();
+            this._sharedTree = shared;
+            this._objectTreePanel = shared.panel;
+        } else {
+            this._sharedTree = null;
+            this._objectTreePanel = null;
+            this._createObjectTree();
+        }
+        this._updateLayout();
+        this._scheduleDraw();
+    }
+
+    /** The tree panel when it is showing this chart's data (always, outside a shared right panel). */
+    private _ownTree(): ObjectTreePanel | null {
+        if (!this._sharedTree) return this._objectTreePanel;
+        return this._sharedTree.isActive() ? this._sharedTree.panel : null;
     }
 
     /** Drawing state / interaction tools (used by DrawingToolbarBinding). */
@@ -2689,6 +2724,7 @@ export class ChartWidget implements Disposable {
     }
 
     get objectTreeVisible(): boolean {
+        if (this._sharedTree) return this._sharedTree.panel.visible && this._sharedTree.isActive();
         return this._objectTreePanel?.visible ?? false;
     }
 
@@ -2702,13 +2738,9 @@ export class ChartWidget implements Disposable {
         this._sharedToolbar = handlers;
     }
 
-    /** Hosts the object tree in an external container (layout sidebar) instead of inside this chart; null = back inside. */
-    setObjectTreeContainer(container: HTMLElement | null): void {
-        this._objectTreeExternal = container;
-        const target = container ?? this._element;
-        if (target) this._objectTreePanel?.mountIn(target, container ? 0 : this._toolbarWidget?.height ?? 0);
-        this._updateLayout();
-        this._scheduleDraw();
+    /** Legacy entry point: the layout now shares ONE object tree (`attachSharedObjectTree`); kept so old hosts compile. */
+    setObjectTreeContainer(_container: HTMLElement | null): void {
+        // no-op
     }
 
     /** Fires when the object tree panel of this chart opens / closes (host-owned watchlist exclusion). */
@@ -2718,15 +2750,18 @@ export class ChartWidget implements Disposable {
 
     /** Temporarily closes the object tree (preference is kept); `restoreObjectTree` re-opens it if it was open before. */
     hideObjectTree(): void {
+        if (this._sharedTree) return; // the layout owns visibility
         this._objectTreePanel?.setVisible(false, { persist: false });
     }
 
     restoreObjectTree(): void {
+        if (this._sharedTree) return;
         if (ObjectTreePanel.wasOpen()) this._objectTreePanel?.setVisible(true);
     }
 
     /** Nesne agacini ac/kapat (toolbar dugmesi ve baglam menusu) */
     toggleObjectTree(): void {
+        if (this._sharedTree) { this._sharedTree.toggle(); return; }
         this._objectTreePanel?.toggle();
     }
 
@@ -2738,8 +2773,8 @@ export class ChartWidget implements Disposable {
 
         // Update state manager - this saves current symbol's drawings and loads new symbol's drawings
         this._chartStateManager?.setSymbol(symbol.symbol);
-        this._objectTreePanel?.resetDeleteConfirm();
-        this._objectTreePanel?.refresh();
+        this._ownTree()?.resetDeleteConfirm();
+        this._ownTree()?.refresh();
 
         this._model.setSymbol(symbol.symbol);
         if (symbol.exchange) {
@@ -4796,7 +4831,7 @@ export class ChartWidget implements Disposable {
             const sig = rowSig();
             if (sig !== lastRowSig) {
                 lastRowSig = sig;
-                this._objectTreePanel?.refresh();
+                this._ownTree()?.refresh();
             }
             this._scheduleDraw();
         });
@@ -4843,7 +4878,8 @@ export class ChartWidget implements Disposable {
         this._watchlistPanel = null;
         this._alertsPanel?.destroy();
         this._alertsPanel = null;
-        this._objectTreePanel?.destroy();
+        if (!this._sharedTree) this._objectTreePanel?.destroy();
+        this._sharedTree = null;
         this._objectTreePanel = null;
         this._toolbarWidget?.dispose();
         this._drawingToolbarBinding?.detach();

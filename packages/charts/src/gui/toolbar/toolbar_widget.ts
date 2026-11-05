@@ -84,6 +84,8 @@ export interface ToolbarOptions {
     priceScaleMode?: 'normal' | 'logarithmic';
     /** IANA zone for the time axis, e.g. 'America/New_York'. '' means browser local zone. */
     timezone?: string;
+    /** Hide the "Liste" and alerts-manager buttons (a right widget bar owns those panels). */
+    hideRightPanelButtons?: boolean;
 }
 
 const defaultToolbarOptions: ToolbarOptions = {
@@ -362,10 +364,12 @@ export class ToolbarWidget {
         this._createDomButton();
 
         // Izleme listesi (watch list) toggle button
-        this._createWatchlistButton();
+        if (!this._options.hideRightPanelButtons) {
+            this._createWatchlistButton();
 
-        // Alerts manager toggle (icon only, unread badge)
-        this._createAlertsManagerButton();
+            // Alerts manager toggle (icon only, unread badge)
+            this._createAlertsManagerButton();
+        }
 
         // Fiyat eksenini spot karsiligina ceviren dugme (sadece GC1/SI1'de gorunur)
         this._createSpotButton();

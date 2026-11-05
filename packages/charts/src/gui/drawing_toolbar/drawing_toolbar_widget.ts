@@ -572,6 +572,12 @@ export class DrawingToolbarWidget {
         btn.style.color = active ? '#fff' : '#787b86';
     }
 
+    /** Hides / shows the object tree button (a right widget bar can own that panel). */
+    setObjectTreeButtonHidden(hidden: boolean): void {
+        const btn = this._element?.querySelector('button[data-id="objectTree"]') as HTMLButtonElement | null;
+        if (btn) btn.style.display = hidden ? 'none' : 'flex';
+    }
+
     private _updateUtilityButtons(): void {
         const lockBtn = this._element?.querySelector('button[data-id="lock"]') as HTMLButtonElement;
         if (lockBtn) {

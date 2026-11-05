@@ -7,7 +7,10 @@ import { DrawingToolbarWidget } from './drawing_toolbar';
 import { DrawingToolbarBinding } from './drawing_toolbar/drawing_toolbar_binding';
 import { ToolbarWidget } from './toolbar';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
+import { ObjectTreePanel } from './object_tree/object_tree_panel';
+import { RightPanelHost } from './right_panel/right_panel_host';
 import { AlertsPanel, AlertsPanelChart } from './alerts/alerts-panel';
+import { RightToolbarWidget, RightToolbarMenuItem, RIGHT_TOOLBAR_ICONS } from './right_toolbar/right_toolbar_widget';
 import {
     LayoutId,
     LayoutSizes,
@@ -112,6 +115,68 @@ export interface MultiChartLayoutOptions {
     planLimits?: Record<string, number>;
     /** Minimum chart size while dragging splitters (px, default 120). */
     minChartSize?: number;
+    /**
+     * Vertical icon bar (45px) on the far right that opens / closes the docked side panels (watchlist, alerts,
+     * object tree). Default false. When on, the toolbar's "Liste" / alerts-manager buttons and the drawing
+     * toolbar's object tree button are hidden (the bar owns them).
+     */
+    rightToolbar?: boolean;
+    /** Right bar "Help" item (bottom group): shown only when `helpUrl` or `onHelp` is set. */
+    helpUrl?: string;
+    onHelp?: () => void;
+}
+
+/** Built-in panels that share the layout's single right slot. */
+export type BuiltInRightPanelId = 'watchlist' | 'alerts' | 'objectTree';
+
+/** Built-in ids or the id of a host-registered panel (`registerRightPanel`). */
+export type RightPanelId = string;
+
+const RIGHT_PANEL_OPEN_KEYS: Record<BuiltInRightPanelId, string> = {
+    watchlist: 'chart.watchlist.open',
+    alerts: 'chart.alerts.open',
+    objectTree: 'chart.objectTree.open',
+};
+
+/** Id of the open host-registered panel (only one of the built-ins / host panels is ever persisted as open). */
+const RIGHT_PANEL_HOST_KEY = 'chart.rightPanel.host';
+
+export interface RightPanelRegistration {
+    /** Unique id (must not be 'watchlist' / 'alerts' / 'objectTree'). Also the bar item id. */
+    id: string;
+    /** Inline SVG markup (24px, `currentColor`). */
+    icon: string;
+    title: string;
+    group?: 'top' | 'bottom';
+    /** Panel content: an existing element (appended once) ... */
+    element?: HTMLElement;
+    /** ... or a factory called lazily on the first show; may return a cleanup function (called on dispose). */
+    create?: (container: HTMLElement) => void | (() => void);
+    /** Ignored by the shared right panel host (kept for API compatibility); the shared width defaults to 360. */
+    width?: number | (() => number);
+    onShow?: () => void;
+    onHide?: () => void;
+    /** Called with the layout theme on registration and on every `setTheme`. */
+    onTheme?: (theme: 'dark' | 'light') => void;
+    /** Initial badge count. */
+    badge?: number;
+}
+
+export interface RightPanelHandle {
+    show(): void;
+    hide(): void;
+    toggle(): void;
+    isOpen(): boolean;
+    setBadge(count: number): void;
+    setTitle(title: string): void;
+    dispose(): void;
+}
+
+interface HostPanel {
+    reg: RightPanelRegistration;
+    wrapper: HTMLElement;
+    created: boolean;
+    cleanup: (() => void) | null;
 }
 
 export interface MultiChartSymbolChangeEvent {
@@ -156,6 +221,15 @@ export class MultiChartLayout {
     /** Unread fired-alert count, kept here so a layout rebuild (new panel instance) does not reset the badge. */
     private _alertsUnread = 0;
     private _toolbarWidget: ToolbarWidget | null = null;
+    /** Right widget bar (only with `rightToolbar: true`). */
+    private _rightToolbar: RightToolbarWidget | null = null;
+    /** Host-registered right panels by id, and the id of the one that is open (null = none). */
+    private readonly _hostPanels = new Map<string, HostPanel>();
+    /** The ONE shared container all right panels live in, and the id of the view it shows (null = closed). */
+    private _rightHost!: RightPanelHost;
+    private _rightView: string | null = null;
+    /** The layout-wide object tree (follows the ACTIVE chart). */
+    private _objectTree: ObjectTreePanel | null = null;
     /** One drawing toolbar for the whole layout (far left); drives the active chart. */
     private _drawingToolbar: DrawingToolbarWidget | null = null;
     private _drawingToolbarBinding: DrawingToolbarBinding | null = null;
@@ -342,7 +416,22 @@ export class MultiChartLayout {
         this._body.appendChild(this._grid);
 
         this._container.appendChild(this._element);
-        this._element.appendChild(this._body);
+        if (options.rightToolbar) {
+            // Panels are absolutely positioned at right:0 of the body; the bar sits OUTSIDE the body so they dock left of it.
+            const row = document.createElement('div');
+            row.className = 'tv-multi-chart-layout-row';
+            row.style.cssText = `
+                flex: 1 1 auto;
+                display: flex;
+                width: 100%;
+                min-width: 0;
+                min-height: 0;
+            `;
+            row.appendChild(this._body);
+            this._element.appendChild(row);
+        } else {
+            this._element.appendChild(this._body);
+        }
 
         this._menu = new LayoutMenu({
             getLayout: () => this._layout,
@@ -354,6 +443,12 @@ export class MultiChartLayout {
             setSync: (partial) => this.setSync(partial),
         });
 
+        this._rightHost = new RightPanelHost(this._body, {
+            getAvailableWidth: () => this._body.clientWidth,
+            onWidthChange: () => this._applyRightInset(),
+        });
+        this._rightHost.setTheme(this._theme);
+
         this._createDrawingToolbar();
 
         const count = getLayoutDef(this._layout).count;
@@ -364,11 +459,14 @@ export class MultiChartLayout {
         this._relayout();
         this._createWatchlist();
         this._createAlertsPanel();
+        this._createObjectTreeView();
         this._createToolbar();
+        if (options.rightToolbar) this._createRightToolbar();
         this.setActiveChart(Math.min(this._activeIndex, this._charts.length - 1));
+        this._restoreRightPanel();
 
         if (typeof ResizeObserver !== 'undefined') {
-            this._gridResizeObserver = new ResizeObserver(() => this._relayout());
+            this._gridResizeObserver = new ResizeObserver(() => { this._applyRightInset(); this._relayout(); });
             this._gridResizeObserver.observe(this._grid);
         }
         document.addEventListener('keydown', this._onKeyDown);
@@ -381,6 +479,16 @@ export class MultiChartLayout {
 
     get charts(): readonly ChartWidget[] {
         return this._charts;
+    }
+
+    /** The right widget bar (null unless `rightToolbar: true`); hosts can `addItem` extra items. */
+    get rightToolbar(): RightToolbarWidget | null {
+        return this._rightToolbar;
+    }
+
+    /** Which docked right panel is open right now (null = none). Derived from the panels' real state. */
+    get activeRightPanel(): RightPanelId | null {
+        return this._rightView;
     }
 
     get activeChart(): ChartWidget | null {
@@ -678,6 +786,10 @@ export class MultiChartLayout {
         this._drawingToolbar?.setTheme(theme);
         this._watchlistPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
         this._alertsPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
+        this._objectTree?.setTheme(theme === 'light' ? 'light' : 'dark');
+        this._rightHost.setTheme(theme);
+        this._rightToolbar?.setTheme(theme);
+        for (const host of this._hostPanels.values()) this._themeHostPanel(host);
         for (const chart of this._charts) chart.setTheme(theme); // also persists 'tv-chart-theme'
         this._menu.refresh();
         this._themeChanged.fire(theme);
@@ -702,7 +814,7 @@ export class MultiChartLayout {
         // replay control bar only on the active chart (followers just follow the cursor)
         this._charts.forEach((chart, chartIndex) => chart.setReplayControlsEnabled(chartIndex === index));
 
-        this._syncObjectTrees();
+        this._retargetObjectTree();
         this._syncToolbarStateFromActiveChart();
         this._syncReplayButton();
         this._activeChartChanged.fire(index);
@@ -715,6 +827,12 @@ export class MultiChartLayout {
         this._watchlistPanel = null;
         this._alertsPanel?.destroy();
         this._alertsPanel = null;
+        this._objectTree?.destroy();
+        this._objectTree = null;
+        for (const id of Array.from(this._hostPanels.keys())) this._disposeHostPanel(id, false);
+        this._rightHost.destroy();
+        this._rightToolbar?.dispose();
+        this._rightToolbar = null;
         for (const chart of this._charts) {
             chart.dispose();
         }
@@ -758,10 +876,11 @@ export class MultiChartLayout {
             locale: this._options.locale || 'en',
             priceScaleMode: activeChart?.priceScaleMode || 'normal',
             ...(activeChart ? { timezone: activeChart.getTimezone() } : {}),
+            ...(this._options.rightToolbar ? { hideRightPanelButtons: true } : {}),
         });
         this._toolbarWidget.setTheme(this._theme);
-        this._toolbarWidget.setWatchlistActive(this._watchlistPanel?.visible ?? false);
-        this._toolbarWidget.setAlertsManagerActive(this._alertsPanel?.visible ?? false);
+        this._toolbarWidget.setWatchlistActive(this._rightView === 'watchlist');
+        this._toolbarWidget.setAlertsManagerActive(this._rightView === 'alerts');
         this._toolbarWidget.setAlertsUnread(this._alertsPanel?.unreadCount ?? 0);
         // layout menu button: right end of the shared toolbar
         this._toolbarWidget.element?.appendChild(this._menu.createTrigger());
@@ -801,11 +920,11 @@ export class MultiChartLayout {
         });
 
         this._toolbarWidget.watchlistToggled.subscribe((enabled) => {
-            this._watchlistPanel?.setVisible(enabled);
+            this._setBuiltInOpen('watchlist', enabled);
         });
 
         this._toolbarWidget.alertsManagerToggled.subscribe((enabled) => {
-            this._alertsPanel?.setVisible(enabled);
+            this._setBuiltInOpen('alerts', enabled);
         });
 
         this._toolbarWidget.languageChanged.subscribe((locale) => {
@@ -815,7 +934,8 @@ export class MultiChartLayout {
             }
             this._createToolbar();
             this._createDrawingToolbar();
-            this._syncObjectTrees();
+            this._retitleRightToolbar();
+            this._syncRightState();
             this._syncToolbarStateFromActiveChart();
             this._refreshMaxButtons();
         });
@@ -853,6 +973,7 @@ export class MultiChartLayout {
         const toolbar = new DrawingToolbarWidget(this._body, true);
         if (toolbar.element) this._body.insertBefore(toolbar.element, this._grid);
         toolbar.setTheme(this._theme);
+        if (this._options.rightToolbar) toolbar.setObjectTreeButtonHidden(true);
         if (state) {
             toolbar.setActiveTool(state.tool);
             toolbar.isLocked = state.locked;
@@ -867,20 +988,18 @@ export class MultiChartLayout {
 
     private _createWatchlist(): void {
         this._watchlistPanel?.destroy();
+        this._rightHost.removeView('watchlist');
         const panel = new WatchlistPanel(this._body, 0);
         this._watchlistPanel = panel;
+        panel.embed(this._rightHost.addView('watchlist'));
         panel.setTheme(this._theme === 'light' ? 'light' : 'dark');
         const active = this.activeChart;
         if (active) panel.setActiveSymbol(active.symbol);
 
-        panel.visibilityChanged.subscribe((visible) => {
-            // Same exclusion as the single chart: watchlist, alerts panel and object tree share the right edge.
-            if (visible) this._alertsPanel?.setVisible(false, { persist: false });
-            this._syncObjectTrees();
-            this._toolbarWidget?.setWatchlistActive(visible);
-            this._applyWatchlistInset();
-        });
-        panel.widthChanged.subscribe(() => this._applyWatchlistInset());
+        panel.visibilityChanged.subscribe((visible) => this._onBuiltInVisibility('watchlist', visible));
+        // The watchlist asks for more room when a column is enabled: the shared width grows (and is persisted).
+        // A temporary expand (panel.persistsWidth=false) is not written to storage.
+        panel.widthChanged.subscribe((w) => { if (this._rightView === 'watchlist') this._rightHost.setWidth(w, panel.persistsWidth); });
         panel.symbolSelected.subscribe((sel) => {
             const type: SymbolInfo['type'] =
                 sel.assetClass === 'crypto' ? 'crypto' : sel.exchange === 'COMEX' ? 'futures' : 'forex';
@@ -892,57 +1011,258 @@ export class MultiChartLayout {
                 type,
             });
         });
-
-        if (WatchlistPanel.wasOpen()) panel.setVisible(true);
     }
 
     private _createAlertsPanel(): void {
         this._alertsPanel?.destroy();
+        this._rightHost.removeView('alerts');
         const panel = new AlertsPanel(this._body, 0, () => this.activeChart as AlertsPanelChart | null);
         this._alertsPanel = panel;
+        panel.embed(this._rightHost.addView('alerts'));
         panel.setTheme(this._theme === 'light' ? 'light' : 'dark');
         panel.restoreUnread(this._alertsUnread);
 
-        panel.unreadChanged.subscribe((n) => { this._alertsUnread = n; this._toolbarWidget?.setAlertsUnread(n); });
-        panel.visibilityChanged.subscribe((visible) => {
-            if (visible) this._watchlistPanel?.setVisible(false);
-            this._syncObjectTrees();
-            this._toolbarWidget?.setAlertsManagerActive(visible);
-            this._applyWatchlistInset();
+        panel.unreadChanged.subscribe((n) => {
+            this._alertsUnread = n;
+            this._toolbarWidget?.setAlertsUnread(n);
+            this._rightToolbar?.setBadge('alerts', n);
         });
-        panel.widthChanged.subscribe(() => this._applyWatchlistInset());
+        panel.visibilityChanged.subscribe((visible) => this._onBuiltInVisibility('alerts', visible));
+    }
 
-        if (AlertsPanel.wasOpen() && !this._watchlistPanel?.visible) panel.setVisible(true);
+    /** ONE object tree for the whole layout, shown in the shared container; it follows the ACTIVE chart. */
+    private _createObjectTreeView(): void {
+        const first = this.activeChart ?? this._charts[0];
+        if (!first) return;
+        this._objectTree?.destroy();
+        this._rightHost.removeView('objectTree');
+        const tree = new ObjectTreePanel(this._body, 0, first.createObjectTreeHost());
+        this._objectTree = tree;
+        tree.embed(this._rightHost.addView('objectTree'));
+        tree.setTheme(this._theme === 'light' ? 'light' : 'dark');
+        tree.visibilityChanged.subscribe((visible) => this._onBuiltInVisibility('objectTree', visible));
+        for (const chart of this._charts) this._attachObjectTree(chart);
+    }
+
+    private _attachObjectTree(chart: ChartWidget): void {
+        const tree = this._objectTree;
+        if (!tree) return;
+        chart.attachSharedObjectTree({
+            panel: tree,
+            toggle: () => this.toggleRightPanel('objectTree'),
+            isActive: () => this.activeChart === chart,
+        });
+    }
+
+    /** The shared tree shows the active chart's drawings / indicators. */
+    private _retargetObjectTree(): void {
+        const chart = this.activeChart;
+        if (this._objectTree && chart) this._objectTree.setHost(chart.createObjectTreeHost());
+        this._syncRightState();
     }
 
     /**
-     * Right sidebar of the layout is shared: watchlist OR alerts panel OR the ACTIVE chart's object tree (never two).
-     * Every chart's tree lives in the layout body; only the active chart's may be open.
+     * A built-in panel changed its own visibility (e.g. its close button): keep the container in step.
+     * Changes the layout itself drives (`setRightPanel`) already have `_rightView` updated, so they are ignored here.
      */
-    private _syncObjectTrees(): void {
-        const watchlistOpen = this._watchlistPanel?.visible ?? false;
-        // Watchlist closed while the alerts panel was open in the previous session / before: it takes the slot back.
-        if (!watchlistOpen && !(this._alertsPanel?.visible ?? false) && this._alertsPanel && AlertsPanel.wasOpen()) {
-            this._alertsPanel.setVisible(true);
-            return;
-        }
-        const sidebarOpen = watchlistOpen || (this._alertsPanel?.visible ?? false);
-        this._charts.forEach((chart, i) => {
-            if (i === this._activeIndex && !sidebarOpen) chart.restoreObjectTree();
-            else chart.hideObjectTree();
-        });
-        this._applyWatchlistInset();
+    private _onBuiltInVisibility(id: BuiltInRightPanelId, visible: boolean): void {
+        if (visible && this._rightView !== id) this.setRightPanel(id);
+        else if (!visible && this._rightView === id) this.setRightPanel(null);
+        this._syncRightState();
     }
 
-    private _applyWatchlistInset(): void {
-        const panel = this._watchlistPanel;
-        let width = panel && panel.visible ? panel.width : 0;
-        if (!width && this._alertsPanel?.visible) width = this._alertsPanel.width;
-        if (!width) {
-            const tree = this._charts.find((c) => c.objectTreeVisible);
-            if (tree) width = tree.objectTreeWidth;
+    private _setBuiltInOpen(id: BuiltInRightPanelId, open: boolean): void {
+        if (open) this.setRightPanel(id);
+        else if (this._rightView === id) this.setRightPanel(null);
+        else this._syncRightState();
+    }
+
+    /** Re-opens the view the previous session left open (watchlist > alerts > object tree; host panels restore on register). */
+    private _restoreRightPanel(): void {
+        if (WatchlistPanel.wasOpen() && this._watchlistPanel) this.setRightPanel('watchlist');
+        else if (AlertsPanel.wasOpen() && this._alertsPanel) this.setRightPanel('alerts');
+        else if (ObjectTreePanel.wasOpen() && this._objectTree) this.setRightPanel('objectTree');
+    }
+
+    /** Toolbar / bar / grid state derived from the one open view. */
+    private _syncRightState(): void {
+        this._toolbarWidget?.setWatchlistActive(this._rightView === 'watchlist');
+        this._toolbarWidget?.setAlertsManagerActive(this._rightView === 'alerts');
+        this._drawingToolbar?.setObjectTreeActive(this._rightView === 'objectTree');
+        this._applyRightInset();
+    }
+
+    /** Grid right margin = shared width while a view is open, 0 when closed (live relayout via the grid's ResizeObserver). */
+    private _applyRightInset(): void {
+        const width = this._rightHost.width;
+        if (width) this._watchlistPanel?.setHostWidth(width);
+        const margin = width ? `${width}px` : '0';
+        if (this._grid.style.marginRight !== margin) this._grid.style.marginRight = margin;
+        this._rightToolbar?.setActive(this.activeRightPanel);
+    }
+
+    // --- right widget bar + single active right panel ---
+
+    private _createRightToolbar(): void {
+        const row = this._body.parentElement;
+        if (!row) return;
+        const bar = new RightToolbarWidget(row);
+        bar.setTheme(this._theme);
+        this._rightToolbar = bar;
+        const toggle = (id: string): void => this.toggleRightPanel(id as RightPanelId);
+        bar.addItem({ id: 'watchlist', icon: RIGHT_TOOLBAR_ICONS.watchlist, title: t('Watchlist'), group: 'top', onClick: toggle });
+        bar.addItem({
+            id: 'alerts', icon: RIGHT_TOOLBAR_ICONS.alerts, title: t('Alert manager'), group: 'top', onClick: toggle,
+            badge: this._alertsPanel?.unreadCount ?? this._alertsUnread,
+        });
+        bar.addItem({ id: 'objectTree', icon: RIGHT_TOOLBAR_ICONS.objectTree, title: t('Object tree'), group: 'top', onClick: toggle });
+        const { helpUrl, onHelp } = this._options;
+        if (helpUrl || onHelp) {
+            bar.addItem({
+                id: 'help', icon: RIGHT_TOOLBAR_ICONS.help, title: t('Help'), group: 'bottom',
+                onClick: () => {
+                    if (onHelp) onHelp();
+                    else if (helpUrl) window.open(helpUrl, '_blank', 'noopener');
+                },
+            });
         }
-        this._grid.style.marginRight = width ? `${width}px` : '0';
+        bar.setActive(this.activeRightPanel);
+    }
+
+    private _retitleRightToolbar(): void {
+        const bar = this._rightToolbar;
+        if (!bar) return;
+        bar.setItemTitle('watchlist', t('Watchlist'));
+        bar.setItemTitle('alerts', t('Alert manager'));
+        bar.setItemTitle('objectTree', t('Object tree'));
+        bar.setItemTitle('help', t('Help'));
+    }
+
+    /** Bar click: opens the panel, or closes it when it is already the open one. */
+    toggleRightPanel(id: RightPanelId): void {
+        this.setRightPanel(this.activeRightPanel === id ? null : id);
+    }
+
+    /**
+     * Opens exactly one docked right panel (null closes all; built-in or host-registered id). The legacy open-preference
+     * keys are normalized first (only the target stays '1') so that a closing panel never hands the slot back to a
+     * previously open one. The host key holds the open host panel id, or is cleared when a built-in is chosen / all close.
+     */
+    setRightPanel(id: RightPanelId | null): void {
+        const isHost = id !== null && this._hostPanels.has(id);
+        if (id !== null && !isHost && !this._hasBuiltIn(id)) return; // unknown / not yet registered
+        for (const key of Object.keys(RIGHT_PANEL_OPEN_KEYS) as BuiltInRightPanelId[]) {
+            if (key === id) continue;
+            try { localStorage.setItem(RIGHT_PANEL_OPEN_KEYS[key], '0'); } catch { /* preference only */ }
+        }
+        try {
+            if (isHost) localStorage.setItem(RIGHT_PANEL_HOST_KEY, id as string);
+            else localStorage.removeItem(RIGHT_PANEL_HOST_KEY);
+        } catch { /* preference only */ }
+        const prev = this._rightView;
+        if (prev === id) { this._syncRightState(); return; }
+        // State first: the views' own visibility callbacks must see the new active id and ignore themselves.
+        this._rightView = id;
+        if (prev) this._leaveView(prev);
+        this._rightHost.show(id);
+        if (id) this._enterView(id);
+        this._syncRightState();
+    }
+
+    private _hasBuiltIn(id: string): boolean {
+        return (id === 'watchlist' && !!this._watchlistPanel) || (id === 'alerts' && !!this._alertsPanel)
+            || (id === 'objectTree' && !!this._objectTree);
+    }
+
+    private _leaveView(id: string): void {
+        if (id === 'watchlist') this._watchlistPanel?.setVisible(false);
+        else if (id === 'alerts') this._alertsPanel?.setVisible(false);
+        else if (id === 'objectTree') this._objectTree?.setVisible(false);
+        else this._hostPanels.get(id)?.reg.onHide?.();
+    }
+
+    private _enterView(id: string): void {
+        if (id === 'watchlist') this._watchlistPanel?.setVisible(true);
+        else if (id === 'alerts') this._alertsPanel?.setVisible(true);
+        else if (id === 'objectTree') this._objectTree?.setVisible(true);
+        else {
+            const host = this._hostPanels.get(id);
+            if (host) this._showHostPanel(host);
+        }
+    }
+
+    /**
+     * Registers a host panel in the shared right slot (exclusive with the built-ins) plus its bar item.
+     * Persists the open panel id under `chart.rightPanel.host`; a reload re-opens it once it is registered again.
+     */
+    registerRightPanel(reg: RightPanelRegistration): RightPanelHandle {
+        if (reg.id in RIGHT_PANEL_OPEN_KEYS) throw new Error(`registerRightPanel: "${reg.id}" is a built-in panel id`);
+        if (this._hostPanels.has(reg.id)) this._disposeHostPanel(reg.id, true);
+        const wrapper = this._rightHost.addView(reg.id);
+        wrapper.classList.add('tv-right-panel-host');
+        wrapper.dataset.panelId = reg.id;
+        const host: HostPanel = { reg, wrapper, created: false, cleanup: null };
+        this._hostPanels.set(reg.id, host);
+        this._themeHostPanel(host);
+        this._rightToolbar?.addItem({
+            id: reg.id, icon: reg.icon, title: reg.title, group: reg.group ?? 'top',
+            onClick: (id) => this.toggleRightPanel(id), badge: reg.badge,
+        });
+        // Restore: only when no built-in took the slot (the built-in keys are '0' whenever a host panel was the last one open).
+        let saved: string | null = null;
+        try { saved = localStorage.getItem(RIGHT_PANEL_HOST_KEY); } catch { /* preference only */ }
+        if (saved === reg.id) {
+            if (this.activeRightPanel === null) this.setRightPanel(reg.id);
+            else try { localStorage.removeItem(RIGHT_PANEL_HOST_KEY); } catch { /* preference only */ }
+        }
+        const id = reg.id;
+        const live = (): HostPanel | undefined => (this._hostPanels.get(id)?.reg === reg ? this._hostPanels.get(id) : undefined);
+        return {
+            show: () => { if (live()) this.setRightPanel(id); },
+            hide: () => { if (live() && this._rightView === id) this.setRightPanel(null); },
+            toggle: () => { if (live()) this.toggleRightPanel(id); },
+            isOpen: () => !!live() && this._rightView === id,
+            setBadge: (count) => { if (live()) this._rightToolbar?.setBadge(id, count); },
+            setTitle: (title) => { if (live()) { reg.title = title; this._rightToolbar?.setItemTitle(id, title); } },
+            dispose: () => { if (live()) this._disposeHostPanel(id, true); },
+        };
+    }
+
+    /** Popover menu anchored to a right bar item (e.g. an "Apps" action item). No-op without `rightToolbar: true`. */
+    showRightToolbarMenu(anchorItemId: string, items: RightToolbarMenuItem[]): void {
+        this._rightToolbar?.showMenu(anchorItemId, items);
+    }
+
+    private _themeHostPanel(host: HostPanel): void {
+        host.reg.onTheme?.(this._theme !== 'light' ? 'dark' : 'light');
+    }
+
+    private _showHostPanel(host: HostPanel): void {
+        if (!host.created) {
+            host.created = true;
+            if (host.reg.element) host.wrapper.appendChild(host.reg.element);
+            if (host.reg.create) {
+                const cleanup = host.reg.create(host.wrapper);
+                if (typeof cleanup === 'function') host.cleanup = cleanup;
+            }
+        }
+        host.reg.onShow?.();
+    }
+
+    private _disposeHostPanel(id: string, refresh: boolean): void {
+        const host = this._hostPanels.get(id);
+        if (!host) return;
+        const wasOpen = this._rightView === id;
+        this._hostPanels.delete(id);
+        if (wasOpen) {
+            this._rightView = null;
+            this._rightHost.show(null);
+            host.reg.onHide?.(); // storage is kept: a reload (or re-register) restores it
+        }
+        host.cleanup?.();
+        this._rightHost.removeView(id);
+        this._rightToolbar?.removeItem(id);
+        if (refresh && wasOpen) this._syncRightState();
     }
 
     /** Highlight the shared toolbar's Replay button while replay is active / selecting on any chart. */
@@ -1038,15 +1358,6 @@ export class MultiChartLayout {
         chart.spotStateChanged.subscribe((state) => {
             if (i === this._activeIndex) this._toolbarWidget?.setSpotButton(state.label, state.active);
         });
-        chart.setObjectTreeContainer(this._body);
-        chart.objectTreeVisibilityChanged.subscribe((visible) => {
-            if (visible) {
-                this._watchlistPanel?.setVisible(false);
-                this._alertsPanel?.setVisible(false);
-                if (chart !== this.activeChart) chart.hideObjectTree();
-            }
-            this._applyWatchlistInset();
-        });
         chart.crosshairMoved.subscribe((info) => {
             if (!this._sync.crosshair) return;
             this._charts.forEach((other) => {
@@ -1059,6 +1370,7 @@ export class MultiChartLayout {
         });
 
         this._charts[i] = chart;
+        this._attachObjectTree(chart);
         this._drawingToolbarBinding?.attachChart(chart);
         this._refreshMaxButtons();
     }

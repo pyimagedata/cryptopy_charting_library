@@ -5,6 +5,7 @@
 
 import { displaySymbol, displayExchange } from '../../helpers/display-aliases';
 import { WL_COLORS, WatchlistTheme } from './watchlist_theme';
+import { applyRpTokens, ensureRpStyles, rpEmptyState, RP_SEARCH_SVG, RP_FONT, RP_FONT_MONO } from '../right_panel/rp_tokens';
 import type { WatchlistRow } from './watchlist_panel';
 
 export interface SearchDeps {
@@ -38,22 +39,31 @@ export class WatchlistSearch {
     constructor(host: HTMLElement, private readonly _theme: WatchlistTheme, private readonly _deps: SearchDeps) {
         const c = WL_COLORS[_theme];
         const bd = document.createElement('div');
-        bd.className = 'wl-search-backdrop';
+        ensureRpStyles();
+        bd.className = 'wl-search-backdrop rp-root';
         bd.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:flex-start;justify-content:center;padding-top:70px;z-index:70;';
+        applyRpTokens(bd, _theme);
         const dlg = document.createElement('div');
         dlg.className = 'wl-search';
-        dlg.style.cssText = `width:520px;max-width:94%;max-height:70%;display:flex;flex-direction:column;background:${c.menu};color:${c.text};border:1px solid ${c.border};border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.45);font-size:13px;overflow:hidden;`;
+        dlg.style.cssText = `width:520px;max-width:94%;max-height:70%;display:flex;flex-direction:column;background:${c.menu};color:${c.text};border:1px solid ${c.border};border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.35);font-family:${RP_FONT};font-size:13px;overflow:hidden;`;
         const head = document.createElement('div');
-        head.style.cssText = `padding:14px 16px 8px;font-size:16px;font-weight:600;`;
+        head.style.cssText = `padding:16px 18px 10px;font-size:16px;font-weight:500;letter-spacing:-0.01em;`;
         head.textContent = 'Sembol ekle';
         const input = document.createElement('input');
         input.className = 'wl-search-input';
         input.placeholder = 'Sembol, ad veya borsa ara';
-        input.style.cssText = `margin:0 16px 10px;padding:8px 10px;border-radius:4px;border:1px solid ${c.border};background:${c.input};color:${c.text};font-size:14px;outline:none;`;
+        const inputWrap = document.createElement('div');
+        inputWrap.className = 'rp-search';
+        inputWrap.style.margin = '0 14px 10px';
+        const searchIc = document.createElement('span');
+        searchIc.innerHTML = RP_SEARCH_SVG;
+        searchIc.style.cssText = `position:absolute;left:11px;display:flex;color:${c.muted};pointer-events:none;`;
+        input.style.cssText = `background:${c.bg};`;
+        inputWrap.append(searchIc, input);
         const results = document.createElement('div');
         results.className = 'wl-search-results';
-        results.style.cssText = `flex:1;overflow-y:auto;border-top:1px solid ${c.border};min-height:60px;`;
-        dlg.append(head, input, results);
+        results.style.cssText = 'flex:1;overflow-y:auto;min-height:60px;padding:0 8px 8px;';
+        dlg.append(head, inputWrap, results);
         bd.appendChild(dlg);
         host.appendChild(bd);
         this._backdrop = bd;
@@ -79,10 +89,7 @@ export class WatchlistSearch {
         this._index = Math.min(this._index, Math.max(0, this._filtered.length - 1));
         this._results.replaceChildren();
         if (this._filtered.length === 0) {
-            const empty = document.createElement('div');
-            empty.textContent = this._deps.getRows().length ? 'Sonuç bulunamadı' : 'Yükleniyor…';
-            empty.style.cssText = `padding:16px;color:${c.muted};`;
-            this._results.appendChild(empty);
+            this._results.appendChild(rpEmptyState(RP_SEARCH_SVG, this._deps.getRows().length ? 'Sonuç bulunamadı' : 'Yükleniyor…'));
             return;
         }
         this._filtered.forEach((row, i) => {
@@ -90,7 +97,7 @@ export class WatchlistSearch {
             const el = document.createElement('div');
             el.className = 'wl-search-row';
             el.dataset.code = row.code;
-            el.style.cssText = `display:flex;align-items:center;gap:10px;padding:8px 16px;cursor:pointer;background:${i === this._index ? c.hover : 'transparent'};`;
+            el.style.cssText = `display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;cursor:pointer;background:${i === this._index ? c.hover : 'transparent'};`;
             const cell = (text: string, css: string): HTMLElement => {
                 const span = document.createElement('span');
                 span.textContent = text;
@@ -98,10 +105,10 @@ export class WatchlistSearch {
                 return span;
             };
             el.append(
-                cell(displaySymbol(row.code), 'font-weight:600;min-width:90px;'),
-                cell(row.display_name ?? '', `flex:1;color:${c.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`),
-                cell(row.asset_class ?? '', `color:${c.muted};font-size:11px;`),
-                cell(displayExchange(row.exchange), `color:${c.muted};font-size:11px;min-width:64px;text-align:right;`),
+                cell(displaySymbol(row.code), 'font-size:14px;font-weight:500;letter-spacing:-0.005em;min-width:90px;'),
+                cell(row.display_name ?? '', `flex:1;color:${c.muted};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`),
+                cell(row.asset_class ?? '', `color:${c.muted};font-family:${RP_FONT_MONO};font-size:11px;font-weight:400;`),
+                cell(displayExchange(row.exchange), `color:${c.muted};font-family:${RP_FONT_MONO};font-size:11px;font-weight:400;min-width:64px;text-align:right;`),
                 cell(added ? '✓' : '', `width:16px;color:${c.up};`),
             );
             if (added) el.style.opacity = '0.6';
@@ -151,6 +158,11 @@ export class WatchlistSearch {
             const row = this._filtered[this._index];
             if (row) this._add(row);
         }
+    }
+
+    /** Re-applies the --rp-* tokens so an open dialog follows live theme changes. */
+    setTheme(theme: WatchlistTheme): void {
+        applyRpTokens(this._backdrop, theme);
     }
 
     close(): void {

@@ -5,20 +5,23 @@
 
 import type { WatchlistItem } from './watchlist_model';
 
-export type ColId = 'last' | 'chg' | 'chgPct' | 'vol';
-export type SortCol = 'symbol' | ColId;
+export type ColId = 'spark' | 'last' | 'chgPct' | 'vol';
+export type SortCol = 'symbol' | 'last' | 'chg' | 'chgPct' | 'vol';
 export type SortDir = 'asc' | 'desc';
 export interface SortState {
     col: SortCol;
     dir: SortDir;
 }
 export interface ColumnVisibility {
+    /** 1-month sparkline column. */
+    spark: boolean;
+    /** Absolute change shown under the last price (not a column of its own). */
     chg: boolean;
     chgPct: boolean;
     vol: boolean;
 }
 
-export const DEFAULT_COLUMNS: ColumnVisibility = { chg: true, chgPct: true, vol: false };
+export const DEFAULT_COLUMNS: ColumnVisibility = { spark: true, chg: true, chgPct: true, vol: true };
 
 export interface RowLike {
     code: string;
@@ -32,20 +35,30 @@ export interface RowLike {
 // ---- Sutunlar ----
 
 /** Sutun genislikleri (px); Sembol sutunu kalan alani alir. */
-export const COL_WIDTH: Record<ColId, number> = { last: 76, chg: 62, chgPct: 62, vol: 58 };
-/** Dar panelde gizleme sirasi: once Hacim, sonra Deg, en son Deg%. Son her zaman gorunur. */
-const DROP_ORDER: (keyof ColumnVisibility)[] = ['vol', 'chg', 'chgPct'];
-export const COL_ORDER: ColId[] = ['last', 'chg', 'chgPct', 'vol'];
-const SYMBOL_MIN = 110;
+export const COL_WIDTH: Record<ColId, number> = { spark: 84, last: 80, chgPct: 60, vol: 60 };
+/** Dar panelde (< NARROW_BELOW) daha ince sutunlar: grafik 360px'te de sigsin. */
+const COL_WIDTH_NARROW: Record<ColId, number> = { spark: 60, last: 80, chgPct: 56, vol: 56 };
+export const NARROW_BELOW = 420;
+/** Dar panelde gizleme sirasi: once Hacim, sonra grafik, sonra Gun %. Son her zaman gorunur. */
+const DROP_ORDER: ('spark' | 'vol' | 'chgPct')[] = ['vol', 'spark', 'chgPct'];
+export const COL_ORDER: ColId[] = ['spark', 'last', 'chgPct', 'vol'];
+const SYMBOL_MIN = 146;
+const SYMBOL_MIN_NARROW = 114;
 const GAP = 6;
-const SIDE_PADDING = 18 + 12;
+const SIDE_PADDING = 32;
 
-/** Secili sutunlarin hepsini gostermek icin gereken panel genisligi. */
-export function requiredWidth(vis: ColumnVisibility): number {
-    let w = SYMBOL_MIN + SIDE_PADDING + COL_WIDTH.last + GAP;
-    if (vis.chg) w += COL_WIDTH.chg + GAP;
-    if (vis.chgPct) w += COL_WIDTH.chgPct + GAP;
-    if (vis.vol) w += COL_WIDTH.vol + GAP;
+/** Panel genisligine gore sutun genislikleri (genislik verilmezse genis tablo). */
+export function colWidths(width?: number): Record<ColId, number> {
+    return width !== undefined && width < NARROW_BELOW ? COL_WIDTH_NARROW : COL_WIDTH;
+}
+
+/** Secili sutunlarin hepsini gostermek icin gereken panel genisligi (genislik verilmezse genis tabloya gore). */
+export function requiredWidth(vis: ColumnVisibility, width?: number): number {
+    const cw = colWidths(width);
+    let w = (width !== undefined && width < NARROW_BELOW ? SYMBOL_MIN_NARROW : SYMBOL_MIN) + SIDE_PADDING + cw.last + GAP;
+    if (vis.spark) w += cw.spark + GAP;
+    if (vis.chgPct) w += cw.chgPct + GAP;
+    if (vis.vol) w += cw.vol + GAP;
     return w;
 }
 
@@ -53,14 +66,15 @@ export function requiredWidth(vis: ColumnVisibility): number {
 export function effectiveColumns(vis: ColumnVisibility, width: number): ColId[] {
     const cur: ColumnVisibility = { ...vis };
     for (const c of DROP_ORDER) {
-        if (requiredWidth(cur) <= width) break;
+        if (requiredWidth(cur, width) <= width) break;
         cur[c] = false;
     }
-    return COL_ORDER.filter((c) => c === 'last' || cur[c as keyof ColumnVisibility]);
+    return COL_ORDER.filter((c) => c === 'last' || cur[c]);
 }
 
-export function gridTemplate(cols: ColId[]): string {
-    return ['minmax(0,1fr)', ...cols.map((c) => `${COL_WIDTH[c]}px`)].join(' ');
+export function gridTemplate(cols: ColId[], width?: number): string {
+    const cw = colWidths(width);
+    return ['minmax(0,1fr)', ...cols.map((c) => `${cw[c]}px`)].join(' ');
 }
 
 // ---- Siralama ----
@@ -175,10 +189,21 @@ export function formatPct(v: number): string {
 
 export function formatVolume(v: number): string {
     if (!v || v <= 0) return '—';
-    if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
-    if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
-    if (v >= 1e3) return (v / 1e3).toFixed(2) + 'K';
+    const trim = (x: number) => String(Number(x.toFixed(2)));
+    if (v >= 1e9) return trim(v / 1e9) + 'B';
+    if (v >= 1e6) return trim(v / 1e6) + 'M';
+    if (v >= 1e3) return trim(v / 1e3) + 'K';
     return v.toFixed(0);
+}
+
+/** Dar alanlar icin kompakt fiyat: 108302.54 -> 108.3K (yeterince buyukse), aksi halde 3 anlamli hane. */
+export function compactAbbrev(v: number): string {
+    const a = Math.abs(v);
+    const trim = (x: number) => String(Number(x.toFixed(2)));
+    if (a >= 1e9) return trim(v / 1e9) + 'B';
+    if (a >= 1e6) return trim(v / 1e6) + 'M';
+    if (a >= 1e3) return trim(v / 1e3) + 'K';
+    return String(Number(v.toPrecision(3)));
 }
 
 /** Mutlak degisim: host verdiyse o, yoksa fiyat ve yuzdeden turetilir; ikisi de yoksa null. */

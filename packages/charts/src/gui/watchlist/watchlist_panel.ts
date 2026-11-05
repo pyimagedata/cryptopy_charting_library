@@ -10,12 +10,27 @@
 
 import { Delegate } from '../../helpers/delegate';
 import { displaySymbol, displayExchange } from '../../helpers/display-aliases';
+import { t, getCurrentLanguage } from '../../helpers/translations';
 import { ContextMenu, ContextMenuItem } from '../context_menu/context_menu';
-import { WatchlistModel, WatchlistItem, itemId, FLAG_COLORS, flagHex, FLAGGED_PREFIX, DETAILS_MIN } from './watchlist_model';
+import { WatchlistModel, WatchlistItem, itemId, FLAG_COLORS, flagHex, FLAGGED_PREFIX, DETAILS_MIN, DEFAULT_LIST_NAME } from './watchlist_model';
 import { WL_COLORS, WlColors, WL_METRICS, WL_FLASH_MS } from './watchlist_theme';
-import { promptDialog, confirmDialog } from './watchlist_dialogs';
+import { applyRpTokens, ensureRpStyles, rpEmptyState, RP_MENU_SKIN, RP_FONT, RP_FONT_MONO } from '../right_panel/rp_tokens';
+import { promptDialog, confirmDialog, rethemeOpenDialogs } from './watchlist_dialogs';
 import { WatchlistSearch } from './watchlist_search';
 import {
+    DailyCache,
+    DailyProvider,
+    DAY_MS,
+    dayStats,
+    dayWindow,
+    formatCountdown,
+    gaugeSvg,
+    sparkCloses,
+    sparkSvg,
+    trPercentSuffix,
+} from './watchlist_spark';
+import {
+    COL_WIDTH,
     ColId,
     SortCol,
     DecimalsTracker,
@@ -27,11 +42,12 @@ import {
     formatPct,
     formatSigned,
     formatVolume,
+    compactAbbrev,
     gridTemplate,
     logoInfo,
+    NARROW_BELOW,
     nextSort,
     requiredWidth,
-    relativeTime,
     trendOf,
     Trend,
 } from './watchlist_format';
@@ -46,6 +62,10 @@ export interface WatchlistRow {
     change_pct: number | null;
     volume: number;
     updated_at: string;
+    /** Optional host-provided daily stats; otherwise derived from today's daily candle (dailyProvider). */
+    open?: number | null;
+    high?: number | null;
+    low?: number | null;
 }
 
 export type WatchlistProvider = () => Promise<WatchlistRow[]>;
@@ -62,7 +82,50 @@ const WIDTH_STORAGE = 'chart.watchlist.width';
 const MIN_WIDTH = 240;
 const DEFAULT_WIDTH = 360;
 const REFRESH_MS = 5000;
-const COL_LABELS: Record<SortCol, string> = { symbol: 'Sembol', last: 'Son', chg: 'Değ', chgPct: 'Değ%', vol: 'Hacim' };
+const SPARK_W = COL_WIDTH.spark;
+const SPARK_H = 24;
+const SEARCH_DEBOUNCE_MS = 120;
+const STACK_BELOW = 380;
+const COMPACT_BELOW = 400;
+const TINY_BELOW = 320;
+type Filter = 'all' | 'up' | 'down';
+type Category = 'crypto' | 'forex' | 'index' | 'stock' | 'commodity' | 'other';
+const CATEGORY_ORDER: Category[] = ['crypto', 'forex', 'index', 'stock', 'commodity', 'other'];
+
+function categoryOf(row: { asset_class: string; exchange: string }): Category {
+    const ac = (row.asset_class || '').toLowerCase();
+    if (ac === 'crypto') return 'crypto';
+    if (ac === 'forex' || ac === 'fx') return 'forex';
+    if (ac === 'index' || ac === 'indices') return 'index';
+    if (ac === 'stock' || ac === 'stocks' || ac === 'equity') return 'stock';
+    if (ac === 'metal' || ac === 'energy' || ac === 'commodity' || ac === 'commodities' || row.exchange === 'COMEX') return 'commodity';
+    return 'other';
+}
+
+function categoryLabel(c: Category): string {
+    switch (c) {
+        case 'crypto': return t('Crypto');
+        case 'forex': return t('Forex');
+        case 'index': return t('Indices');
+        case 'stock': return t('Stocks');
+        case 'commodity': return t('Commodities');
+        default: return t('Other');
+    }
+}
+
+const CAT_ICONS: Record<Category | 'section', string> = {
+    crypto: '<path d="M6 3.5h3.2a2 2 0 0 1 0 4H6m0 0h3.6a2 2 0 0 1 0 4H6M6 3.5v8M7.5 2v1.5M7.5 11.5V13M9.5 2v1.5M9.5 11.5V13"/>',
+    forex: '<path d="M2.5 5.5h9l-2-2M13.5 10.5h-9l2 2"/>',
+    index: '<path d="M2.5 12l3.5-4 2.5 2 4.5-6"/><path d="M10.5 4h3v3"/>',
+    stock: '<path d="M4 13V8M8 13V3.5M12 13V6"/>',
+    commodity: '<path d="M8 2.5s4 4 4 7a4 4 0 0 1-8 0c0-3 4-7 4-7z"/>',
+    other: '<circle cx="8" cy="8" r="5"/>',
+    section: '<path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h7"/>',
+};
+
+function catIcon(c: Category | 'section'): string {
+    return `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${CAT_ICONS[c]}</svg>`;
+}
 const SORTED_DRAG_HINT = 'Sıralama açıkken sürükleyerek yeniden sıralanamaz. Elle sıraya dönmek için sütun başlığına tekrar tıkla.';
 
 function key(row: { code: string; exchange: string }): string {
@@ -106,11 +169,16 @@ function ensureStyles(): void {
             .tv-watchlist .wl-flash-up { animation: none; color: var(--wl-up) !important; }
             .tv-watchlist .wl-flash-down { animation: none; color: var(--wl-down) !important; }
         }
-        .tv-watchlist * { scrollbar-width: thin; scrollbar-color: var(--wl-scroll) transparent; }
-        .tv-watchlist ::-webkit-scrollbar { width: 6px; height: 6px; }
-        .tv-watchlist ::-webkit-scrollbar-thumb { background: var(--wl-scroll); border-radius: 3px; }
-        .tv-watchlist ::-webkit-scrollbar-track { background: transparent; }
-        .tv-watchlist .wl-colhead:hover { color: var(--wl-text) !important; }
+        .tv-watchlist .wl-colhead:hover { color: var(--rp-text) !important; }
+        .tv-watchlist .wl-list-btn:hover, .tv-watchlist .wl-view-btn:hover { background: var(--rp-hover) !important; }
+        .tv-watchlist .wl-seg-btn:hover:not([data-on="1"]) { color: var(--rp-text) !important; }
+        .tv-watchlist .wl-row:hover .wl-remove, .tv-watchlist .wl-section:hover .wl-section-remove { display: flex !important; }
+        .tv-watchlist .wl-remove:hover, .tv-watchlist .wl-section-remove:hover { color: var(--rp-down) !important; }
+        .tv-watchlist .wl-group:hover { background: var(--rp-hover); }
+        .tv-watchlist .wl-search-field input::placeholder { color: var(--rp-muted); opacity: .9; }
+        .tv-watchlist .wl-search-field:focus-within { border-color: var(--rp-muted) !important; }
+        .tv-watchlist .wl-details-divider:hover .wl-pill, .tv-watchlist .wl-details-divider[data-drag="1"] .wl-pill { background: var(--rp-muted) !important; }
+        .tv-watchlist .wl-num { font-family: ${RP_FONT}; font-variant-numeric: tabular-nums; }
     `;
     document.head.appendChild(st);
 }
@@ -118,8 +186,14 @@ function ensureStyles(): void {
 const CHECK_SVG = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 7.5l3.5 3.5L12 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const CHEVRON_SVG = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 3.5l3 3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+const SEARCH_SVG = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>';
+const SLIDERS_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 5h6M12 5h1.5M2.5 11h1.5M7.5 11h6"/><circle cx="10" cy="5" r="1.7"/><circle cx="5.7" cy="11" r="1.7"/></svg>';
+const EXPAND_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/></svg>';
+const SHRINK_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7h-4V3M9 7l4.5-4.5M3 9h4v4M7 9l-4.5 4.5"/></svg>';
+const MINUS_SVG = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 8h9"/></svg>';
+const CHEV_UP_SVG = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 7.5l3.5-3.5 3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const LIST_SVG = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 5.5h12M4 10h12M4 14.5h7"/></svg>';
 const PLUS_SVG = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M9 3.5v11M3.5 9h11"/></svg>';
-const MORE_SVG = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><circle cx="4" cy="9" r="1.4"/><circle cx="9" cy="9" r="1.4"/><circle cx="14" cy="9" r="1.4"/></svg>';
 const CLOSE_SVG = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4.5 4.5l9 9M13.5 4.5l-9 9"/></svg>';
 const ARROW_SVG = (dir: 'asc' | 'desc'): string =>
     `<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" style="display:block"><path d="${dir === 'asc' ? 'M4 1.5l3 5H1z' : 'M4 6.5l3-5H1z'}"/></svg>`;
@@ -128,8 +202,44 @@ function flagSvg(color: string, filled = true): string {
     return `<svg width="10" height="12" viewBox="0 0 10 12" fill="${filled ? color : 'none'}" stroke="${color}" stroke-width="1.2"><path d="M1.5 0.5v11M1.5 1.5h7l-2 2.5 2 2.5h-7" stroke-linejoin="round"/></svg>`;
 }
 
+interface RowRefs {
+    last: HTMLElement;
+    chg: HTMLElement | null;
+    pct: HTMLElement | null;
+    vol: HTMLElement | null;
+    chgColor: string;
+    pctColor: string;
+}
+
+interface DetailRefs {
+    gauge: HTMLElement;
+    gPct: HTMLElement;
+    gSub: HTMLElement;
+    last: HTMLElement;
+    chg: HTMLElement;
+    vals: HTMLElement[];
+    legendBar: HTMLElement;
+    countdown: HTMLElement;
+}
+
+function setText(el: HTMLElement, text: string): void {
+    if (el.textContent !== text) el.textContent = text;
+}
+
+function setColor(el: HTMLElement, color: string): void {
+    if (el.dataset.c !== color) {
+        el.dataset.c = color;
+        el.style.color = color;
+    }
+}
+
 export class WatchlistPanel {
     static defaultProvider: WatchlistProvider | null = null;
+    /**
+     * Optional host hook feeding the 1-month sparkline and the detail gauge: ~30 daily candles per symbol
+     * (oldest first, last = today). Missing / failing provider leaves those parts empty.
+     */
+    static dailyProvider: DailyProvider | null = null;
 
     readonly symbolSelected = new Delegate<WatchlistSelection>();
     readonly visibilityChanged = new Delegate<boolean>();
@@ -139,9 +249,10 @@ export class WatchlistPanel {
 
     private readonly _el: HTMLElement;
     private readonly _list: HTMLElement;
-    private readonly _status: HTMLElement;
     private readonly _model: WatchlistModel;
     private _handle: HTMLElement | null = null;
+    /** true once docked in the shared right panel container (it owns width, border and resize handle). */
+    private _embedded = false;
     private _rows: WatchlistRow[] = [];
     private _visible = false;
     private _theme: 'dark' | 'light' = 'dark';
@@ -166,8 +277,29 @@ export class WatchlistPanel {
     private readonly _decimals = new DecimalsTracker();
     private readonly _prevLast = new Map<string, number>();
     private _pendingFlash = new Map<string, 'up' | 'down'>();
-    private _colsSig = '';
     private _tick: ReturnType<typeof setInterval> | null = null;
+    private _query = '';
+    private _filter: Filter = 'all';
+    private readonly _daily = new DailyCache(4);
+    private _searchInput: HTMLInputElement | null = null;
+    private _prevWidth: number | null = null;
+    private _layoutSigStr = '';
+    private _footerCount: HTMLElement | null = null;
+    private _footerLeft: HTMLElement | null = null;
+    private _statusText = '';
+    private _footerTotal = 0;
+    private _lastCountdown = '';
+    private _persistWidth = true;
+    private _searchTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Signature of the last structurally rendered list; equal signature = data-only update, patched in place. */
+    private _listSig = '';
+    private _rowRefs = new Map<string, RowRefs>();
+    private readonly _sparkMarkups = new WeakMap<HTMLElement, string>();
+    private _detailsSig = '';
+    private _dRefs: DetailRefs | null = null;
+    private _gaugeMarkup = '';
+    private _fitMeta: (() => void) | null = null;
+    private _countdownEnd = 0;
 
     constructor(parent: HTMLElement, top: number, model?: WatchlistModel) {
         this._parent = parent;
@@ -175,18 +307,18 @@ export class WatchlistPanel {
         const storedWidth = Number(readStorage(WIDTH_STORAGE));
         if (Number.isFinite(storedWidth) && storedWidth > 0) this._width = storedWidth;
         this._el = document.createElement('div');
-        this._el.className = 'tv-watchlist';
+        this._el.className = 'tv-watchlist rp-root';
         this._el.tabIndex = 0;
         this._el.style.cssText = `
             position: absolute; top: ${top}px; right: 0; bottom: 0;
             width: ${this._width}px; display: none; flex-direction: column;
-            z-index: 30; font-size: 12px; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif; box-sizing: border-box; user-select: none; outline: none;
+            z-index: 30; font-size: 12px; font-family: ${RP_FONT}; box-sizing: border-box; user-select: none; outline: none;
         `;
         this._list = document.createElement('div');
-        this._status = document.createElement('div');
         this._colHeader = document.createElement('div');
         this._detailsWrap = document.createElement('div');
         ensureStyles();
+        ensureRpStyles();
         parent.appendChild(this._el);
         this._createResizeHandle();
         this._el.addEventListener('keydown', (e) => this._onKeyDown(e));
@@ -201,6 +333,11 @@ export class WatchlistPanel {
         return this._width;
     }
 
+    /** false while the last width change must not be persisted by the shared host (temporary expand). */
+    get persistsWidth(): boolean {
+        return this._persistWidth;
+    }
+
     /** Test / host erisimi icin model. */
     get model(): WatchlistModel {
         return this._model;
@@ -212,12 +349,43 @@ export class WatchlistPanel {
         return Math.round(Math.min(Math.max(w, MIN_WIDTH), Math.min(max, 640)));
     }
 
+    /**
+     * Docks the panel inside the shared right panel container: it fills the container, the container owns the
+     * width / border / resize handle and visibility (the view is hidden by the container, the DOM stays alive).
+     */
+    embed(container: HTMLElement): void {
+        this._embedded = true;
+        this._handle?.remove();
+        this._handle = null;
+        this._el.style.cssText = `position:relative;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;`
+            + `font-size:12px;font-family:${RP_FONT};`
+            + 'box-sizing:border-box;user-select:none;outline:none;';
+        container.appendChild(this._el);
+        this._render();
+    }
+
+    /** Embedded mode: the container's width changed; only the visible column set is recomputed. */
+    setHostWidth(w: number): void {
+        if (w === this._width) return;
+        this._width = w;
+        if (this._prevWidth !== null && w < this._clampWidth(Infinity) - 1) {
+            this._prevWidth = null;
+            this._persistWidth = true;
+            this._render();
+            return;
+        }
+        this._applyColumns();
+    }
+
     setWidth(w: number, persist = true): void {
         const next = this._clampWidth(w);
         if (next === this._width) return;
         this._width = next;
-        this._el.style.width = `${next}px`;
-        if (persist) writeStorage(WIDTH_STORAGE, String(next));
+        this._persistWidth = persist;
+        if (!this._embedded) {
+            this._el.style.width = `${next}px`;
+            if (persist) writeStorage(WIDTH_STORAGE, String(next));
+        }
         this._applyColumns();
         this.widthChanged.fire(next);
     }
@@ -227,12 +395,13 @@ export class WatchlistPanel {
     }
 
     /** Genislik degisince gorunen sutun kumesi degistiyse baslik ve satirlari yeniler. */
+    private _layoutSig(): string {
+        return `${this._visibleCols().join()}|${this._width < NARROW_BELOW}|${this._width < STACK_BELOW}|${this._width < COMPACT_BELOW}|${this._width < TINY_BELOW}`;
+    }
+
     private _applyColumns(): void {
-        const sig = this._visibleCols().join();
-        if (sig === this._colsSig) return;
-        this._renderColHeader();
-        this._renderList(true);
-        this._renderDetails();
+        if (this._layoutSig() === this._layoutSigStr) return;
+        this._render();
     }
 
     /** Onceki oturumda acik birakildiysa true. */
@@ -247,6 +416,8 @@ export class WatchlistPanel {
     setTheme(theme: 'dark' | 'light'): void {
         this._theme = theme;
         this._ctx?.setTheme(theme);
+        this._search?.setTheme(theme);
+        rethemeOpenDialogs(theme);
         this._render();
     }
 
@@ -264,10 +435,11 @@ export class WatchlistPanel {
         if (visible === this._visible) return;
         this._visible = visible;
         writeStorage(OPEN_STORAGE, visible ? '1' : '0');
-        this._el.style.display = visible ? 'flex' : 'none';
+        if (!this._embedded) this._el.style.display = visible ? 'flex' : 'none';
         if (visible) {
             void this._refresh();
             this._tick = setInterval(() => this._tickUpdated(), 1000);
+            this._lastCountdown = '';
             this._timer = setInterval(() => {
                 if (typeof document === 'undefined' || !document.hidden) void this._refresh();
             }, REFRESH_MS);
@@ -358,14 +530,22 @@ export class WatchlistPanel {
     }
 
     private _setStatus(text: string): void {
-        this._status.textContent = text;
-        this._status.style.display = text ? 'block' : 'none';
+        this._statusText = text;
+        this._updateFooter();
+    }
+
+    private _updateFooter(): void {
+        if (this._footerLeft) {
+            this._footerLeft.textContent = this._statusText || t('Prices · Live');
+            this._footerLeft.style.color = this._statusText ? WL_COLORS[this._theme].down : '';
+        }
+        if (this._footerCount) this._footerCount.textContent = t('{n} symbols').replace('{n}', String(this._footerTotal));
     }
 
     // ---- Menuler ----
 
     private _menu(items: ContextMenuItem[]): ContextMenu {
-        if (!this._ctx) this._ctx = new ContextMenu({ items, container: this._parent, theme: this._theme });
+        if (!this._ctx) this._ctx = new ContextMenu({ items, container: this._parent, theme: this._theme, skin: RP_MENU_SKIN });
         else this._ctx.setItems(items);
         this._ctx.hide();
         return this._ctx;
@@ -412,33 +592,59 @@ export class WatchlistPanel {
         this._openMenuAnchored(items, anchor);
     }
 
+    private _toggleColumn(id: 'spark' | 'chg' | 'chgPct' | 'vol'): void {
+        const on = !this._model.columns[id];
+        this._model.setColumn(id, on);
+        // Acilan sutun sigmiyorsa panel gerektigi kadar genisler (sutun sessizce kaybolmasin).
+        if (on && id !== 'chg' && this._width < requiredWidth(this._model.columns)) this.setWidth(requiredWidth(this._model.columns), this._prevWidth === null);
+        this._render();
+    }
+
     private _columnItems(): ContextMenuItem[] {
         const cols = this._model.columns;
-        const toggle = (id: 'chg' | 'chgPct' | 'vol') => () => {
-            const on = !this._model.columns[id];
-            this._model.setColumn(id, on);
-            // Acilan sutun sigmiyorsa panel gerektigi kadar genisler (sutun sessizce kaybolmasin).
-            if (on && this._width < requiredWidth(this._model.columns)) this.setWidth(requiredWidth(this._model.columns));
-            this._renderColHeader();
-            this._renderList(true);
-        };
+        const item = (id: 'spark' | 'chg' | 'chgPct' | 'vol', label: string): ContextMenuItem => ({
+            id: `col-${id}`, label, icon: cols[id] ? CHECK_SVG : '', action: () => this._toggleColumn(id),
+        });
         return [
-            { id: 'col-last', label: COL_LABELS.last, icon: CHECK_SVG, disabled: true },
-            { id: 'col-chg', label: COL_LABELS.chg, icon: cols.chg ? CHECK_SVG : '', action: toggle('chg') },
-            { id: 'col-chgPct', label: COL_LABELS.chgPct, icon: cols.chgPct ? CHECK_SVG : '', action: toggle('chgPct') },
-            { id: 'col-vol', label: COL_LABELS.vol, icon: cols.vol ? CHECK_SVG : '', action: toggle('vol') },
+            item('spark', t('1M chart')),
+            { id: 'col-last', label: t('Last'), icon: CHECK_SVG, disabled: true },
+            item('chgPct', t('Day %')),
+            item('vol', t('Volume')),
+            item('chg', t('Change')),
         ];
     }
 
-    private _openMoreMenu(anchor: HTMLElement): void {
+    private _sortItems(): ContextMenuItem[] {
+        const sort = this._model.sort;
+        const mk = (col: SortCol, label: string): ContextMenuItem => {
+            const on = sort?.col === col;
+            return {
+                id: `sort-${col}`,
+                label: on ? `${label} ${sort!.dir === 'asc' ? '↑' : '↓'}` : label,
+                icon: on ? CHECK_SVG : '',
+                action: () => this._onSortClick(col),
+            };
+        };
+        return [
+            { id: 'sort-none', label: t('Manual order'), icon: sort ? '' : CHECK_SVG, action: () => { this._model.setSort(null); this._render(); } },
+            mk('symbol', t('Symbol')),
+            mk('last', t('Last')),
+            mk('chgPct', t('Day %')),
+            mk('vol', t('Volume')),
+            mk('chg', t('Change')),
+        ];
+    }
+
+    private _openViewMenu(anchor: HTMLElement): void {
         const ro = this._model.readOnly;
         const items: ContextMenuItem[] = [
-            { id: 'add-section', label: 'Bölüm ekle', disabled: ro, action: () => this._addSection() },
-            { id: 'columns', label: 'Sütunlar', submenu: true, children: this._columnItems() },
+            { id: 'h-cols', label: t('Columns'), disabled: true },
+            ...this._columnItems(),
             { id: 's1', label: '', separator: true },
-            ...this._listActionItems(),
+            { id: 'h-sort', label: t('Sort'), disabled: true },
+            ...this._sortItems(),
             { id: 's2', label: '', separator: true },
-            { id: 'new', label: 'Yeni liste oluştur…', action: () => void this._createList() },
+            { id: 'add-section', label: 'Bölüm ekle', disabled: ro, action: () => this._addSection() },
         ];
         this._openMenuAnchored(items, anchor);
     }
@@ -691,11 +897,45 @@ export class WatchlistPanel {
 
     // ---- Cizim ----
 
+    private _ensureSearchInput(): HTMLInputElement {
+        if (!this._searchInput) {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'wl-filter-input';
+            input.autocomplete = 'off';
+            input.spellcheck = false;
+            input.value = this._query;
+            input.style.cssText = 'flex:1;min-width:0;width:100%;height:100%;padding:0;border:0;outline:0;background:transparent;color:var(--rp-text);font:inherit;font-size:13px;user-select:text;';
+            input.addEventListener('input', () => {
+                if (this._searchTimer) clearTimeout(this._searchTimer);
+                this._searchTimer = setTimeout(() => {
+                    this._searchTimer = null;
+                    this._query = input.value;
+                    this._renderList(true);
+                }, SEARCH_DEBOUNCE_MS);
+            });
+            input.addEventListener('keydown', (e) => {
+                e.stopPropagation();
+                if (e.key === 'Escape' && input.value) {
+                    if (this._searchTimer) clearTimeout(this._searchTimer);
+                    this._searchTimer = null;
+                    input.value = '';
+                    this._query = '';
+                    this._renderList(true);
+                }
+            });
+            input.addEventListener('keyup', (e) => e.stopPropagation());
+            this._searchInput = input;
+        }
+        this._searchInput.placeholder = t('Search symbol or name');
+        return this._searchInput;
+    }
+
     private _render(): void {
         const c = WL_COLORS[this._theme];
-        const M = WL_METRICS;
+        applyRpTokens(this._el, this._theme);
         this._el.style.background = c.bg;
-        this._el.style.borderLeft = `1px solid ${c.border}`;
+        this._el.style.borderLeft = this._embedded ? 'none' : `1px solid ${c.border}`;
         this._el.style.color = c.text;
         this._el.style.setProperty('--wl-flash-up', c.flashUp);
         this._el.style.setProperty('--wl-flash-down', c.flashDown);
@@ -703,49 +943,82 @@ export class WatchlistPanel {
         this._el.style.setProperty('--wl-down', c.down);
         this._el.style.setProperty('--wl-text', c.text);
         this._el.style.setProperty('--wl-scroll', c.scrollThumb);
+        const keepScroll = this._list.scrollTop;
         this._el.replaceChildren();
+        this._listSig = '';
+        this._detailsSig = '';
+        this._layoutSigStr = this._layoutSig();
+        const compact = this._width < COMPACT_BELOW;
+        const expanded = this._prevWidth !== null;
 
-        // Baslik: liste adi + acilir menu, sag tarafta dugmeler
-        const header = h('div', `display:flex;align-items:center;justify-content:space-between;height:${M.headerH}px;padding:0 8px 0 8px;border-bottom:1px solid ${c.border};flex-shrink:0;gap:4px;`);
-        const nameBtn = h('button', `display:flex;align-items:center;gap:6px;min-width:0;max-width:70%;height:${M.buttonSize}px;padding:0 8px;border:none;background:transparent;color:${c.text};font:inherit;font-size:14px;font-weight:600;border-radius:4px;cursor:pointer;`, undefined, 'wl-list-btn');
-        nameBtn.title = 'Listeler';
-        const nameText = h('span', 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', this._model.activeName, 'wl-list-name');
-        const caret = h('span', `display:flex;color:${c.muted};`);
+        // Baslik: liste adi (acilir menu) + ekle / genislet / kapat
+        const header = h('div', 'display:flex;align-items:center;justify-content:space-between;gap:8px;height:60px;padding:0 10px 0 16px;flex-shrink:0;box-sizing:border-box;', undefined, 'wl-head');
+        const nameBtn = h('button', `display:flex;align-items:center;gap:6px;min-width:0;height:38px;padding:0 8px 0 6px;margin-left:-6px;border:0;background:transparent;color:${c.text};font:inherit;font-size:18px;font-weight:600;letter-spacing:-0.01em;border-radius:10px;cursor:pointer;transition:background .12s;`, undefined, 'wl-list-btn');
+        nameBtn.title = t('Lists');
+        const listName = this._model.activeName === DEFAULT_LIST_NAME ? t('Watchlist') : this._model.activeName;
+        const nameText = h('span', 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', listName, 'wl-list-name');
+        const caret = h('span', `display:flex;flex-shrink:0;color:${c.muted};`);
         caret.innerHTML = CHEVRON_SVG;
         nameBtn.append(nameText, caret);
-        nameBtn.addEventListener('mouseenter', () => (nameBtn.style.background = c.hover));
-        nameBtn.addEventListener('mouseleave', () => (nameBtn.style.background = 'transparent'));
         nameBtn.addEventListener('click', () => this._openListMenu(nameBtn));
 
-        const actions = h('div', 'display:flex;gap:2px;flex-shrink:0;');
+        const actions = h('div', '', undefined, 'rp-acts');
         const mkBtn = (svg: string, titleText: string, cls: string): HTMLButtonElement => {
             const b = document.createElement('button');
-            b.className = cls;
+            b.className = `rp-ib ${cls}`;
             b.innerHTML = svg;
             b.title = titleText;
-            b.style.cssText = `display:flex;align-items:center;justify-content:center;width:${M.buttonSize}px;height:${M.buttonSize}px;padding:0;border:none;background:transparent;color:${c.muted};border-radius:4px;cursor:pointer;`;
-            b.addEventListener('mouseenter', () => {
-                b.style.background = c.hover;
-                b.style.color = c.text;
-            });
-            b.addEventListener('mouseleave', () => {
-                b.style.background = 'transparent';
-                b.style.color = c.muted;
-            });
+            b.setAttribute('aria-label', titleText);
             return b;
         };
-        const addBtn = mkBtn(PLUS_SVG, 'Sembol ekle', 'wl-add-btn');
+        const addBtn = mkBtn(PLUS_SVG, t('Add symbol'), 'wl-add-btn');
         if (this._model.readOnly) addBtn.style.opacity = '0.4';
         addBtn.addEventListener('click', () => this._openSearch());
-        const moreBtn = mkBtn(MORE_SVG, 'Liste işlemleri', 'wl-more-btn');
-        moreBtn.addEventListener('click', () => this._openMoreMenu(moreBtn));
-        const closeBtn = mkBtn(CLOSE_SVG, 'Kapat', 'wl-close-btn');
+        const expandBtn = mkBtn(expanded ? SHRINK_SVG : EXPAND_SVG, expanded ? t('Restore panel width') : t('Expand panel'), 'wl-expand-btn');
+        expandBtn.addEventListener('click', () => this._toggleExpand());
+        const closeBtn = mkBtn(CLOSE_SVG, t('Close'), 'wl-close-btn');
         closeBtn.addEventListener('click', () => this.setVisible(false));
-        actions.append(addBtn, moreBtn, closeBtn);
+        actions.append(addBtn, expandBtn, closeBtn);
         header.append(nameBtn, actions);
         this._el.appendChild(header);
 
-        // Sutun basliklari (tiklayinca siralar)
+        // Filtre: Tumu / Yukselenler / Dusenler + Gorunum menusu
+        const bar = h('div', 'display:flex;align-items:center;gap:8px;padding:0 16px 14px;flex-shrink:0;box-sizing:border-box;', undefined, 'wl-toolbar');
+        const seg = h('div', `display:flex;flex:1;min-width:0;height:40px;padding:3px;gap:2px;box-sizing:border-box;border:1px solid ${c.border};border-radius:12px;`, undefined, 'wl-seg');
+        const styleSeg = (btn: HTMLElement, on: boolean): void => {
+            btn.style.background = on ? c.selected : 'transparent';
+            btn.style.color = on ? c.text : c.muted;
+            btn.dataset.on = on ? '1' : '0';
+        };
+        const segBtns: HTMLElement[] = [];
+        (['all', 'up', 'down'] as Filter[]).forEach((f) => {
+            const b = h('button', `flex:1;min-width:0;border:0;border-radius:9px;padding:0 4px;font:inherit;font-size:${this._width < TINY_BELOW ? 12 : 13.5}px;font-weight:500;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .12s,color .12s;`, f === 'all' ? t('All') : f === 'up' ? t('Gainers') : t('Losers'), 'wl-seg-btn');
+            b.dataset.filter = f;
+            styleSeg(b, this._filter === f);
+            b.addEventListener('click', () => {
+                this._filter = f;
+                segBtns.forEach((x) => styleSeg(x, x.dataset.filter === f));
+                this._renderList(true);
+            });
+            segBtns.push(b);
+            seg.appendChild(b);
+        });
+        const viewBtn = h('button', `display:flex;align-items:center;justify-content:center;gap:7px;flex-shrink:0;height:40px;padding:0 ${compact ? 11 : 12}px;box-sizing:border-box;border:1px solid ${c.border};border-radius:12px;background:transparent;color:${c.text};font:inherit;font-size:13.5px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background .12s;`, undefined, 'wl-view-btn');
+        viewBtn.title = t('View');
+        const sl = h('span', 'display:flex;');
+        sl.innerHTML = SLIDERS_SVG;
+        viewBtn.appendChild(sl);
+        if (!compact) {
+            viewBtn.appendChild(h('span', '', t('View')));
+            const vc = h('span', `display:flex;color:${c.muted};`);
+            vc.innerHTML = CHEVRON_SVG;
+            viewBtn.appendChild(vc);
+        }
+        viewBtn.addEventListener('click', () => this._openViewMenu(viewBtn));
+        bar.append(seg, viewBtn);
+        this._el.appendChild(bar);
+
+        // Sutun basliklari (arama + tiklayinca siralar)
         this._el.appendChild(this._colHeader);
         this._renderColHeader();
 
@@ -753,9 +1026,15 @@ export class WatchlistPanel {
         this._list.style.minHeight = '60px';
         this._renderList(true);
         this._el.appendChild(this._list);
+        this._list.scrollTop = keepScroll;
 
-        this._status.style.cssText = `display:${this._status.textContent ? 'block' : 'none'};padding:6px 12px;color:${c.muted};font-size:11px;border-top:1px solid ${c.border};flex-shrink:0;`;
-        this._el.appendChild(this._status);
+        // Alt bilgi
+        const footer = h('div', `display:flex;align-items:center;justify-content:space-between;gap:8px;height:34px;padding:0 16px;flex-shrink:0;box-sizing:border-box;border-top:1px solid ${c.border};color:${c.muted};font-size:12.5px;`, undefined, 'wl-footer');
+        this._footerLeft = h('span', 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', undefined, 'wl-status');
+        this._footerCount = h('span', 'white-space:nowrap;', undefined, 'wl-count');
+        footer.append(this._footerLeft, this._footerCount);
+        this._el.appendChild(footer);
+        this._updateFooter();
 
         // Ayrintilar bolumu (ayirici + icerik)
         this._el.appendChild(this._detailsWrap);
@@ -765,38 +1044,68 @@ export class WatchlistPanel {
         this._bindListDrop();
     }
 
+    /** Genislet / geri al: paylasilan panel mevcut genislik ile izin verilen en buyuk genislik arasinda gecer. */
+    private _toggleExpand(): void {
+        if (this._prevWidth !== null) {
+            const w = this._prevWidth;
+            this._prevWidth = null;
+            this.setWidth(w, true);
+            this._persistWidth = true;
+        } else {
+            const max = this._clampWidth(Infinity);
+            if (max > this._width) {
+                this._prevWidth = this._width;
+                // The expanded width is temporary: not persisted, so a reload comes back at the normal width.
+                this.setWidth(max, false);
+            }
+        }
+        this._render();
+    }
+
     // ---- Sutun basligi / siralama ----
 
     private _renderColHeader(): void {
         const c = WL_COLORS[this._theme];
         const cols = this._visibleCols();
-        this._colsSig = cols.join();
         const sort = this._model.sort;
         const hd = this._colHeader;
         hd.replaceChildren();
-        hd.style.cssText = `display:grid;grid-template-columns:${gridTemplate(cols)};gap:6px;align-items:center;height:${WL_METRICS.colHeaderH}px;padding:0 ${WL_METRICS.padRight}px 0 ${WL_METRICS.padLeft}px;color:${c.muted};font-size:11px;border-bottom:1px solid ${c.border};flex-shrink:0;`;
-        const mk = (col: SortCol): HTMLElement => {
-            const right = col !== 'symbol';
-            const active = sort?.col === col;
-            const cell = h('span', `display:flex;align-items:center;gap:4px;min-width:0;cursor:pointer;white-space:nowrap;${right ? 'justify-content:flex-end;' : ''}${active ? `color:${c.text};` : ''}`, undefined, 'wl-colhead');
-            cell.dataset.sort = col;
-            cell.title = 'Sırala';
-            if (active && right) {
+        hd.style.cssText = `display:grid;grid-template-columns:${gridTemplate(cols, this._width)};gap:6px;align-items:center;height:${WL_METRICS.colHeaderH}px;padding:0 ${WL_METRICS.padRight}px 0 ${WL_METRICS.padLeft}px;border-top:1px solid ${c.border};border-bottom:1px solid ${c.border};color:${c.muted};font-size:13px;font-weight:400;flex-shrink:0;box-sizing:border-box;`;
+
+        const field = h('label', `display:flex;align-items:center;gap:7px;min-width:0;height:30px;padding:0 9px;box-sizing:border-box;border:1px solid ${c.border};border-radius:8px;color:${c.muted};cursor:text;transition:border-color .12s;`, undefined, 'wl-search-field');
+        const ic = h('span', 'display:flex;flex-shrink:0;');
+        ic.innerHTML = SEARCH_SVG;
+        field.append(ic, this._ensureSearchInput());
+        hd.appendChild(field);
+
+        const label = (col: ColId | 'chg'): string => {
+            switch (col) {
+                case 'spark': return getCurrentLanguage() === 'tr' ? '1A' : '1M';
+                case 'last': return t('Last');
+                case 'chgPct': return t('Day %');
+                case 'vol': return t('Volume');
+                default: return t('Change');
+            }
+        };
+        const mk = (col: ColId): HTMLElement => {
+            const sortable = col !== 'spark';
+            const active = sortable && sort?.col === col;
+            const cell = h('span', `display:flex;align-items:center;gap:4px;min-width:0;justify-content:flex-end;white-space:nowrap;${sortable ? 'cursor:pointer;' : ''}${active ? `color:${c.text};` : ''}`, undefined, sortable ? 'wl-colhead' : 'wl-colhead-static');
+            if (sortable) {
+                cell.dataset.sort = col;
+                cell.title = t('Sort');
+                cell.addEventListener('click', () => this._onSortClick(col as SortCol));
+            }
+            if (active) {
                 const arrow = h('span', 'display:flex;');
                 arrow.innerHTML = ARROW_SVG(sort!.dir);
                 cell.appendChild(arrow);
+                cell.dataset.dir = sort!.dir;
             }
-            cell.appendChild(h('span', '', COL_LABELS[col]));
-            if (active && !right) {
-                const arrow = h('span', 'display:flex;');
-                arrow.innerHTML = ARROW_SVG(sort!.dir);
-                cell.appendChild(arrow);
-            }
-            if (active) cell.dataset.dir = sort!.dir;
-            cell.addEventListener('click', () => this._onSortClick(col));
+            cell.appendChild(h('span', '', label(col)));
             return cell;
         };
-        hd.append(mk('symbol'), ...cols.map(mk));
+        hd.append(...cols.map(mk));
         hd.oncontextmenu = (e) => {
             e.preventDefault();
             this._openMenuAt(this._columnItems(), e.clientX, e.clientY);
@@ -818,9 +1127,17 @@ export class WatchlistPanel {
             e.preventDefault();
             if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
             const rowEl = (e.target as HTMLElement).closest('[data-wl-id]') as HTMLElement | null;
+            const groupEl = rowEl ? null : ((e.target as HTMLElement).closest('[data-cat]') as HTMLElement | null);
             const items = this._model.items;
             let top: number;
-            if (!rowEl) {
+            if (groupEl) {
+                // Otomatik grup basligi: oge, grubun ilk ogesinin onune (grup bossa / daraltilmissa listenin sonuna).
+                const cat = groupEl.dataset.cat as Category;
+                const byKey = new Map(this._rows.map((r) => [key(r), r]));
+                const first = items.findIndex((it) => it.type === 'symbol' && !!byKey.get(it.key) && categoryOf(byKey.get(it.key)!) === cat);
+                this._dropIndex = first >= 0 ? first : items.length;
+                top = groupEl.offsetTop + groupEl.offsetHeight;
+            } else if (!rowEl) {
                 this._dropIndex = items.length;
                 const all = this._list.querySelectorAll<HTMLElement>('[data-wl-id]');
                 const last = all.length ? all[all.length - 1] : null;
@@ -876,47 +1193,234 @@ export class WatchlistPanel {
         this._hideDropLine();
     }
 
+    private _passes(row: WatchlistRow): boolean {
+        if (this._filter === 'up' && !(row.change_pct !== null && row.change_pct > 0)) return false;
+        if (this._filter === 'down' && !(row.change_pct !== null && row.change_pct < 0)) return false;
+        const q = this._query.trim().toLowerCase();
+        if (!q) return true;
+        const hay = [row.code, displaySymbol(row.code), row.display_name, row.exchange].join(' ').toLowerCase();
+        return hay.includes(q);
+    }
+
     /**
-     * Sadece satirlari yeniler. Periyodik guncelleme (force=false) bolum adi duzenlenirken
-     * veya surukleme sirasinda atlanir.
+     * Listeyi yeniler. Yapi (satir kumesi / sira / gruplama / filtre / arama / daraltma / sutunlar / secim) degismediyse
+     * (periyodik fiyat guncellemesi) mevcut satir hucreleri yerinde guncellenir; DOM dugumleri, kaydirma ve hover
+     * korunur. Aksi halde yeniden kurulur (kaydirma yine korunur). Periyodik guncelleme (force=false) bolum adi
+     * duzenlenirken veya surukleme sirasinda atlanir.
      */
     private _renderList(force = false): void {
         if (!force && (this._editing || this._dragging)) return;
         const c = WL_COLORS[this._theme];
-        this._list.replaceChildren();
-        this._list.style.cssText = 'flex:1;overflow-y:auto;position:relative;';
-        this._dropLine = null;
         const byKey = new Map(this._rows.map((r) => [key(r), r]));
-        this._shown = [];
-        this._rowRows.clear();
-        let count = 0;
-        const sorted = applySort(this._model.visibleItems(), (k) => byKey.get(k), this._model.sort);
-        for (const item of sorted) {
-            const id = itemId(item);
-            if (item.type === 'section') {
-                this._shown.push(id);
-                this._list.appendChild(this._renderSection(item, c));
-                continue;
+        const filtering = this._filter !== 'all' || this._query.trim() !== '';
+        const searching = this._query.trim() !== '';
+        const all = this._model.items;
+        const hasSections = all.some((it) => it.type === 'section');
+        const sorted = applySort(all, (k) => byKey.get(k), this._model.sort);
+
+        interface Block { section: Extract<WatchlistItem, { type: 'section' }> | null; cat: Category | null; rows: { id: string; row: WatchlistRow }[] }
+        const blocks: Block[] = [];
+        if (hasSections) {
+            let cur: Block | null = null;
+            for (const item of sorted) {
+                if (item.type === 'section') {
+                    cur = { section: item, cat: null, rows: [] };
+                    blocks.push(cur);
+                    continue;
+                }
+                const row = byKey.get(item.key);
+                if (!row || !this._passes(row)) continue;
+                if (!cur) {
+                    cur = { section: null, cat: null, rows: [] };
+                    blocks.push(cur);
+                }
+                cur.rows.push({ id: itemId(item), row });
             }
-            const row = byKey.get(item.key);
-            if (!row) continue;
-            this._shown.push(id);
-            this._rowRows.set(id, row);
-            count += 1;
-            this._list.appendChild(this._renderRow(row, id, c));
+        } else {
+            const byCat = new Map<Category, Block>();
+            for (const item of sorted) {
+                if (item.type !== 'symbol') continue;
+                const row = byKey.get(item.key);
+                if (!row || !this._passes(row)) continue;
+                const cat = categoryOf(row);
+                let b = byCat.get(cat);
+                if (!b) {
+                    b = { section: null, cat, rows: [] };
+                    byCat.set(cat, b);
+                }
+                b.rows.push({ id: itemId(item), row });
+            }
+            for (const cat of CATEGORY_ORDER) if (byCat.has(cat)) blocks.push(byCat.get(cat)!);
         }
-        if (count === 0 && this._shown.length === 0) {
-            const empty = document.createElement('div');
-            empty.textContent = this._model.readOnly
-                ? 'Bu bayrakla işaretli sembol yok.'
-                : this._rows.length
-                  ? 'Liste boş. + ile sembol ekle.'
-                  : 'Yükleniyor…';
-            empty.style.cssText = `padding:16px 12px;color:${c.muted};`;
-            this._list.appendChild(empty);
+
+        // Plan: ne gosterilecek (DOM'dan bagimsiz).
+        type Plan =
+            | { kind: 'section'; item: Extract<WatchlistItem, { type: 'section' }>; count: number }
+            | { kind: 'group'; cat: Category; count: number }
+            | { kind: 'row'; id: string; row: WatchlistRow };
+        const plan: Plan[] = [];
+        const shown: string[] = [];
+        const rowRows = new Map<string, WatchlistRow>();
+        let total = 0;
+        for (const b of blocks) {
+            total += b.rows.length;
+            if (b.section) {
+                if (filtering && b.rows.length === 0) continue;
+                shown.push(itemId(b.section));
+                plan.push({ kind: 'section', item: b.section, count: b.rows.length });
+            } else if (b.cat) {
+                plan.push({ kind: 'group', cat: b.cat, count: b.rows.length });
+            }
+            const collapsed = !searching && (b.section ? b.section.collapsed : b.cat ? this._model.isGroupCollapsed(b.cat) : false);
+            if (collapsed) continue;
+            for (const { id, row } of b.rows) {
+                shown.push(id);
+                rowRows.set(id, row);
+                plan.push({ kind: 'row', id, row });
+            }
+        }
+        const showEmpty = total === 0 && !(hasSections && !filtering && blocks.length);
+
+        // Gorunmeyen (filtre / arama / daraltma ile gizlenen) secimler eylemlere karismasin.
+        const shownSet = new Set(shown);
+        for (const id of [...this._selected]) if (!shownSet.has(id)) this._selected.delete(id);
+        if (this._cursor && !shownSet.has(this._cursor)) this._cursor = '';
+        if (this._anchor && !shownSet.has(this._anchor)) this._anchor = '';
+
+        const sigParts: string[] = [
+            this._theme, getCurrentLanguage(), this._layoutSig(), String(this._model.columns.chg),
+            this._model.sort ? '1' : '0', this._model.readOnly ? '1' : '0', searching ? '1' : '0',
+            showEmpty ? `E${filtering ? 1 : 0}${this._rows.length ? 1 : 0}` : '',
+        ];
+        for (const e of plan) {
+            if (e.kind === 'section') {
+                const id = itemId(e.item);
+                sigParts.push(`S|${id}|${e.item.title}|${e.item.collapsed ? 1 : 0}|${e.count}|${this._selected.has(id) ? 1 : 0}|${this._editing?.id === e.item.id ? 1 : 0}`);
+            } else if (e.kind === 'group') {
+                sigParts.push(`G|${e.cat}|${this._model.isGroupCollapsed(e.cat) ? 1 : 0}|${e.count}`);
+            } else {
+                const k = key(e.row);
+                sigParts.push(`R|${e.id}|${k}|${this._model.flagOf(k) ?? ''}|${this._selected.has(e.id) ? 1 : 0}|${e.row.code === this._activeCode ? 1 : 0}|${this._descText(e.row)}|${e.row.asset_class}`);
+            }
+        }
+        const sig = sigParts.join('\n');
+
+        this._shown = shown;
+        this._rowRows = rowRows;
+        if (sig === this._listSig) {
+            for (const e of plan) if (e.kind === 'row') this._patchRow(e.id, e.row, c);
+        } else {
+            const keepScroll = this._list.scrollTop;
+            this._list.replaceChildren();
+            this._list.style.cssText = 'flex:1;overflow-y:auto;overflow-x:hidden;position:relative;';
+            this._dropLine = null;
+            this._rowRefs.clear();
+            for (const e of plan) {
+                if (e.kind === 'section') this._list.appendChild(this._renderSection(e.item, c, e.count));
+                else if (e.kind === 'group') this._list.appendChild(this._renderGroup(e.cat, e.count, c));
+                else this._list.appendChild(this._renderRow(e.row, e.id, c));
+            }
+            if (showEmpty) {
+                const loading = !this._model.readOnly && !this._rows.length;
+                this._list.appendChild(rpEmptyState(
+                    LIST_SVG,
+                    filtering && this._rows.length ? t('No matching symbols') : this._model.readOnly ? 'Bu bayrakla işaretli sembol yok' : loading ? 'Yükleniyor…' : 'Liste boş',
+                    filtering || this._model.readOnly || loading ? undefined : 'Sembol eklemek için + düğmesini kullan.',
+                    'wl-empty',
+                ));
+            }
+            this._list.scrollTop = keepScroll;
+            this._listSig = sig;
         }
         this._pendingFlash = new Map();
+        this._footerTotal = total;
+        this._updateFooter();
+        this._requestSparks();
         this._renderDetails();
+    }
+
+    /** Veri-sadece guncelleme: satirin fiyat / degisim / % / hacim hucrelerini yerinde yeniler. */
+    private _patchRow(id: string, row: WatchlistRow, c: WlColors): void {
+        const refs = this._rowRefs.get(id);
+        if (!refs) return;
+        const k = key(row);
+        const dec = this._decimals.get(k, row.price, row.asset_class, row.code);
+        const chg = changeOf(row);
+        const pct = row.change_pct;
+        const pctTrend = trendOf(pct, 2);
+        const chgTrend = chg === null ? pctTrend : trendOf(chg, dec);
+        const priceText = formatNum(row.price, dec);
+        const priceChanged = refs.last.textContent !== priceText;
+        setText(refs.last, priceText);
+        const dir = this._pendingFlash.get(k);
+        if (dir && priceChanged) this._flash(refs.last, dir);
+        if (refs.chg) {
+            setText(refs.chg, chg === null ? '—' : formatSigned(chg, dec));
+            const col = this._trendColor(chgTrend, c);
+            if (col !== refs.chgColor) {
+                refs.chgColor = col;
+                refs.chg.style.color = col;
+            }
+        }
+        if (refs.pct) {
+            setText(refs.pct, pct === null ? '—' : formatPct(pct));
+            const pcol = this._trendColor(pctTrend, c);
+            if (pcol !== refs.pctColor) {
+                refs.pctColor = pcol;
+                refs.pct.style.color = pcol;
+            }
+        }
+        if (refs.vol) setText(refs.vol, formatVolume(row.volume));
+    }
+
+    private _flash(el: HTMLElement, dir: 'up' | 'down'): void {
+        el.classList.remove('wl-flash-up', 'wl-flash-down');
+        void el.offsetWidth;
+        el.classList.add(dir === 'up' ? 'wl-flash-up' : 'wl-flash-down');
+        setTimeout(() => el.classList.remove('wl-flash-up', 'wl-flash-down'), WL_FLASH_MS + 100);
+    }
+
+    // ---- Gunluk mumlar (grafik + ayrintilar) ----
+
+    private _requestDaily(row: WatchlistRow, maxAgeMs?: number): void {
+        const provider = WatchlistPanel.dailyProvider;
+        if (!provider) return;
+        this._daily.request(key(row), { code: row.code, exchange: row.exchange, assetClass: row.asset_class }, provider, (k) => this._onDailyLoaded(k), maxAgeMs);
+    }
+
+    private _requestSparks(): void {
+        const keep = new Set<string>();
+        // Grafik sutunu gizliyse (dar panel / kapali) satirlar icin mum cekilmez.
+        if (this._visibleCols().includes('spark')) {
+            for (const row of this._rowRows.values()) {
+                keep.add(key(row));
+                this._requestDaily(row);
+            }
+        }
+        const dr = this._model.detailsOpen ? this._detailRow() : null;
+        if (dr) keep.add(key(dr));
+        // Artik gorunmeyen satirlar icin siradaki (baslamamis) istekleri birak.
+        this._daily.prune(keep);
+    }
+
+    private _sparkMarkup(k: string): string {
+        const closes = sparkCloses(this._daily.get(k));
+        if (!closes) return '';
+        const up = closes[closes.length - 1] >= closes[0];
+        return sparkSvg(closes, SPARK_W, SPARK_H, up ? 'var(--rp-up)' : 'var(--rp-down)');
+    }
+
+    private _onDailyLoaded(k: string): void {
+        const markup = this._sparkMarkup(k);
+        for (const el of this._list.querySelectorAll<HTMLElement>('.wl-spark')) {
+            // Sadece verisi degisen grafik yeniden cizilir.
+            if (el.dataset.k === k && this._sparkMarkups.get(el) !== markup) {
+                el.innerHTML = markup;
+                this._sparkMarkups.set(el, markup);
+            }
+        }
+        const dr = this._detailRow();
+        if (dr && key(dr) === k && this._model.detailsOpen) this._renderDetails(true);
     }
 
     private _rowBg(id: string, active: boolean, c: WlColors): string {
@@ -943,28 +1447,65 @@ export class WatchlistPanel {
         });
     }
 
-    private _renderSection(item: Extract<WatchlistItem, { type: 'section' }>, c: WlColors): HTMLElement {
+
+    /** Ortak grup basligi: [ok] [simge] ad [adet]. Bolum ve otomatik grup ayni gorunumu paylasir. */
+    private _groupHeader(cls: string, icon: string, collapsed: boolean, count: number, c: WlColors): { el: HTMLElement; chev: HTMLElement; slot: HTMLElement } {
+        const el = h('div', `display:flex;align-items:center;gap:10px;height:${WL_METRICS.sectionH}px;padding:0 ${WL_METRICS.padRight}px 0 ${WL_METRICS.padLeft}px;box-sizing:border-box;border-bottom:1px solid ${c.border};cursor:pointer;position:relative;color:${c.text};font-size:14px;font-weight:600;`, undefined, cls);
+        const chev = h('span', `display:flex;flex-shrink:0;width:16px;height:16px;align-items:center;justify-content:center;color:${c.muted};transition:transform .12s;transform:rotate(${collapsed ? 180 : 0}deg);`);
+        chev.innerHTML = CHEV_UP_SVG;
+        const ic = h('span', `display:flex;flex-shrink:0;color:${c.muted};`);
+        ic.innerHTML = icon;
+        const slot = h('span', 'flex:1;min-width:0;display:flex;align-items:center;');
+        const chip = h('span', `flex-shrink:0;min-width:20px;box-sizing:border-box;padding:2px 8px;border-radius:999px;background:${c.selected};color:${c.muted};font-size:12px;font-weight:500;line-height:16px;text-align:center;font-variant-numeric:tabular-nums;`, String(count), 'wl-count-chip');
+        el.append(chev, ic, slot, chip);
+        return { el, chev, slot };
+    }
+
+    /** Arama sirasinda daraltma okunu soluk gosterir (gorunum daraltmayi yoksayar). */
+    private _muteChevron(chev: HTMLElement): void {
+        chev.style.opacity = '0.35';
+        chev.style.cursor = 'default';
+    }
+
+    private _renderGroup(cat: Category, count: number, c: WlColors): HTMLElement {
+        const collapsed = !this._query.trim() && this._model.isGroupCollapsed(cat);
+        const { el, chev, slot } = this._groupHeader('wl-group', catIcon(cat), collapsed, count, c);
+        el.dataset.cat = cat;
+        el.title = this._query.trim() ? '' : collapsed ? 'Genişlet' : 'Daralt';
+        slot.appendChild(h('span', 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', categoryLabel(cat), 'wl-group-title'));
+        if (this._query.trim()) this._muteChevron(chev);
+        el.addEventListener('click', () => {
+            // Arama sirasinda gorunum daraltmayi yoksayar; modeli de degistirme.
+            if (this._query.trim()) return;
+            this._model.toggleGroup(cat);
+            this._renderList(true);
+        });
+        return el;
+    }
+
+    private _renderSection(item: Extract<WatchlistItem, { type: 'section' }>, c: WlColors, count: number): HTMLElement {
         const id = itemId(item);
-        const el = document.createElement('div');
-        el.className = 'wl-section';
+        const collapsed = !this._query.trim() && item.collapsed;
+        const { el, chev, slot } = this._groupHeader('wl-section', catIcon('section'), collapsed, count, c);
         el.dataset.wlId = id;
-        el.style.cssText = `display:flex;align-items:center;gap:6px;height:${WL_METRICS.sectionH}px;padding:0 8px 0 8px;cursor:pointer;background:${this._selected.has(id) ? c.selected : c.hover};border-bottom:1px solid ${c.border};position:relative;color:${c.muted};font-size:11px;font-weight:600;letter-spacing:0.4px;`;
-        const chev = document.createElement('span');
+        if (this._selected.has(id)) el.style.background = c.selected;
         chev.className = 'wl-section-chevron';
-        chev.innerHTML = CHEVRON_SVG;
         chev.title = item.collapsed ? 'Genişlet' : 'Daralt';
-        chev.style.cssText = `display:flex;width:16px;height:16px;align-items:center;justify-content:center;transition:transform .1s;transform:rotate(${item.collapsed ? -90 : 0}deg);`;
+        if (this._query.trim()) {
+            this._muteChevron(chev);
+            chev.title = '';
+        }
         chev.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (this._query.trim()) return;
             this._model.toggleSection(item.id);
             this._renderList(true);
         });
-        el.appendChild(chev);
         if (this._editing?.id === item.id) {
             const input = document.createElement('input');
             input.className = 'wl-section-input';
             input.value = item.title;
-            input.style.cssText = `flex:1;min-width:0;padding:2px 6px;border-radius:3px;border:1px solid ${c.accent};background:${c.input};color:${c.text};font-size:11px;font-weight:600;text-transform:uppercase;outline:none;`;
+            input.style.cssText = `flex:1;min-width:0;padding:3px 7px;border-radius:6px;border:1px solid ${c.muted};background:${c.input};color:${c.text};font:inherit;font-size:14px;font-weight:600;outline:none;user-select:text;`;
             input.addEventListener('keydown', (e) => {
                 e.stopPropagation();
                 if (e.key === 'Enter') input.blur();
@@ -977,30 +1518,25 @@ export class WatchlistPanel {
             input.addEventListener('mousedown', (e) => e.stopPropagation());
             input.addEventListener('click', (e) => e.stopPropagation());
             input.addEventListener('dblclick', (e) => e.stopPropagation());
-            el.appendChild(input);
+            slot.appendChild(input);
         } else {
-            const title = document.createElement('span');
-            title.className = 'wl-section-title';
-            title.textContent = item.title;
-            title.style.cssText = 'flex:1;min-width:0;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+            const title = h('span', 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', item.title, 'wl-section-title');
             title.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 if (!this._model.readOnly) this._startEdit(item.id, false);
             });
-            el.appendChild(title);
+            slot.appendChild(title);
         }
         const del = document.createElement('button');
         del.className = 'wl-section-remove';
         del.textContent = '×';
         del.title = 'Bölümü sil';
-        del.style.cssText = `display:none;width:20px;height:20px;border:none;border-radius:3px;background:transparent;color:${c.muted};cursor:pointer;line-height:1;`;
+        del.style.cssText = `display:none;align-items:center;justify-content:center;flex-shrink:0;width:20px;height:20px;padding:0;border:none;border-radius:6px;background:transparent;color:${c.muted};cursor:pointer;line-height:1;font-size:16px;`;
         del.addEventListener('click', (e) => {
             e.stopPropagation();
             this._removeIds([id]);
         });
-        el.appendChild(del);
-        el.addEventListener('mouseenter', () => (del.style.display = 'block'));
-        el.addEventListener('mouseleave', () => (del.style.display = 'none'));
+        el.insertBefore(del, el.lastChild);
         el.addEventListener('click', (e) => this._onRowClick(e, id, null));
         el.addEventListener('contextmenu', (e) => this._openRowMenu(e, id));
         this._wireDrag(el, id);
@@ -1010,8 +1546,8 @@ export class WatchlistPanel {
     /** Yuvarlak logo yer tutucusu: baz varligin ilk harfi, renk sembolden turetilir (forex'te iki daire). */
     private _logo(code: string, assetClass: string, size: number): HTMLElement {
         const info = logoInfo(code, assetClass);
-        const dia = info.parts.length > 1 ? Math.round(size * 0.68) : size;
-        const width = info.parts.length > 1 ? Math.round(dia * 1.75) : size;
+        const dia = info.parts.length > 1 ? Math.round(size * 0.66) : size;
+        const width = size;
         const wrap = h('span', `position:relative;display:block;flex-shrink:0;width:${width}px;height:${size}px;`, undefined, 'wl-logo');
         info.parts.forEach((p, i) => {
             const pos = i === 0 ? 'left:0;top:0;' : `right:0;bottom:0;box-shadow:0 0 0 1.5px ${WL_COLORS[this._theme].bg};`;
@@ -1022,12 +1558,13 @@ export class WatchlistPanel {
         return wrap;
     }
 
-    private _trendColor(t: Trend, c: WlColors): string {
-        return t === 'up' ? c.up : t === 'down' ? c.down : t === 'flat' ? c.text : c.muted;
+    private _trendColor(tr: Trend, c: WlColors): string {
+        return tr === 'up' ? c.up : tr === 'down' ? c.down : tr === 'flat' ? c.text : c.muted;
     }
 
     private _descText(row: WatchlistRow): string {
-        return row.display_name || displayExchange(row.exchange);
+        const name = row.display_name;
+        return name && name !== row.code ? name : displayExchange(row.exchange);
     }
 
     private _renderRow(row: WatchlistRow, id: string, c: WlColors): HTMLElement {
@@ -1041,50 +1578,75 @@ export class WatchlistPanel {
         el.dataset.wlId = id;
         el.dataset.code = row.code;
         if (this._selected.has(id)) el.dataset.selected = '1';
-        el.style.cssText = `display:grid;grid-template-columns:${gridTemplate(cols)};gap:6px;align-items:center;height:${WL_METRICS.rowH}px;box-sizing:border-box;padding:0 ${WL_METRICS.padRight}px 0 ${WL_METRICS.padLeft}px;cursor:pointer;background:${this._rowBg(id, isActive, c)};position:relative;${isActive ? `box-shadow:inset 2px 0 0 ${c.accent};` : ''}`;
+        el.style.cssText = `display:grid;grid-template-columns:${gridTemplate(cols, this._width)};gap:6px;align-items:center;height:${WL_METRICS.rowH}px;box-sizing:border-box;padding:0 ${WL_METRICS.padRight}px 0 ${WL_METRICS.padLeft}px;border-bottom:1px solid ${c.border};cursor:pointer;background:${this._rowBg(id, isActive, c)};position:relative;`;
+        if (isActive) el.appendChild(h('span', `position:absolute;left:0;top:0;bottom:0;width:3px;background:${c.text};pointer-events:none;`, undefined, 'wl-active-bar'));
 
         // Sembol hucresi: logo + kod (kalin) + aciklama/borsa (soluk)
-        const symCell = h('span', 'display:flex;align-items:center;gap:8px;min-width:0;');
+        const symCell = h('span', 'display:flex;align-items:center;gap:10px;min-width:0;');
         if (this._model.sort && !this._model.readOnly) symCell.title = SORTED_DRAG_HINT;
-        const text = h('span', 'display:flex;flex-direction:column;min-width:0;');
+        const text = h('span', 'display:flex;flex-direction:column;gap:1px;min-width:0;');
         text.append(
-            h('span', 'font-size:13px;line-height:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', displaySymbol(row.code), 'wl-code'),
-            h('span', `font-size:11px;line-height:14px;color:${c.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`, this._descText(row), 'wl-desc'),
+            h('span', 'font-size:14.5px;line-height:19px;font-weight:600;letter-spacing:-0.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', displaySymbol(row.code), 'wl-code'),
+            h('span', `font-size:13px;line-height:16px;font-weight:400;color:${c.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`, this._descText(row), 'wl-desc'),
         );
         symCell.append(this._logo(row.code, row.asset_class, WL_METRICS.logoSize), text);
         el.appendChild(symCell);
 
-        const num = 'text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+        const num = 'text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
         const chg = changeOf(row);
         const pct = row.change_pct;
         const pctTrend = trendOf(pct, 2);
         const chgTrend = chg === null ? pctTrend : trendOf(chg, dec);
+        const chgColor = this._trendColor(chgTrend, c);
+        const pctColor = this._trendColor(pctTrend, c);
+        const refs: RowRefs = { last: el, chg: null, pct: null, vol: null, chgColor, pctColor };
+        let lastColEl: HTMLElement | null = null;
         for (const col of cols) {
-            if (col === 'last') {
-                const cell = h('span', 'display:flex;justify-content:flex-end;min-width:0;');
-                const last = h('span', `${num}font-size:13px;padding:2px 4px;margin:0 -4px;border-radius:3px;`, formatNum(row.price, dec), 'wl-last');
-                const dir = this._pendingFlash.get(k);
-                if (dir) {
-                    last.classList.add(dir === 'up' ? 'wl-flash-up' : 'wl-flash-down');
-                    setTimeout(() => last.classList.remove('wl-flash-up', 'wl-flash-down'), WL_FLASH_MS + 100);
-                }
-                cell.appendChild(last);
+            if (col === 'spark') {
+                const cell = h('span', `display:block;height:${SPARK_H}px;min-width:0;`, undefined, 'wl-spark');
+                cell.dataset.k = k;
+                const markup = this._sparkMarkup(k);
+                cell.innerHTML = markup;
+                this._sparkMarkups.set(cell, markup);
                 el.appendChild(cell);
-            } else if (col === 'chg') {
-                el.appendChild(h('span', `${num}color:${this._trendColor(chgTrend, c)};`, chg === null ? '—' : formatSigned(chg, dec), 'wl-chg'));
+                lastColEl = cell;
+            } else if (col === 'last') {
+                const cell = h('span', 'display:flex;flex-direction:column;align-items:flex-end;gap:1px;min-width:0;');
+                const last = h('span', `${num}font-size:14px;line-height:18px;font-weight:500;padding:0 4px;margin:0 -4px;border-radius:6px;`, formatNum(row.price, dec), 'wl-last wl-num');
+                const dir = this._pendingFlash.get(k);
+                if (dir) this._flash(last, dir);
+                refs.last = last;
+                cell.appendChild(last);
+                if (this._model.columns.chg) {
+                    const chgEl = h('span', `${num}font-size:12.5px;line-height:16px;font-weight:400;color:${chgColor};`, chg === null ? '—' : formatSigned(chg, dec), 'wl-chg wl-num');
+                    refs.chg = chgEl;
+                    cell.appendChild(chgEl);
+                }
+                el.appendChild(cell);
+                lastColEl = cell;
             } else if (col === 'chgPct') {
-                el.appendChild(h('span', `${num}color:${this._trendColor(pctTrend, c)};`, pct === null ? '—' : formatPct(pct), 'wl-pct'));
+                const pctEl = h('span', `${num}font-size:13.5px;font-weight:500;color:${pctColor};`, pct === null ? '—' : formatPct(pct), 'wl-pct wl-num');
+                refs.pct = pctEl;
+                el.appendChild(pctEl);
+                lastColEl = pctEl;
             } else {
-                el.appendChild(h('span', `${num}color:${c.muted};`, formatVolume(row.volume), 'wl-vol'));
+                const volEl = h('span', `${num}font-size:13px;font-weight:400;color:${c.muted};`, formatVolume(row.volume), 'wl-vol wl-num');
+                refs.vol = volEl;
+                el.appendChild(volEl);
+                lastColEl = volEl;
             }
         }
+        // Hover'da son sutunun degeri solar ve yerinde x gorunur (deger yarim kapanmaz).
+        const lastCol: HTMLElement | null = lastColEl;
+        if (lastCol) lastCol.style.transition = 'opacity .1s';
+        this._rowRefs.set(id, refs);
 
         // Sol kenar bayrak alani: tiklayinca kirmizi bayrak ac/kapa
         const strip = document.createElement('div');
         strip.className = 'wl-flag-strip';
         strip.setAttribute('data-wl-flag', flag ?? '');
         strip.title = flag ? 'Bayrağı kaldır' : 'Bayrakla';
-        strip.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+        strip.style.cssText = 'position:absolute;left:3px;top:0;bottom:0;width:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
         if (flag) strip.innerHTML = flagSvg(flagHex(flag));
         else {
             strip.innerHTML = flagSvg(c.muted, false);
@@ -1100,7 +1662,8 @@ export class WatchlistPanel {
         const remove = document.createElement('button');
         remove.textContent = '×';
         remove.title = 'Listeden çıkar';
-        remove.style.cssText = `position:absolute;right:2px;top:50%;transform:translateY(-50%);display:none;width:20px;height:20px;border:none;border-radius:3px;background:${c.hover};color:${c.muted};cursor:pointer;line-height:1;`;
+        remove.className = 'wl-remove';
+        remove.style.cssText = `position:absolute;right:${WL_METRICS.padRight - 4}px;top:50%;transform:translateY(-50%);display:none;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:none;border-radius:6px;background:transparent;color:${c.muted};cursor:pointer;line-height:1;font-size:16px;`;
         remove.addEventListener('click', (e) => {
             e.stopPropagation();
             if (this._model.readOnly) this._unflag([k]);
@@ -1110,12 +1673,14 @@ export class WatchlistPanel {
 
         el.addEventListener('mouseenter', () => {
             if (!this._selected.has(id)) el.style.background = isActive ? c.active : c.hover;
-            remove.style.display = 'block';
+            remove.style.display = 'flex';
+            if (lastCol) lastCol.style.opacity = '0';
             if (!flag) strip.style.opacity = '0.5';
         });
         el.addEventListener('mouseleave', () => {
             el.style.background = this._rowBg(id, isActive, c);
             remove.style.display = 'none';
+            if (lastCol) lastCol.style.opacity = '';
             if (!flag) strip.style.opacity = '0';
         });
         el.addEventListener('click', (e) => this._onRowClick(e, id, row));
@@ -1141,87 +1706,223 @@ export class WatchlistPanel {
         this._renderDetails();
     }
 
-    private _renderDetails(): void {
+    /**
+     * Ayrintilar karti: yapi (sembol / tema / yukseklik / genislik sinifi) degismediyse kart yeniden kurulmaz,
+     * degerler yerinde guncellenir (kaydirma korunur).
+     */
+    private _renderDetails(_fromLoad = false): void {
         const c = WL_COLORS[this._theme];
         const M = WL_METRICS;
         const open = this._model.detailsOpen;
         const wrap = this._detailsWrap;
+        const row = open ? this._detailRow() : null;
+        const stacked = this._width < 300;
+        const bodyH = open ? Math.min(this._model.detailsHeight, this._maxDetailsHeight()) : 0;
+        const sig = `${open ? 1 : 0}|${row ? `${key(row)}|${row.display_name}|${row.asset_class}` : '-'}|${this._theme}|${stacked ? 1 : 0}|${bodyH}|${getCurrentLanguage()}`;
+        if (sig === this._detailsSig && (!row || this._dRefs)) {
+            if (row) this._fillDetails(row);
+            return;
+        }
+        this._detailsSig = sig;
+        this._dRefs = null;
+        const prevScroll = wrap.querySelector<HTMLElement>('.wl-details')?.scrollTop ?? 0;
         wrap.replaceChildren();
         wrap.className = 'wl-details-wrap';
         wrap.style.cssText = 'flex-shrink:0;display:flex;flex-direction:column;';
 
-        if (open) {
-            const divider = h('div', `height:${M.dividerH}px;flex-shrink:0;cursor:row-resize;position:relative;touch-action:none;background:${c.bg};`, undefined, 'wl-details-divider');
-            divider.title = 'Yüksekliği ayarla';
-            divider.appendChild(h('div', `position:absolute;left:0;right:0;top:${Math.floor(M.dividerH / 2)}px;height:1px;background:${c.border};`));
-            this._bindDividerDrag(divider);
-            wrap.appendChild(divider);
-        }
-
-        const head = h('div', `display:flex;align-items:center;gap:6px;height:${M.detailsHeaderH}px;flex-shrink:0;padding:0 8px 0 10px;cursor:pointer;color:${c.text};font-size:12px;font-weight:600;${open ? '' : `border-top:1px solid ${c.border};`}background:${c.bg};`, undefined, 'wl-details-head');
-        const chev = h('span', `display:flex;color:${c.muted};transition:transform .1s;transform:rotate(${open ? 0 : -90}deg);`);
-        chev.innerHTML = CHEVRON_SVG;
-        head.append(chev, h('span', '', 'Ayrıntılar'));
-        head.title = open ? 'Daralt' : 'Genişlet';
-        head.addEventListener('click', () => this._toggleDetails());
-        wrap.appendChild(head);
-        if (!open) return;
-
-        const body = h('div', `height:${Math.min(this._model.detailsHeight, this._maxDetailsHeight()) - M.detailsHeaderH}px;overflow-y:auto;padding:4px 14px 12px;box-sizing:border-box;background:${c.bg};`, undefined, 'wl-details');
-        wrap.appendChild(body);
-        const row = this._detailRow();
-        if (!row) {
-            body.appendChild(h('div', `padding:10px 0;color:${c.muted};`, 'Ayrıntılar için bir sembol seç.'));
+        if (!open) {
+            const head = h('div', `display:flex;align-items:center;gap:8px;height:${M.detailsHeaderH}px;flex-shrink:0;padding:0 16px;box-sizing:border-box;border-top:1px solid ${c.border};cursor:pointer;color:${c.muted};font-size:13px;font-weight:500;background:${c.bg};`, undefined, 'wl-details-head');
+            const chev = h('span', 'display:flex;');
+            chev.innerHTML = CHEV_UP_SVG;
+            head.append(chev, h('span', '', t('Details')));
+            head.title = t('Expand details');
+            head.addEventListener('click', () => this._toggleDetails());
+            wrap.appendChild(head);
             return;
         }
-        const dec = this._decimals.get(key(row), row.price, row.asset_class, row.code);
+
+        const divider = h('div', `height:${M.dividerH}px;flex-shrink:0;cursor:row-resize;position:relative;touch-action:none;background:${c.bg};`, undefined, 'wl-details-divider');
+        divider.title = 'Yüksekliği ayarla';
+        divider.appendChild(h('div', `position:absolute;left:0;right:0;top:${Math.floor(M.dividerH / 2)}px;height:1px;background:${c.border};`));
+        divider.appendChild(h('div', `position:absolute;left:50%;top:${Math.floor(M.dividerH / 2) - 2}px;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:${c.border};transition:background .12s;`, undefined, 'wl-pill'));
+        this._bindDividerDrag(divider);
+        wrap.appendChild(divider);
+
+        const body = h('div', `height:${bodyH}px;overflow-y:auto;overflow-x:hidden;padding:8px 12px 10px;box-sizing:border-box;background:${c.bg};`, undefined, 'wl-details');
+        wrap.appendChild(body);
+
+        const collapseBtn = document.createElement('button');
+        collapseBtn.className = 'rp-ib wl-details-collapse';
+        collapseBtn.innerHTML = MINUS_SVG;
+        collapseBtn.title = t('Collapse details');
+        collapseBtn.setAttribute('aria-label', t('Collapse details'));
+        collapseBtn.addEventListener('click', () => this._toggleDetails());
+
+        if (!row) {
+            const top = h('div', 'display:flex;align-items:center;justify-content:space-between;gap:10px;');
+            top.append(h('span', `color:${c.muted};font-size:14px;`, t('Select a symbol for details.')), collapseBtn);
+            body.appendChild(top);
+            return;
+        }
+
+        const mono = `font-family:${RP_FONT_MONO};font-variant-numeric:tabular-nums;`;
+
+        // Baslik: logo + ad + "KOD · tur" (sigmazsa gizlenir) + daralt
+        const top = h('div', 'display:flex;align-items:center;gap:8px;min-width:0;height:32px;');
+        const nameEl = h('span', 'font-size:15px;line-height:20px;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0;', row.display_name || displaySymbol(row.code), 'wl-d-name');
+        const metaEl = h('span', `font-size:12px;line-height:16px;color:${c.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 0;min-width:0;`, `${displaySymbol(row.code)} · ${categoryLabel(categoryOf(row))}`, 'wl-d-meta');
+        top.append(this._logo(row.code, row.asset_class, 26), nameEl, metaEl, collapseBtn);
+        collapseBtn.style.flexShrink = '0';
+        body.appendChild(top);
+        // Sigmiyorsa once "KOD · tur" gizlenir.
+        const fitMeta = (): void => {
+            metaEl.style.visibility = '';
+            if (nameEl.scrollWidth > nameEl.clientWidth || metaEl.clientWidth < 40) metaEl.style.visibility = 'hidden';
+        };
+        this._fitMeta = fitMeta;
+
+        // Govde: kucuk gosterge + fiyat
+        const GAUGE = 72;
+        const cols = h('div', 'display:flex;flex-direction:row;align-items:center;gap:12px;margin-top:6px;min-width:0;');
+        const gaugeWrap = h('div', `position:relative;flex-shrink:0;width:${GAUGE}px;height:${GAUGE}px;`, undefined, 'wl-gauge');
+        gaugeWrap.title = t("Green/red arc: open to now within today's range. Blue outer arc: elapsed part of the daily candle.");
+        const gaugeHolder = h('div', 'position:absolute;inset:0;');
+        gaugeWrap.appendChild(gaugeHolder);
+        const centre = h('div', 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;pointer-events:none;');
+        const gPct = h('span', `${mono}font-size:13px;line-height:16px;font-weight:500;white-space:nowrap;`, '', 'wl-g-pct');
+        centre.appendChild(gPct);
+        gaugeWrap.appendChild(centre);
+
+        const right = h('div', 'min-width:0;flex:1;');
+        const lastEl = h('div', `${mono}font-size:${this._width < 300 ? 20 : 24}px;line-height:30px;font-weight:400;letter-spacing:-0.02em;white-space:nowrap;overflow:hidden;`, '', 'wl-d-last');
+        const subEl = h('div', `${mono}font-size:12px;line-height:16px;margin-top:2px;white-space:normal;overflow:hidden;color:${c.muted};`, undefined, 'wl-d-chg');
+        const chgEl = h('span', 'white-space:nowrap;');
+        const gSub = h('span', 'display:inline-block;white-space:nowrap;');
+        subEl.append(chgEl, gSub);
+        right.append(lastEl, subEl);
+        cols.append(gaugeWrap, right);
+        body.appendChild(cols);
+
+        // OHLC: tek satir, 4 esit sutun (dar panelde 2x2)
+        const grid = h('div', `display:grid;grid-template-columns:repeat(${this._width < 300 ? 2 : 4},minmax(0,1fr));gap:${this._width < 300 ? '6px' : '0'} 6px;margin-top:8px;min-width:0;`);
+        const vals: HTMLElement[] = [];
+        const stat = (label: string): void => {
+            const cell = h('div', 'min-width:0;');
+            const v = h('div', `${mono}font-size:12px;line-height:18px;white-space:nowrap;overflow:hidden;`, '—', 'wl-d-val');
+            vals.push(v);
+            cell.append(h('div', `${mono}font-size:10.5px;line-height:14px;letter-spacing:0.06em;text-transform:uppercase;color:${c.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`, label), v);
+            grid.appendChild(cell);
+        };
+        stat(t('Open'));
+        stat(t('High'));
+        stat(t('Low'));
+        stat(t('Volume'));
+        body.appendChild(grid);
+
+        // Aciklama: yalniz geri sayim
+        const legend = h('div', `display:flex;align-items:flex-start;gap:8px;margin-top:6px;color:${c.muted};font-size:12px;line-height:16px;min-width:0;`);
+        const legendBar = h('span', `flex-shrink:0;width:18px;height:3px;border-radius:2px;background:${c.accent};`);
+        const countdown = h('span', 'min-width:0;');
+        countdown.setAttribute('data-wl-countdown', '');
+        legend.append(legendBar, countdown);
+        body.appendChild(legend);
+        body.scrollTop = prevScroll;
+
+        this._gaugeMarkup = '';
+        this._dRefs = { gauge: gaugeHolder, gPct, gSub, last: lastEl, chg: chgEl, vals, legendBar, countdown };
+        this._fillDetails(row);
+        fitMeta();
+    }
+
+    /** Ayrintilar kartinin degerlerini yerinde yazar (yapiya dokunmaz). */
+    private _fillDetails(row: WatchlistRow): void {
+        const refs = this._dRefs;
+        if (!refs) return;
+        const c = WL_COLORS[this._theme];
+        const k = key(row);
+        this._requestDaily(row, 60000);
+        const bars = this._daily.get(k);
+        const now = Date.now();
+        const dec = this._decimals.get(k, row.price, row.asset_class, row.code);
         const chg = changeOf(row);
         const pctTrend = trendOf(row.change_pct, 2);
         const chgTrend = chg === null ? pctTrend : trendOf(chg, dec);
         const color = this._trendColor(chgTrend, c);
+        const st = dayStats(bars, row, now);
+        const win = dayWindow(bars, now);
+        this._countdownEnd = win.end;
 
-        const top = h('div', 'display:flex;align-items:center;gap:10px;min-width:0;');
-        const names = h('div', 'display:flex;flex-direction:column;min-width:0;');
-        names.append(
-            h('span', 'font-size:15px;line-height:20px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', displaySymbol(row.code), 'wl-d-code'),
-            h('span', `font-size:12px;line-height:16px;color:${c.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`, row.display_name || displaySymbol(row.code), 'wl-d-name'),
-            h('span', `font-size:11px;line-height:15px;color:${c.muted};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:capitalize;`, [displayExchange(row.exchange), row.asset_class].filter(Boolean).join(' · '), 'wl-d-meta'),
-        );
-        top.append(this._logo(row.code, row.asset_class, 32), names);
-        body.appendChild(top);
+        const range = st.high !== null && st.low !== null ? st.high - st.low : 0;
+        const pos = (v: number | null): number | null => (v === null || st.high === null || st.low === null ? null : range > 0 ? Math.min(1, Math.max(0, (v - st.low) / range)) : 0.5);
+        const lastPos = Number.isFinite(row.price) ? pos(row.price) : null;
+        const openPos = pos(st.open);
+        const upDay = st.open !== null ? row.price >= st.open : (chg ?? 0) >= 0;
+        const markup = gaugeSvg({ size: 72, openPos, lastPos: openPos === null ? null : lastPos, elapsed: (now - win.start) / DAY_MS, up: upDay });
+        if (markup !== this._gaugeMarkup) {
+            this._gaugeMarkup = markup;
+            refs.gauge.innerHTML = markup;
+        }
+        const tr = getCurrentLanguage() === 'tr';
+        let sub = '—';
+        if (lastPos !== null && range > 0) {
+            const pctN = Math.round(lastPos * 100);
+            sub = t('{n}% of range').replace('{n}', String(pctN)) + (tr ? `'${trPercentSuffix(pctN)}` : '');
+            sub = this._width < 300 ? '' : ' · ' + sub;
+        }
+        setText(refs.gPct, row.change_pct === null ? '—' : formatPct(row.change_pct));
+        setColor(refs.gPct, color);
+        setText(refs.gSub, sub);
+        this._fitMeta?.();
 
-        const priceRow = h('div', 'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:10px;');
-        priceRow.append(
-            h('span', 'font-size:26px;line-height:30px;font-weight:700;font-variant-numeric:tabular-nums;', formatNum(row.price, dec), 'wl-d-last'),
-            h('span', `font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:${color};`, chg === null ? '—' : formatSigned(chg, dec), 'wl-d-chg'),
-            h('span', `font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:${this._trendColor(pctTrend, c)};`, row.change_pct === null ? '—' : formatPct(row.change_pct), 'wl-d-pct'),
-        );
-        body.appendChild(priceRow);
-
-        const stats = h('div', `display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:12px;padding-top:10px;border-top:1px solid ${c.border};`);
-        const stat = (label: string, value: string, attr?: string): HTMLElement => {
-            const box = h('div', 'display:flex;flex-direction:column;gap:2px;min-width:0;');
-            const v = h('span', 'font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', value);
-            if (attr) v.setAttribute(attr, row.updated_at);
-            box.append(h('span', `font-size:11px;color:${c.muted};`, label), v);
-            return box;
+        const priceStr = formatNum(row.price, dec);
+        setText(refs.last, priceStr);
+        setText(refs.chg, chg === null ? '—' : t('{v} today').replace('{v}', formatSigned(chg, dec)));
+        setColor(refs.chg, color);
+        // Fiyat: genislige gore kucult (sigmazsa 14px'e kadar).
+        const baseFs = this._width < 300 ? 20 : 24;
+        refs.last.style.fontSize = `${baseFs}px`;
+        for (let fs = baseFs; fs > 14 && refs.last.clientWidth > 0 && refs.last.scrollWidth > refs.last.clientWidth; ) {
+            fs -= 1;
+            refs.last.style.fontSize = `${fs}px`;
+        }
+        // OHLC: tam metin sigmazsa ondaliksiz, sonra K/M/B kompakt bicim (elipsis yok).
+        const fitVal = (el: HTMLElement, v: number | null, text: string): void => {
+            el.style.fontSize = '';
+            setText(el, text);
+            if (v === null || el.clientWidth === 0 || el.scrollWidth <= el.clientWidth) return;
+            const cands = [compactAbbrev(v)];
+            if (Math.abs(v) >= 100) cands.unshift(formatNum(v, 0));
+            for (const cand of cands) {
+                setText(el, cand);
+                if (el.scrollWidth <= el.clientWidth) return;
+            }
+            el.style.fontSize = '11px';
         };
-        stats.appendChild(stat('Hacim', formatVolume(row.volume)));
-        const rel = relativeTime(row.updated_at, Date.now());
-        if (rel) stats.appendChild(stat('Güncelleme', rel, 'data-wl-updated'));
-        body.appendChild(stats);
+        fitVal(refs.vals[0], st.open, st.open === null ? '—' : formatNum(st.open, dec));
+        fitVal(refs.vals[1], st.high, st.high === null ? '—' : formatNum(st.high, dec));
+        fitVal(refs.vals[2], st.low, st.low === null ? '—' : formatNum(st.low, dec));
+        fitVal(refs.vals[3], null, st.volume === null ? '—' : formatVolume(st.volume));
+        const cd = this._countdownText(now);
+        this._lastCountdown = cd;
+        setText(refs.countdown, cd);
     }
 
-    /** Saniyede bir "x sn once" metnini yeniler (tum paneli yeniden cizmeden). */
+    private _countdownText(now: number): string {
+        return t('Daily candle closes in {time}').replace('{time}', formatCountdown(this._countdownEnd - now, getCurrentLanguage() === 'tr'));
+    }
+
+    /** Saniyede bir geri sayimi (dakika degisince) yeniler, tum paneli yeniden cizmeden. */
     private _tickUpdated(): void {
-        const el = this._detailsWrap.querySelector<HTMLElement>('[data-wl-updated]');
-        if (!el) return;
-        const rel = relativeTime(el.getAttribute('data-wl-updated') ?? '', Date.now());
-        if (rel) el.textContent = rel;
+        const el = this._dRefs?.countdown;
+        if (!el || !el.isConnected) return;
+        const text = this._countdownText(Date.now());
+        if (text !== this._lastCountdown) {
+            this._lastCountdown = text;
+            el.textContent = text;
+        }
     }
 
     private _bindDividerDrag(divider: HTMLElement): void {
-        const c = WL_COLORS[this._theme];
         let startY = 0;
         let startH = 0;
         let frame = 0;
@@ -1235,7 +1936,7 @@ export class WatchlistPanel {
             startY = e.clientY;
             startH = this._model.detailsHeight;
             divider.setPointerCapture(e.pointerId);
-            divider.style.background = c.accent;
+            divider.dataset.drag = '1';
             e.preventDefault();
         });
         divider.addEventListener('pointermove', (e) => {
@@ -1245,7 +1946,7 @@ export class WatchlistPanel {
             frame = requestAnimationFrame(() => {
                 const body = this._detailsWrap.querySelector<HTMLElement>('.wl-details');
                 const next = Math.max(DETAILS_MIN, Math.min(this._maxDetailsHeight(), Math.round(target)));
-                if (body) body.style.height = `${next - WL_METRICS.detailsHeaderH}px`;
+                if (body) body.style.height = `${next}px`;
                 this._model.setDetails(true, next);
             });
         });
@@ -1253,20 +1954,18 @@ export class WatchlistPanel {
             if (!divider.hasPointerCapture(e.pointerId)) return;
             divider.releasePointerCapture(e.pointerId);
             cancelAnimationFrame(frame);
-            divider.style.background = c.bg;
+            delete divider.dataset.drag;
             apply(this._model.detailsHeight, true);
         };
         divider.addEventListener('pointerup', end);
         divider.addEventListener('pointercancel', end);
-        divider.addEventListener('mouseenter', () => (divider.style.background = c.hover));
-        divider.addEventListener('mouseleave', () => {
-            if (!divider.hasPointerCapture?.(1)) divider.style.background = c.bg;
-        });
     }
 
     destroy(): void {
         if (this._timer) clearInterval(this._timer);
         if (this._tick) clearInterval(this._tick);
+        if (this._searchTimer) clearTimeout(this._searchTimer);
+        this._daily.destroy();
         this._search?.close();
         this._ctx?.dispose();
         this.symbolSelected.destroy();
@@ -1275,3 +1974,4 @@ export class WatchlistPanel {
         this._el.remove();
     }
 }
+

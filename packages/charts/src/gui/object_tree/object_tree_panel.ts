@@ -14,6 +14,7 @@ import type { DrawingManager } from '../../drawings/drawing-manager';
 import type { Drawing } from '../../drawings/drawing';
 import type { Indicator } from '../../indicators/indicator';
 import type { IndicatorManager } from '../../indicators/indicator-manager';
+import { applyRpTokens, ensureRpStyles, rpEmptyState, RP_CLOSE_SVG, RP_SEARCH_SVG, RP_TOKENS, RP_FONT } from '../right_panel/rp_tokens';
 import { getDrawingToolMeta, ROW_ACTION_ICONS as DRAWING_ICONS } from '../drawing_toolbar/drawing_toolbar_widget';
 import {
     buildDrawingRows,
@@ -28,13 +29,16 @@ import {
 const OPEN_STORAGE = 'chart.objectTree.open';
 const PANEL_WIDTH = 280;
 
-const THEMES = {
-    dark: { bg: '#131722', border: '#2a2e39', text: '#d1d4dc', muted: '#787b86', hover: '#1e222d', active: '#2a2e39', sel: 'rgba(41,98,255,0.28)', input: '#1e222d', danger: '#ef5350' },
-    light: { bg: '#ffffff', border: '#e0e3eb', text: '#131722', muted: '#5d606b', hover: '#f0f3fa', active: '#e3effd', sel: 'rgba(41,98,255,0.16)', input: '#f0f3fa', danger: '#d32f2f' },
-};
+/** Colours reference the shared --rp-* tokens (host or own root sets them) with per-theme fallbacks. */
+function otTheme(theme: 'dark' | 'light') {
+    const t = RP_TOKENS[theme];
+    const r = (n: string): string => `var(--rp-${n},${t[n]})`;
+    return { bg: r('bg'), border: r('border'), text: r('text'), muted: r('muted'), hover: r('hover'), active: r('chip'), sel: r('chip'), input: r('surface'), danger: r('down') };
+}
+const THEMES = { dark: otTheme('dark'), light: otTheme('light') };
 
+const SVG_CUBE = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5l6.5 3.7v7.6L10 17.5l-6.5-3.7V6.2zM10 10v7.5M3.5 6.2L10 10l6.5-3.8"/></svg>';
 const SVG_GEAR = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" fill-rule="evenodd" d="m3.1 9 2.28-5h7.24l2.28 5-2.28 5H5.38L3.1 9Zm1.63-.5L6.2 5h5.6l1.47 3.5L11.8 12H6.2L4.73 8.5ZM9 7.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg>';
-const SVG_CLOSE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="currentColor" d="m4.7 4 4.3 4.3L13.3 4l.7.7L9.7 9l4.3 4.3-.7.7L9 9.7 4.7 14l-.7-.7L8.3 9 4 4.7l.7-.7Z"/></svg>';
 const SVG_INDICATOR = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="1.4" d="M2 12l4-5 3 3 3-5 4 6"/></svg>';
 
 function readStorage(name: string): string | null {
@@ -83,45 +87,53 @@ export class ObjectTreePanel {
     private _indicatorById = new Map<string, Indicator>();
     private _idsKey = '';
     private _pendingRefresh = false;
+    /** true once docked in the shared right panel container (it owns width / border / visibility; DOM survives hide). */
+    private _embedded = false;
 
     private readonly _onChange = () => {
         this._syncConfirm();
         this.refresh();
     };
 
-    constructor(_parent: HTMLElement, top: number, private readonly _host: ObjectTreeHost) {
+    constructor(_parent: HTMLElement, top: number, private _host: ObjectTreeHost) {
         const el = document.createElement('div');
-        el.className = 'tv-object-tree';
+        el.className = 'tv-object-tree rp-root';
         el.style.cssText = `position:absolute;top:${top}px;right:0;bottom:0;width:${PANEL_WIDTH}px;display:none;`
             + 'flex-direction:column;z-index:30;font-size:12px;box-sizing:border-box;user-select:none;'
-            + "font-family:-apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,Ubuntu,sans-serif;";
+            + `font-family:${RP_FONT};`;
         this._el = el;
 
         const header = document.createElement('div');
-        header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px 6px;';
+        header.className = 'rp-hdr';
         this._title = document.createElement('span');
-        this._title.style.cssText = 'font-size:13px;font-weight:600;';
-        this._closeBtn = this._mkIconBtn(SVG_CLOSE);
+        this._title.className = 'rp-title';
+        this._closeBtn = this._mkIconBtn(RP_CLOSE_SVG);
+        this._closeBtn.className = 'rp-ib';
         this._closeBtn.dataset.otAction = 'close';
         header.append(this._title, this._closeBtn);
 
         const tools = document.createElement('div');
-        tools.style.cssText = 'padding:0 12px 8px;display:flex;flex-direction:column;gap:6px;';
+        tools.style.cssText = 'padding:0 0 6px;display:flex;flex-direction:column;gap:2px;flex-shrink:0;';
+        const searchBox = document.createElement('div');
+        searchBox.className = 'rp-search';
+        const searchIc = document.createElement('span');
+        searchIc.style.cssText = 'position:absolute;left:11px;display:flex;pointer-events:none;color:var(--rp-muted,#787b86);';
+        searchIc.innerHTML = RP_SEARCH_SVG;
         this._search = document.createElement('input');
         this._search.type = 'text';
         this._search.dataset.otSearch = '1';
-        this._search.style.cssText = 'width:100%;box-sizing:border-box;padding:5px 8px;border-radius:4px;font-size:12px;outline:none;';
-        const btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display:flex;gap:6px;align-items:center;';
+                const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;gap:6px;align-items:center;padding:0 12px;';
         this._hideAllBtn = this._mkTextBtn();
         this._hideAllBtn.dataset.otAction = 'hide-all';
         this._deleteAllBtn = this._mkTextBtn();
         this._deleteAllBtn.dataset.otAction = 'delete-all';
         btnRow.append(this._hideAllBtn, this._deleteAllBtn);
-        tools.append(this._search, btnRow);
+        searchBox.append(searchIc, this._search);
+        tools.append(searchBox, btnRow);
 
         this._body = document.createElement('div');
-        this._body.style.cssText = 'flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;padding-bottom:12px;';
+        this._body.style.cssText = 'flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:12px;';
 
         el.append(header, tools, this._body);
         _parent.appendChild(el);
@@ -139,14 +151,56 @@ export class ObjectTreePanel {
             this._filter = this._search.value;
             this.refresh();
         });
+        ensureRpStyles();
         this._applyTheme();
         this._applyStaticTexts();
     }
 
-    /** Moves the panel into a host-owned container (layout-wide right sidebar); same right-edge geometry. */
-    mountIn(parent: HTMLElement, top: number): void {
-        this._el.style.top = `${top}px`;
-        parent.appendChild(this._el);
+    /**
+     * Docks the panel inside the shared right panel container: it fills the container, which owns the width /
+     * border / visibility. Unlike the standalone mode the row DOM and filter text survive hiding.
+     */
+    embed(container: HTMLElement): void {
+        this._embedded = true;
+        this._el.style.cssText = 'position:relative;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;'
+            + 'font-size:12px;box-sizing:border-box;user-select:none;'
+            + `font-family:${RP_FONT};`;
+        container.appendChild(this._el);
+        this._applyTheme();
+    }
+
+    /** Points the (shared) tree at another chart's drawings / indicators; re-renders when it is open. */
+    setHost(host: ObjectTreeHost): void {
+        if (host === this._host) return;
+        if (this._visible) this._unsubscribe();
+        this._host = host;
+        this._confirmDelete = false;
+        this._dragId = null;
+        this._pendingRefresh = false;
+        this._lastSelectedId = null;
+        this._signature = '';
+        if (this._visible) {
+            this._subscribe();
+            this._idsKey = drawingIdsKey(host.drawings.drawings.map((d) => d.id));
+            this._cancelRaf();
+            this._render();
+        }
+    }
+
+    get host(): ObjectTreeHost { return this._host; }
+
+    private _subscribe(): void {
+        const dm = this._host.drawings;
+        dm.drawingsChanged.subscribe(this._onChange);
+        dm.selectionChanged.subscribe(this._onChange);
+        dm.historyRestored.subscribe(this._onChange);
+    }
+
+    private _unsubscribe(): void {
+        const dm = this._host.drawings;
+        dm.drawingsChanged.unsubscribe(this._onChange);
+        dm.selectionChanged.unsubscribe(this._onChange);
+        dm.historyRestored.unsubscribe(this._onChange);
     }
 
     get visible(): boolean { return this._visible; }
@@ -161,12 +215,10 @@ export class ObjectTreePanel {
         if (visible === this._visible) return;
         this._visible = visible;
         if (opts.persist !== false) writeStorage(OPEN_STORAGE, visible ? '1' : '0');
-        this._el.style.display = visible ? 'flex' : 'none';
+        if (!this._embedded) this._el.style.display = visible ? 'flex' : 'none';
         const dm = this._host.drawings;
         if (visible) {
-            dm.drawingsChanged.subscribe(this._onChange);
-            dm.selectionChanged.subscribe(this._onChange);
-            dm.historyRestored.subscribe(this._onChange);
+            this._subscribe();
             this._signature = '';
             this._idsKey = drawingIdsKey(dm.drawings.map((d) => d.id));
             this._render();
@@ -178,14 +230,13 @@ export class ObjectTreePanel {
 
     /** Olay abonelikleri ve satir DOM'u birakilir (kapanista ve destroy'da; kalici durum yazilmaz) */
     private _detach(): void {
-        const dm = this._host.drawings;
-        dm.drawingsChanged.unsubscribe(this._onChange);
-        dm.selectionChanged.unsubscribe(this._onChange);
-        dm.historyRestored.unsubscribe(this._onChange);
+        this._unsubscribe();
         this._cancelRaf();
-        this._body.textContent = '';
-        this._drawingById.clear();
-        this._indicatorById.clear();
+        if (!this._embedded) this._body.textContent = ''; // embedded: keep rows (scroll position) while hidden
+        if (!this._embedded) {
+            this._drawingById.clear();
+            this._indicatorById.clear();
+        }
         this._confirmDelete = false;
         this._dragId = null;
         this._pendingRefresh = false;
@@ -297,15 +348,19 @@ export class ObjectTreePanel {
         this._deleteAllBtn.textContent = this._confirmDelete ? `${t('Delete all drawings?')} ${t('Yes')}` : t('Delete all');
         this._deleteAllBtn.dataset.otAction = this._confirmDelete ? 'delete-all-yes' : 'delete-all';
         this._deleteAllBtn.disabled = totalDrawings === 0;
-        this._deleteAllBtn.style.opacity = totalDrawings === 0 ? '0.4' : '1';
-        this._hideAllBtn.disabled = totalDrawings === 0 && !hiddenAll;
+                this._hideAllBtn.disabled = totalDrawings === 0 && !hiddenAll;
+        this._hideAllBtn.dataset.on = hiddenAll ? '1' : '0';
 
         const c = THEMES[this._theme];
         const frag = document.createDocumentFragment();
 
         frag.appendChild(this._sectionHeader(`${t('Drawings')} (${this._filter ? result.total : totalDrawings})`));
         if (result.rows.length === 0) {
-            frag.appendChild(this._emptyNote(this._filter && totalDrawings > 0 ? t('No matches') : t('No drawings')));
+            if (totalDrawings === 0 && totalInds === 0 && !this._filter) {
+                frag.appendChild(rpEmptyState(SVG_CUBE, t('No drawings'), undefined, 'ot-empty'));
+            } else {
+                frag.appendChild(this._emptyNote(this._filter && totalDrawings > 0 ? t('No matches') : t('No drawings')));
+            }
         }
         for (const row of result.rows) frag.appendChild(this._drawingRowEl(row, c));
         if (result.hiddenMore > 0) {
@@ -331,14 +386,15 @@ export class ObjectTreePanel {
     private _sectionHeader(text: string): HTMLElement {
         const h = document.createElement('div');
         h.dataset.otSection = '1';
-        h.style.cssText = `padding:8px 12px 4px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:${THEMES[this._theme].muted};`;
+        h.className = 'rp-label';
+        h.style.paddingTop = '12px';
         h.textContent = text;
         return h;
     }
 
     private _emptyNote(text: string): HTMLElement {
         const n = document.createElement('div');
-        n.style.cssText = `padding:4px 12px 6px;color:${THEMES[this._theme].muted};font-style:italic;`;
+        n.style.cssText = `padding:4px 16px 8px;text-align:center;font-size:12px;font-weight:400;color:${THEMES[this._theme].muted};`;
         n.textContent = text;
         return n;
     }
@@ -351,6 +407,9 @@ export class ObjectTreePanel {
         b.style.opacity = active ? '1' : '0';
         b.style.color = active ? THEMES[this._theme].danger : THEMES[this._theme].muted;
         b.className = 'ot-act';
+        b.style.width = '26px';
+        b.style.height = '26px';
+        b.style.borderRadius = '8px';
         return b;
     }
 
@@ -370,14 +429,14 @@ export class ObjectTreePanel {
         if (svg) { svg.setAttribute('width', '18'); svg.setAttribute('height', '18'); }
 
         const label = document.createElement('span');
-        label.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        label.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;letter-spacing:-0.005em;';
         const name = document.createElement('span');
         name.textContent = row.label;
         label.appendChild(name);
         if (row.text) {
             const txt = document.createElement('span');
             txt.dataset.otText = '1';
-            txt.style.cssText = `margin-left:6px;color:${c.muted};`;
+            txt.style.cssText = `margin-left:6px;color:${c.muted};font-size:12px;font-weight:400;letter-spacing:0;`;
             txt.textContent = row.text;
             label.appendChild(txt);
         }
@@ -410,7 +469,7 @@ export class ObjectTreePanel {
         icon.style.cssText = 'width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;';
         icon.innerHTML = SVG_INDICATOR;
         const label = document.createElement('span');
-        label.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        label.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;letter-spacing:-0.005em;';
         label.textContent = row.name;
         el.append(icon, label,
             this._actionBtn('ind-toggle', row.visible ? DRAWING_ICONS.visible : DRAWING_ICONS.hidden, row.visible ? t('Hide') : t('Show'), !row.visible),
@@ -421,9 +480,9 @@ export class ObjectTreePanel {
     }
 
     private _rowCss(c: typeof THEMES.dark, selected: boolean, dim: boolean): string {
-        return `display:flex;align-items:center;gap:6px;padding:4px 8px 4px 12px;min-height:28px;cursor:pointer;`
+        return `display:flex;align-items:center;gap:6px;margin:1px 8px;padding:3px 6px 3px 10px;min-height:34px;border-radius:10px;cursor:pointer;`
             + `color:${c.text};background:${selected ? c.sel : 'transparent'};opacity:${dim ? 0.5 : 1};`
-            + 'border-top:2px solid transparent;border-bottom:2px solid transparent;';
+            + 'border-top:2px solid transparent;border-bottom:2px solid transparent;box-sizing:border-box;';
     }
 
     private _mkIconBtn(svg: string): HTMLButtonElement {
@@ -439,7 +498,7 @@ export class ObjectTreePanel {
     private _mkTextBtn(): HTMLButtonElement {
         const b = document.createElement('button');
         b.type = 'button';
-        b.style.cssText = 'padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid transparent;background:transparent;';
+        b.className = 'rp-pill';
         return b;
     }
 
@@ -451,18 +510,12 @@ export class ObjectTreePanel {
 
     private _applyTheme(): void {
         const c = THEMES[this._theme];
+        applyRpTokens(this._el, this._theme);
         this._el.style.background = c.bg;
         this._el.style.color = c.text;
-        this._el.style.borderLeft = `1px solid ${c.border}`;
-        this._search.style.background = c.input;
-        this._search.style.color = c.text;
-        this._search.style.border = `1px solid ${c.border}`;
-        for (const b of [this._hideAllBtn, this._deleteAllBtn]) {
-            b.style.color = c.text;
-            b.style.borderColor = c.border;
-        }
-        this._deleteAllBtn.style.color = c.danger;
-        this._closeBtn.style.color = c.muted;
+        this._el.style.borderLeft = this._embedded ? 'none' : `1px solid ${c.border}`;
+        this._deleteAllBtn.classList.add('rp-danger');
+        this._hideAllBtn.dataset.on = this._hideAllBtn.dataset.on ?? '0';
         // Tema renkleri panel koküne CSS degiskeni olarak yazilir (grafik basina; paylasilan stil renk icermez)
         this._el.style.setProperty('--ot-hover', c.hover);
         this._el.style.setProperty('--ot-active', c.active);
@@ -478,10 +531,10 @@ export class ObjectTreePanel {
         st.textContent = '.tv-object-tree .ot-row:hover{background:var(--ot-hover) !important;}'
             + '.tv-object-tree .ot-row[data-selected="1"]:hover{background:var(--ot-sel) !important;}'
             + '.tv-object-tree .ot-row:hover .ot-act{opacity:1 !important;}'
-            + '.tv-object-tree .ot-act:hover{background:var(--ot-active);}'
+            + '.tv-object-tree .ot-act:hover{background:var(--ot-active);color:var(--rp-text,#e6e8ee) !important;}'
             + '.tv-object-tree button:disabled{cursor:default;}'
-            + '.tv-object-tree .ot-drop-above{border-top-color:#2962ff !important;}'
-            + '.tv-object-tree .ot-drop-below{border-bottom-color:#2962ff !important;}';
+            + '.tv-object-tree .ot-drop-above{border-top-color:var(--rp-accent,#2962ff) !important;}'
+            + '.tv-object-tree .ot-drop-below{border-bottom-color:var(--rp-accent,#2962ff) !important;}';
         document.head.appendChild(st);
     }
 

@@ -24,7 +24,7 @@ export { ChartWidget, createChart } from './gui/chart-widget';
 export {
     MultiChartLayout, MultiChartLayoutOptions, MultiChartLayoutType, MultiChartSlotOptions, MultiChartRatios, MultiChartRatiosChangeEvent,
     MultiChartSync, MultiChartSizesChangeEvent, MultiChartLayoutChangeEvent, MultiChartChartsChangeEvent, MultiChartMaximizeEvent,
-    MultiChartLockedLayoutEvent, createMultiChartLayout,
+    MultiChartLockedLayoutEvent, RightPanelId, RightPanelRegistration, RightPanelHandle, createMultiChartLayout,
 } from './gui/multi-chart-layout';
 export {
     LAYOUT_CATALOG, LAYOUT_IDS, LEGACY_LAYOUT_ALIASES, LayoutId, LegacyLayoutId, LayoutDef, LayoutNode, LayoutSizes,
@@ -131,6 +131,8 @@ export {
 // Data Providers (Modular data source system)
 export * from './data-providers';
 
+export { RightToolbarWidget, RightToolbarItem, RightToolbarMenuItem, RIGHT_TOOLBAR_ICONS, RIGHT_TOOLBAR_WIDTH } from './gui/right_toolbar/right_toolbar_widget';
 export { WatchlistPanel, WatchlistRow, WatchlistProvider } from './gui/watchlist/watchlist_panel';
+export type { DailyBar, DailyProvider, DailyRequest } from './gui/watchlist/watchlist_spark';
 
 export { SpotPriceSource, SpotBar, SpotKlinesProvider, SpotRealtimeProvider, SpotPair, SpotAxisInfo } from './model/spot-price-source';

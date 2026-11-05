@@ -21,6 +21,8 @@ export interface ContextMenuOptions {
     items: ContextMenuItem[];
     container?: HTMLElement;  // Optional container (default: document.body)
     theme?: BarTheme;  // default 'light'; ChartWidget sets it from the chart theme
+    /** Optional soft look (right panel menus): rounded surface per theme. Concrete colours (the menu lives outside the panel root). */
+    skin?: { bg: Record<'dark' | 'light', string>; border: Record<'dark' | 'light', string>; radius: number; shadow: Record<'dark' | 'light', string> };
 }
 
 // SVG Icons (TradingView style - outline)
@@ -65,9 +67,11 @@ export class ContextMenu {
 
     private _container: HTMLElement;
     private _theme: BarTheme = 'light';
+    private _skin: ContextMenuOptions['skin'];
 
     constructor(options: ContextMenuOptions) {
         this._items = options.items;
+        this._skin = options.skin;
         this._theme = options.theme === 'dark' ? 'dark' : 'light';
         this._container = options.container || document.body;
         this._onClickOutside = this._handleClickOutside.bind(this);
@@ -108,6 +112,14 @@ export class ContextMenu {
         `;
         if (left) this._element.style.left = left;
         if (top) this._element.style.top = top;
+        if (this._skin) {
+            const t = this._theme === 'dark' ? 'dark' : 'light';
+            this._element.style.background = this._skin.bg[t];
+            this._element.style.border = `1px solid ${this._skin.border[t]}`;
+            this._element.style.borderRadius = `${this._skin.radius}px`;
+            this._element.style.boxShadow = this._skin.shadow[t];
+            this._element.style.padding = '6px';
+        }
     }
 
     /** Dark / light look (follows the chart theme) */
@@ -164,6 +176,8 @@ export class ContextMenu {
                 transition: background 0.1s;
                 white-space: nowrap;
             `;
+
+            if (this._skin) menuItem.style.borderRadius = '8px';
 
             // Icon
             const iconSpan = document.createElement('span');
@@ -236,6 +250,7 @@ export class ContextMenu {
         const colors = barColors(this._theme);
         const fly = document.createElement('div');
         fly.className = 'chart-context-submenu';
+        const skinT = this._theme === 'dark' ? 'dark' : 'light';
         fly.style.cssText = `
             position: absolute;
             top: -5px;
@@ -249,10 +264,18 @@ export class ContextMenu {
             display: none;
             white-space: nowrap;
         `;
+        if (this._skin) {
+            fly.style.background = this._skin.bg[skinT];
+            fly.style.border = `1px solid ${this._skin.border[skinT]}`;
+            fly.style.borderRadius = `${this._skin.radius}px`;
+            fly.style.boxShadow = this._skin.shadow[skinT];
+            fly.style.padding = '6px';
+        }
         for (const child of children) {
             const row = document.createElement('div');
             row.dataset.id = child.id;
             row.style.cssText = `box-sizing: border-box; height: ${m.popupItemHeight}px; display: flex; align-items: center; padding: 0 ${m.popupPadX}px; cursor: ${child.disabled ? 'default' : 'pointer'}; color: ${child.disabled ? colors.popupDisabledText : colors.popupText};`;
+            if (this._skin) row.style.borderRadius = '8px';
             if (child.icon) {
                 const ic = document.createElement('span');
                 ic.style.cssText = 'width:20px;height:18px;display:flex;align-items:center;justify-content:center;margin-right:10px;';

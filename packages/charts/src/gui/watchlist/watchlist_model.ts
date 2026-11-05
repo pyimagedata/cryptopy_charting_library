@@ -41,6 +41,9 @@ export const SORT_STORAGE = 'chart.watchlist.sort';
 export const DETAILS_STORAGE = 'chart.watchlist.details';
 export const DETAILS_MIN = 96;
 export const DETAILS_DEFAULT = 190;
+/** Eski varsayilan yukseklik; saklanmissa yeni varsayilana goc ettirilir. */
+const DETAILS_LEGACY_DEFAULT = 340;
+export const GROUPS_STORAGE = 'chart.watchlist.groups';
 export const FLAGGED_PREFIX = 'flag:';
 export const DEFAULT_LIST_NAME = 'İzleme Listesi';
 
@@ -166,7 +169,7 @@ export class WatchlistModel {
     private _loadPrefs(): void {
         const cols = parseJson(this._store.get(COLUMNS_STORAGE)) as Record<string, unknown> | null;
         if (cols && typeof cols === 'object') {
-            for (const k of ['chg', 'chgPct', 'vol'] as const) if (typeof cols[k] === 'boolean') this._columns[k] = cols[k] as boolean;
+            for (const k of ['spark', 'chg', 'chgPct', 'vol'] as const) if (typeof cols[k] === 'boolean') this._columns[k] = cols[k] as boolean;
         }
         const sorts = parseJson(this._store.get(SORT_STORAGE)) as Record<string, { col?: unknown; dir?: unknown }> | null;
         if (sorts && typeof sorts === 'object' && !Array.isArray(sorts)) {
@@ -178,6 +181,7 @@ export class WatchlistModel {
         if (det && typeof det === 'object') {
             if (typeof det.open === 'boolean') this._details.open = det.open;
             if (typeof det.height === 'number' && Number.isFinite(det.height) && det.height >= DETAILS_MIN) this._details.height = Math.round(det.height);
+            if (this._details.height === DETAILS_LEGACY_DEFAULT && this._details.height > DETAILS_DEFAULT + 40) this._details.height = DETAILS_DEFAULT;
         }
     }
 
@@ -466,6 +470,28 @@ export class WatchlistModel {
         this._details.open = open;
         if (height !== undefined && Number.isFinite(height)) this._details.height = Math.max(DETAILS_MIN, Math.round(height));
         this._store.set(DETAILS_STORAGE, JSON.stringify(this._details));
+    }
+
+    // ---- Otomatik gruplar (bolumsuz listelerde varlik turune gore) ----
+
+    private _collapsedGroups: Set<string> | null = null;
+
+    private _groups(): Set<string> {
+        if (!this._collapsedGroups) {
+            const raw = parseJson(this._store.get(GROUPS_STORAGE));
+            this._collapsedGroups = new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []);
+        }
+        return this._collapsedGroups;
+    }
+
+    isGroupCollapsed(cat: string): boolean {
+        return this._groups().has(cat);
+    }
+
+    toggleGroup(cat: string): void {
+        const g = this._groups();
+        if (!g.delete(cat)) g.add(cat);
+        this._store.set(GROUPS_STORAGE, JSON.stringify([...g]));
     }
 
     // ---- Bayraklar (sembol basina global) ----

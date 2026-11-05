@@ -16,8 +16,14 @@ const STATUS_EN: Record<AlertStatus, string> = {
     active: 'Active', stopped: 'Stopped', triggered: 'Triggered', expired: 'Expired',
 };
 
+/** Lower-cased status (a backend may send "ACTIVE"); unknown values fall back to stopped. */
+export function normStatus(s: string | undefined | null): AlertStatus {
+    const v = String(s ?? '').toLowerCase();
+    return v === 'active' || v === 'triggered' || v === 'expired' ? v : 'stopped';
+}
+
 export function statusLabel(s: AlertStatus): string {
-    return t(STATUS_EN[s]);
+    return t(STATUS_EN[normStatus(s)]);
 }
 
 export function filterLabel(f: AlertStatusFilter): string {
@@ -37,7 +43,7 @@ export function matchesQuery(a: ChartAlert, query: string): boolean {
 }
 
 export function filterAlerts(alerts: readonly ChartAlert[], status: AlertStatusFilter, query: string): ChartAlert[] {
-    return alerts.filter((a) => (status === 'all' || a.status === status) && matchesQuery(a, query));
+    return alerts.filter((a) => (status === 'all' || normStatus(a.status) === status) && matchesQuery(a, query));
 }
 
 const STATUS_ORDER: Record<AlertStatus, number> = { active: 0, triggered: 1, stopped: 2, expired: 3 };
@@ -49,7 +55,7 @@ export function sortAlerts(alerts: readonly ChartAlert[], key: AlertSortKey): Ch
     if (key === 'symbol') {
         out.sort((a, b) => alertTicker(a.symbol).localeCompare(alertTicker(b.symbol)) || byNewest(a, b));
     } else if (key === 'status') {
-        out.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || byNewest(a, b));
+        out.sort((a, b) => STATUS_ORDER[normStatus(a.status)] - STATUS_ORDER[normStatus(b.status)] || byNewest(a, b));
     } else {
         out.sort(byNewest);
     }
@@ -111,4 +117,31 @@ export function relativeTime(ms: number, now: number): string {
     if (d <= 30) return t('{n} d ago').replace('{n}', String(d));
     const dt = new Date(ms);
     return `${two(dt.getDate())}.${two(dt.getMonth() + 1)}.${dt.getFullYear()}`;
+}
+
+/** Status tabs of the manager: expired alerts are listed with the stopped ones. */
+export type AlertListTab = 'active' | 'triggered' | 'stopped';
+export const LIST_TABS: readonly AlertListTab[] = ['active', 'triggered', 'stopped'];
+
+export function tabOfStatus(s: AlertStatus): AlertListTab {
+    const v = normStatus(s);
+    return v === 'active' ? 'active' : v === 'triggered' ? 'triggered' : 'stopped';
+}
+
+export function countByTab(alerts: readonly ChartAlert[]): Record<AlertListTab, number> {
+    const out: Record<AlertListTab, number> = { active: 0, triggered: 0, stopped: 0 };
+    for (const a of alerts) out[tabOfStatus(a.status)]++;
+    return out;
+}
+
+/** Active alerts per kind (price / drawing / indicator); legacy alerts without `source` count as price alerts. */
+export function activeBySource(alerts: readonly ChartAlert[]): { price: number; drawing: number; indicator: number } {
+    const out = { price: 0, drawing: 0, indicator: 0 };
+    for (const a of alerts) {
+        if (normStatus(a.status) !== 'active') continue;
+        if (a.source === 'drawing') out.drawing++;
+        else if (a.source === 'indicator') out.indicator++;
+        else out.price++;
+    }
+    return out;
 }
