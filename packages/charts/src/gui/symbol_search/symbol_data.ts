@@ -84,6 +84,61 @@ function cryptoPerp(symbol: string, base: string, exchange: string, provider: st
     };
 }
 
+/** Normalised class of a Binance USDT-M perpetual. */
+export type PerpClass = 'crypto' | 'stock' | 'index' | 'metal' | 'energy';
+
+const ENERGY_BASES = new Set(['CL', 'BZ', 'NATGAS', 'NG', 'HO', 'RB', 'WTI', 'BRENT']);
+
+/** Fallback classification from Binance exchangeInfo (`underlyingType`) when the host gives no map. */
+function classFromUnderlying(underlyingType: string | undefined, base: string): PerpClass {
+    switch ((underlyingType || '').toUpperCase()) {
+        case 'EQUITY': case 'HK_EQUITY': case 'KR_EQUITY': case 'CN_EQUITY': case 'PREMARKET':
+            return 'stock';
+        case 'COMMODITY':
+            return ENERGY_BASES.has((base || '').toUpperCase()) ? 'energy' : 'metal';
+        default:
+            return 'crypto';
+    }
+}
+
+function normalizeHostClass(v: unknown): PerpClass | null {
+    switch (String(v || '').toLowerCase()) {
+        case 'crypto': return 'crypto';
+        case 'stock': case 'stocks': case 'equity': return 'stock';
+        case 'index': case 'indices': case 'fund': case 'etf': return 'index';
+        case 'metal': case 'metals': return 'metal';
+        case 'energy': return 'energy';
+    }
+    return null;
+}
+
+/** Host-provided classes (window.EVO_SYMBOL_CLASSES = {CODE: asset_class}); keyed by code with or without the USDT suffix. */
+function hostClassOf(symbol: string): PerpClass | null {
+    const map = typeof window !== 'undefined' ? (window as any).EVO_SYMBOL_CLASSES : undefined;
+    if (!map || typeof map !== 'object') return null;
+    const code = symbol.toUpperCase();
+    const v = map[code] ?? map[code.replace(/USDT$/, '')];
+    return normalizeHostClass(v);
+}
+
+/** Puts a Binance perp into its search category (crypto / stocks / indices / futures for metals+energy). */
+function applyPerpClass(info: SymbolInfo, cls: PerpClass): SymbolInfo {
+    switch (cls) {
+        case 'stock': return { ...info, type: 'stocks', category: 'stocks', market: 'swap' };
+        case 'index': return { ...info, type: 'indices', category: 'indices', market: 'swap' };
+        case 'metal': case 'energy': return { ...info, type: 'futures', category: 'futures', market: 'swap' };
+        default: return { ...info, type: 'crypto', category: 'crypto', market: 'swap' };
+    }
+}
+
+/** Re-applies the host class map to a (possibly cached) Binance Futures list. */
+function reclassifyBinanceFutures(list: SymbolInfo[]): SymbolInfo[] {
+    return list.map(s => {
+        const cls = hostClassOf(s.symbol);
+        return cls ? applyPerpClass(s, cls) : s;
+    });
+}
+
 /** A slow or dead source is skipped after this long instead of holding the spinner. */
 const FETCH_TIMEOUT_MS = 8000;
 
@@ -119,7 +174,11 @@ export const FETCHERS: SourceFetcher[] = [
             return data.symbols
                 // TRADIFI_PERPETUAL: XAUUSDT / XAGUSDT gibi emtia perp'leri
                 .filter((s: any) => s.status === 'TRADING' && (s.contractType === 'PERPETUAL' || s.contractType === 'TRADIFI_PERPETUAL') && s.quoteAsset === 'USDT')
-                .map((s: any) => cryptoPerp(s.symbol, s.baseAsset, 'BINANCE-FUTURES', 'binance-futures'));
+                .map((s: any) => {
+                    const info = cryptoPerp(s.symbol, s.baseAsset, 'BINANCE-FUTURES', 'binance-futures');
+                    const cls = hostClassOf(s.symbol) ?? classFromUnderlying(s.underlyingType, s.baseAsset);
+                    return applyPerpClass(info, cls);
+                });
         },
     },
     {
@@ -209,7 +268,7 @@ const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const CACHE_DB = 'evo-symbol-catalog';
 const CACHE_STORE = 'kv';
 /** Bump when the SymbolInfo mapping of any cached source changes: entries of other schemas are ignored. */
-const CATALOG_SCHEMA = 2; // 2: Binance Futures listesine TRADIFI_PERPETUAL eklendi
+const CATALOG_SCHEMA = 3; // 3: Binance Futures sembolleri sinifa gore (stocks/indices/futures) kategorilenir
 const CACHE_KEY = `external-v${CATALOG_SCHEMA}`;
 /** IndexedDB can stall (blocked / private mode): never let it hold up the network fetch. */
 const CACHE_IO_TIMEOUT_MS = 1000;
@@ -335,7 +394,7 @@ class Catalog {
             this._setSource(f.name, cached.list);
             if (Date.now() - cached.t < CACHE_TTL_MS) {
                 this._status.set(f.name, 'ok');
-                this._emit(cached.list);
+                this._emit(this._bySource.get(f.name) ?? cached.list);
                 return;
             }
             // Stale: show it right away, refresh in the background.
@@ -347,6 +406,8 @@ class Catalog {
             this._setSource(f.name, list);
             if (CACHED_SOURCES.has(f.name)) this._cache[f.name] = { t: Date.now(), list };
             this._emit(list);
+            // Backend finished -> the host class map (EVO_SYMBOL_CLASSES) is now filled: re-class Binance Futures.
+            if (f.name === 'Backend') this._reclassifyBinance();
             this._persistWhenSettled();
         }).catch(err => {
             console.warn(`Failed to fetch ${f.name}:`, err);
@@ -356,10 +417,19 @@ class Catalog {
     }
 
     private _setSource(name: string, list: SymbolInfo[]): void {
+        // The host class map may arrive after a cached Binance Futures list was read: always apply it here.
+        if (name === 'Binance Futures') list = reclassifyBinanceFutures(list);
         this._bySource.set(name, list);
         const all: SymbolInfo[] = [];
         for (const l of this._bySource.values()) for (const s of l) all.push(s);
         this._loaded = all;
+    }
+
+    private _reclassifyBinance(): void {
+        const cur = this._bySource.get('Binance Futures');
+        if (!cur || cur.length === 0) return;
+        this._setSource('Binance Futures', cur);
+        this._emit(this._bySource.get('Binance Futures')!);
     }
 
     private _persistWhenSettled(): void {

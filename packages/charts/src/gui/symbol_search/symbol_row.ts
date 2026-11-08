@@ -59,6 +59,7 @@ export function badgeText(item: IndexedSymbol): string | null {
         case 'futures': return t('Futures');
         case 'forex': return t('Forex');
         case 'cfd': return t('CFD');
+        case 'stocks': case 'indices': return item.market === 'swap' ? t('Swap') : null;
         default: return null;
     }
 }
