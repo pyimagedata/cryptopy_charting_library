@@ -5,6 +5,7 @@
 import { OverlayIndicator } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+import { canvasSans } from '../helpers/fonts';
 
 export interface FvgInversionIndicatorOptions {
     name: string;
@@ -223,7 +224,7 @@ export class FvgInversionIndicator extends OverlayIndicator {
 
                 if (this._fOptions.showLabels && box.state === 'inverted') {
                     ctx.fillStyle = rgbaFrom(invColor, 0.95);
-                    ctx.font = `${10 * hpr}px sans-serif`;
+                    ctx.font = `${10 * hpr}px ${canvasSans()}`;
                     ctx.textAlign = 'left';
                     ctx.textBaseline = box.type === 'bull' ? 'top' : 'bottom';
                     ctx.fillText('IFVG', xInv + 3 * hpr, box.type === 'bull' ? top + height + 2 * vpr : top - 2 * vpr);
@@ -240,7 +241,7 @@ export class FvgInversionIndicator extends OverlayIndicator {
                     ctx.strokeRect(Math.min(x1, x2), top, Math.max(1, Math.abs(x2 - x1)), height);
                     if (this._fOptions.showLabels) {
                         ctx.fillStyle = rgbaFrom(origColor, 0.9);
-                        ctx.font = `${10 * hpr}px sans-serif`;
+                        ctx.font = `${10 * hpr}px ${canvasSans()}`;
                         ctx.textAlign = 'left';
                         ctx.textBaseline = box.type === 'bull' ? 'top' : 'bottom';
                         ctx.fillText('FVG', x1 + 3 * hpr, box.type === 'bull' ? top + height + 2 * vpr : top - 2 * vpr);

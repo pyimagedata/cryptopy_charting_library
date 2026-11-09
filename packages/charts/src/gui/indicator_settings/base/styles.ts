@@ -20,6 +20,14 @@ export const TVS_CSS = `
 .tvs-tab.tvs-active { color: var(--tvs-text); border-bottom-color: var(--tvs-accent); }
 .tvs-group { font-size: ${S.smallFontSize}px; font-weight: 600; color: var(--tvs-muted); text-transform: uppercase; letter-spacing: .4px; margin: 14px 0 8px; }
 .tvs-group:first-child { margin-top: 0; }
+.tvs-group.tvs-raw { text-transform: none; letter-spacing: 0; }
+.tvs-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-bottom: ${S.rowGap - 4}px; }
+.tvs-inline > .tvs-row { margin-bottom: 0; flex: 1 1 auto; min-width: 0; }
+.tvs-inline > .tvs-row > .tvs-label { flex: 0 1 auto; }
+.tvs-info { display: inline-flex; vertical-align: middle; margin-left: 6px; color: var(--tvs-muted); cursor: help; outline: none; }
+.tvs-info:hover, .tvs-info:focus { color: var(--tvs-text); }
+.tvs-tip { position: fixed; z-index: ${S.zIndex + 5}; max-width: 260px; padding: 7px 9px; border-radius: 4px; background: var(--tvs-bg); color: var(--tvs-text);
+    border: 1px solid var(--tvs-border); box-shadow: var(--shadow); font-size: ${S.smallFontSize}px; line-height: 1.4; white-space: pre-wrap; pointer-events: none; }
 .tvs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: ${S.controlHeight}px; margin-bottom: ${S.rowGap - 4}px; }
 .tvs-row > label, .tvs-row .tvs-label { color: var(--tvs-text); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tvs-controls { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
@@ -29,8 +37,18 @@ export const TVS_CSS = `
 .tvs-input:focus, .tvs-numwrap:focus-within { border-color: var(--tvs-accent) !important; }
 .tvs-numwrap { display: flex; align-items: stretch; height: ${S.controlHeight}px; width: 96px; border: 1px solid var(--tvs-input-border); border-radius: ${S.controlRadius}px;
     background: var(--tvs-input-bg); overflow: hidden; }
+.tvs-textinput { width: 180px; box-sizing: border-box; height: ${S.controlHeight}px; padding: 0 10px; border: 1px solid var(--tvs-input-border); border-radius: ${S.controlRadius}px; background: transparent; color: var(--tvs-text); font: inherit; outline: none; }
+.tvs-textarea { width: 220px; box-sizing: border-box; height: auto; min-height: 56px; padding: 6px 10px; resize: vertical; font-family: inherit; }
+.tvs-datetime { width: 190px; box-sizing: border-box; color-scheme: light dark; }
+.tvs-tzlabel { color: var(--tvs-muted); font-size: ${S.smallFontSize}px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tvs-session { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; }
+.tvs-time { width: 100px; box-sizing: border-box; color-scheme: light dark; }
+.tvs-days { display: flex; gap: 4px; }
+.tvs-day { width: 24px; height: 24px; padding: 0; border: 1px solid var(--tvs-input-border); border-radius: 12px; background: transparent; color: var(--tvs-muted); font: inherit; font-size: ${S.smallFontSize}px; cursor: pointer; }
+.tvs-day:hover { border-color: var(--tvs-muted); }
+.tvs-day.on { background: var(--tvs-accent); border-color: var(--tvs-accent); color: #fff; }
 .tvs-numwrap:hover { border-color: var(--tvs-muted); }
-.tvs-numwrap input { flex: 1 1 auto; min-width: 0; width: 100%; border: none; outline: none; background: transparent; color: var(--tvs-text); font: inherit; padding: 0 0 0 10px;
+.tvs-numwrap input { font-variant-numeric: tabular-nums; flex: 1 1 auto; min-width: 0; width: 100%; border: none; outline: none; background: transparent; color: var(--tvs-text); font: inherit; padding: 0 0 0 10px;
     -moz-appearance: textfield; }
 .tvs-numwrap input::-webkit-outer-spin-button, .tvs-numwrap input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .tvs-steps { display: flex; flex-direction: column; width: 20px; border-left: 1px solid var(--tvs-input-border); }

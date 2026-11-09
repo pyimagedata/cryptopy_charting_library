@@ -1,9 +1,10 @@
 import { toEpochMs } from '../helpers/time';
+import { ensureSoftTheme } from './soft_theme';
 import { ChartModel, ChartModelOptions, GridOptions, InvalidateReason } from '../model/chart-model';
 import { Delegate } from '../helpers/delegate';
 import { t, setLanguage, getCurrentLanguage } from '../helpers/translations';
 import { getTheme, ThemeType } from '../helpers/themes';
-import { CandlestickSeries, CandlestickSeriesOptions } from '../model/candlestick-series';
+import { onFontsChanged, ensureFontInheritStyle } from '../helpers/fonts';import { CandlestickSeries, CandlestickSeriesOptions } from '../model/candlestick-series';
 import { LineSeries, LineSeriesOptions } from '../model/line-series';
 import { AreaSeries, AreaSeriesOptions } from '../model/area-series';
 import { HeikenAshiSeries, HeikenAshiSeriesOptions } from '../series/heiken-ashi-series';
@@ -30,6 +31,8 @@ import { indicatorRowSignature } from './object_tree/object_tree_model';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
 import { IndicatorType, IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, NewsIndicator, LiqHeatmapIndicator, JudasSwingIndicator, SMTDivergenceIndicator } from '../indicators';
+import { EvoScriptOverlayIndicator, EvoScriptPanelIndicator, isEvoScriptIndicator } from '../indicators/evo-script-indicator';
+import { EvoScriptState, EvoScriptSettings, evoScriptEvents } from '../indicators/evo-script-core';
 import { IndicatorSearchModal, IndicatorAccess, isIndicatorAllowed, getIndicatorAccess, setIndicatorAccess, subscribeIndicatorAccess } from './indicator_search';
 import { IndicatorSettingsModal, applySavedDefaults, withCommonSettings, safeLocalStorage } from './indicator_settings';
 import { DrawingToolbarWidget } from './drawing_toolbar';
@@ -89,6 +92,7 @@ import {
     handleContextFullscreen,
     handleContextResetChart
 } from './chart_widget';
+import { FONT_SANS } from '../helpers/fonts';
 
 
 /** Disposable interface for cleanup */
@@ -325,7 +329,9 @@ export class ChartWidget implements Disposable {
     private _lastOrderbookUpdate: number = 0;
 
     // Auto-resize
+    private _unsubscribeFonts: (() => void) | null = null;
     private _resizeObserver: ResizeObserver | null = null;
+    private _resizedOnce = false;
     private readonly _showToolbar: boolean;
     private readonly _showDrawingToolbar: boolean;
 
@@ -377,8 +383,23 @@ export class ChartWidget implements Disposable {
         this._indicatorManager = new IndicatorManager();
         this._indicatorManager.onPaneAdded = this._onIndicatorPaneAdded.bind(this);
         this._indicatorManager.onPaneRemoved = this._onIndicatorPaneRemoved.bind(this);
-        this._indicatorManager.onIndicatorAdded = () => { this._updateMainLegend(); this._ownTree()?.refresh(); };
+        this._indicatorManager.onIndicatorAdded = (ind) => { if (isEvoScriptIndicator(ind)) this._wireIndicatorEvents(ind); this._updateMainLegend(); this._ownTree()?.refresh(); };
         this._indicatorManager.onIndicatorRemoved = () => { this._updateMainLegend(); this._ownTree()?.refresh(); };
+        // Overlay Evo Script plots / shapes take part in the main price scale autoscale (Bollinger bands are not clipped)
+        this._model.setAutoscaleProvider((from, to) => {
+            let min = Infinity, max = -Infinity, padTop = 0, padBottom = 0, any = false;
+            for (const ind of [...this._indicatorManager.overlayIndicators, ...this._indicatorManager.panelIndicators]) {
+                // overlay scripts feed the scale directly; panel scripts only with their force_overlay items / strategy markers
+                const f = (ind as any).getAutoscaleExtra ?? (ind as any).getForcedAutoscaleExtra;
+                if (typeof f !== 'function' || !ind.shown) continue;
+                const r = f.call(ind, from, to) as { min: number; max: number; padTopPx?: number; padBottomPx?: number } | null;
+                if (!r) continue;
+                any = true;
+                min = Math.min(min, r.min); max = Math.max(max, r.max);
+                padTop = Math.max(padTop, r.padTopPx ?? 0); padBottom = Math.max(padBottom, r.padBottomPx ?? 0);
+            }
+            return any ? { min, max, padTopPx: padTop, padBottomPx: padBottom } : null;
+        });
 
         // Initialize drawing manager
         this._drawingManager = new DrawingManager();
@@ -440,6 +461,15 @@ export class ChartWidget implements Disposable {
 
         // Subscribe to invalidation
         this._model.invalidated.subscribe(this._onInvalidated.bind(this));
+
+        ensureFontInheritStyle();
+        // Webfont finished loading: canvas text metrics changed -> re-measure and repaint
+        this._unsubscribeFonts = onFontsChanged(() => {
+            this._timeAxisWidget?.refreshFont();
+            this._priceAxisWidget?.updateWidth();
+            this._updateLayout();
+            this._model.fullUpdate();
+        });
 
         // Build UI
         this._createLayout();
@@ -1096,10 +1126,17 @@ export class ChartWidget implements Disposable {
     }
 
     resize(width: number, height: number): void {
+        // Same size again (the layout and the chart's own ResizeObserver both report it): nothing to do
+        if (width === this._width && height === this._height && this._resizedOnce) return;
+        const first = !this._resizedOnce;
+        this._resizedOnce = true;
         this._width = width;
         this._height = height;
         this._updateLayout();
-        this._scheduleDraw();
+        // Assigning canvas.width/height clears the canvas. Resize runs inside a ResizeObserver callback
+        // (after layout, before paint), so a rAF-deferred redraw would present one blank frame per size change.
+        // Repaint synchronously in the same frame instead.
+        if (first) this._scheduleDraw(); else this._draw();
     }
 
     addCandlestickSeries(options?: Partial<CandlestickSeriesOptions>): CandlestickSeries {
@@ -1314,7 +1351,7 @@ export class ChartWidget implements Disposable {
                 position: absolute; top: ${(this._toolbarWidget?.height ?? 0) + 18}px; left: 50%; transform: translateX(-50%);
                 z-index: 900; padding: 6px 12px; border-radius: 4px; pointer-events: none;
                 background: rgba(239, 83, 80, 0.15); border: 1px solid #ef5350; color: #ef9a9a;
-                font-size: 12px; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif;
+                font-size: 12px; font-family: ${FONT_SANS};
             `;
             this._element.appendChild(el);
             this._noticeEl = el;
@@ -1634,6 +1671,7 @@ export class ChartWidget implements Disposable {
      * Set chart theme (dark or light)
      */
     setTheme(theme: ThemeType): void {
+        ensureSoftTheme(theme);
         const colors = getTheme(theme);
         this._currentTheme = theme;
 
@@ -1743,7 +1781,7 @@ export class ChartWidget implements Disposable {
         if (this._loadingOverlay) {
             const isDark = theme === 'dark';
             this._loadingOverlay.style.background = isDark
-                ? 'rgba(22, 33, 62, 0.95)'
+                ? 'rgba(26, 26, 46, 0.95)'
                 : 'rgba(255, 255, 255, 0.95)';
 
             const spinner = this._loadingOverlay.firstElementChild as HTMLElement;
@@ -1872,7 +1910,7 @@ export class ChartWidget implements Disposable {
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }
             .tv-legend-name {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-family: ${FONT_SANS};
                 font-size: 13px;
                 font-weight: 600;
                 color: #d1d4dc;
@@ -1927,7 +1965,7 @@ export class ChartWidget implements Disposable {
                 background: rgba(0, 6, 12, 0.72);
                 box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
                 color: #e5e7eb;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-family: ${FONT_SANS};
                 font-size: 11px;
                 line-height: 1.28;
                 pointer-events: none;
@@ -1994,7 +2032,7 @@ export class ChartWidget implements Disposable {
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(22, 33, 62, 0.95);
+            background: rgba(26, 26, 46, 0.95);
             display: none;
             align-items: center;
             justify-content: center;
@@ -2040,7 +2078,7 @@ export class ChartWidget implements Disposable {
                 pointer-events: none;
                 user-select: none;
                 color: rgba(255, 255, 255, 0.9);
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-family: ${FONT_SANS};
                 font-size: 28px;
                 font-weight: 800;
                 display: flex;
@@ -2093,6 +2131,35 @@ export class ChartWidget implements Disposable {
 
         // Create widgets
         this._paneWidget = new PaneWidget(this._chartRow, this._model);
+        // Evo Script tables flagged forceOverlay show on the main pane even when the script has its own pane
+        this._paneWidget.setExtraEvoTables(() => {
+            const out: { id: string; tables: any[] }[] = [];
+            for (const ind of this._indicatorManager.panelIndicators) {
+                const f = (ind as any).getEvoTables;
+                if (typeof f !== 'function' || !ind.shown) continue;
+                const tables = (f.call(ind) as { forceOverlay: boolean }[]).filter((t) => t.forceOverlay);
+                if (tables.length) out.push({ id: ind.id, tables });
+            }
+            return out;
+        });
+
+        // force_overlay items and strategy fill markers of scripts in their own pane are drawn on the main pane
+        this._paneWidget.setExtraOverlayDraw((scope, ts, ps, topInset) => {
+            for (const ind of this._indicatorManager.panelIndicators) {
+                const f = (ind as any).drawForced;
+                if (typeof f === 'function') f.call(ind, scope.context, ts, ps, scope.horizontalPixelRatio, scope.verticalPixelRatio, scope.mediaSize.width, scope.mediaSize.height, topInset);
+            }
+        });
+
+        // barcolor() of a script in its own pane still recolours the main candles
+        this._paneWidget.setExtraBarColors(() => {
+            const out: Array<{ colors: Uint16Array; table: string[]; offset: number } | null> = [];
+            for (const ind of this._indicatorManager.panelIndicators) {
+                const f = (ind as any).getBarColorOverride;
+                if (typeof f === 'function' && ind.shown) out.push(f.call(ind));
+            }
+            return out;
+        });
 
         // Indicator legend (main pane rows): eye / settings / remove / more
         this._paneWidget.setLegendChartKey(this._container.id || 'default');
@@ -3910,7 +3977,7 @@ export class ChartWidget implements Disposable {
         // (fiyat - offset); eksen y'si ana olcekteki fiyatla ayni, metin eksenin gosterdigi deger olur.
         const axisScale = this._spotScale ?? this._model.rightPriceScale;
         const spotOffset = this._spotScale ? this._spotScale.offset : 0;
-        const axisLabels: { price: number; text: string; color: string }[] = [];
+        const axisLabels: { price: number; text: string; color: string; stack?: boolean }[] = [];
         const timeLabels: { time: number; x: number; color: string }[] = [];
         for (const d of this._drawingManager.getDrawingsForPane(null)) {
             if (!d.visible || !hasAxisLabels(d)) continue;
@@ -3932,6 +3999,12 @@ export class ChartWidget implements Disposable {
                 const x = this._drawingManager.timeToPixel(l.time);
                 if (x !== null) timeLabels.push({ time: l.time, x, color: l.color });
             }
+        }
+        // Last-value tags of overlay Evo Script plots (one per plot that shows on the price scale)
+        for (const ind of this._indicatorManager.overlayIndicators) {
+            const f = (ind as any).getLastValueLabels;
+            if (typeof f !== 'function' || !ind.shown) continue;
+            for (const l of f.call(ind) as { price: number; text: string; color: string }[]) axisLabels.push({ ...l, stack: true });
         }
         this._timeAxisWidget?.setDrawingLabels(timeLabels);
         this._priceAxisWidget?.setDrawingLabels(axisLabels);
@@ -4348,7 +4421,7 @@ export class ChartWidget implements Disposable {
         const pane = new IndicatorPaneWidget(
             this._indicatorContainer,
             this._model.timeScale,
-            { height: indicator.paneHeight }
+            { height: isEvoScriptIndicator(indicator) ? Math.max(160, Math.round(this._height * 0.28)) : indicator.paneHeight }
         );
         // Pane varsayilan (koyu) renklerle olusur; setTheme sadece tema DEGISINCE
         // cagrildigi icin acik temada yeni eklenen panel koyu kaliyordu.
@@ -4775,7 +4848,11 @@ export class ChartWidget implements Disposable {
     /**
      * Public API: Add an indicator to the chart
      */
-    addIndicator(indicator: PanelIndicator): void {
+    addIndicator(indicator: PanelIndicator): void;
+    /** Evo Script: `widget.addIndicator('evo-script', { source, lang, inputs, name, overlay })` -> indicator id */
+    addIndicator(type: 'evo-script', options?: Partial<EvoScriptSettings>): string;
+    addIndicator(indicator: PanelIndicator | 'evo-script', options: Partial<EvoScriptSettings> = {}): string | void {
+        if (indicator === 'evo-script') return this.addEvoScript(options);
         if (!this._indicatorManager.isAllowed(indicator)) return;
         this._indicatorManager.addPanelIndicator(indicator);
         this._wireIndicatorEvents(indicator);
@@ -4808,6 +4885,61 @@ export class ChartWidget implements Disposable {
         this._scheduleDraw();
     }
 
+    // --- Evo Script (script indicators run through the host's runner, see setEvoScriptRunner) ---
+
+    /** Add an Evo Script indicator; returns its id. `overlay` is only a placement hint until the first run. */
+    addEvoScript(options: Partial<EvoScriptSettings> = {}): string {
+        const opts = { ...options, name: options.name ?? '' } as any;
+        const ind = options.overlay === true ? new EvoScriptOverlayIndicator(opts) : new EvoScriptPanelIndicator(opts);
+        if (ind instanceof EvoScriptOverlayIndicator) this.addOverlayIndicator(ind);
+        else this.addIndicator(ind);
+        this._scheduleDraw();
+        return ind.id;
+    }
+
+    private _evoInd(id: string): EvoScriptOverlayIndicator | EvoScriptPanelIndicator | null {
+        const ind = this._indicatorManager.getIndicator(id);
+        return isEvoScriptIndicator(ind) ? ind : null;
+    }
+
+    /** Merge new settings into a script indicator and re-run it right away. */
+    updateEvoScript(id: string, patch: Partial<EvoScriptSettings> & { replaceInputs?: boolean }): boolean {
+        const ind = this._evoInd(id);
+        if (!ind) return false;
+        const { overlay: _ignored, ...rest } = patch;
+        void _ignored;
+        ind.core.update(rest, 0);
+        return true;
+    }
+
+    rerunEvoScript(id: string): boolean {
+        const ind = this._evoInd(id);
+        if (!ind) return false;
+        ind.core.rerun();
+        return true;
+    }
+
+    removeEvoScript(id: string): void {
+        if (this._evoInd(id)) this._indicatorManager.removeIndicator(id);
+    }
+
+    getEvoScript(id: string): EvoScriptState | null {
+        return this._evoInd(id)?.getEvoState() ?? null;
+    }
+
+    getEvoScripts(): EvoScriptState[] {
+        const out: EvoScriptState[] = [];
+        for (const ind of this._indicatorManager.allIndicators) if (isEvoScriptIndicator(ind)) out.push(ind.getEvoState());
+        return out;
+    }
+
+    /** Subscribe to status/result/error changes of this widget's script indicators; returns unsubscribe. */
+    subscribeEvoScripts(fn: (state: EvoScriptState) => void): () => void {
+        const handler = (st: EvoScriptState) => { if (this._evoInd(st.id)) fn(st); };
+        evoScriptEvents.subscribe(handler);
+        return () => evoScriptEvents.unsubscribe(handler);
+    }
+
     private _wireExistingIndicators(): void {
         for (const indicator of this._indicatorManager.allIndicators) {
             this._wireIndicatorEvents(indicator);
@@ -4823,9 +4955,19 @@ export class ChartWidget implements Disposable {
         }
 
         this._wiredIndicators.add(indicator);
+        if (isEvoScriptIndicator(indicator)) {
+            indicator.core.timezoneProvider = () => this.getTimezone();
+            indicator.core.onPersist = () => this._chartStateManager?.requestSave();
+        }
         const rowSig = () => indicatorRowSignature(indicator.name || indicator.options?.name || 'Indicator', indicator.visible);
         let lastRowSig = rowSig();
+        const feedsAutoscale = typeof (indicator as any).getAutoscaleExtra === 'function' || typeof (indicator as any).getForcedAutoscaleExtra === 'function';
+        let recalculating = false; // recalculateAllPanes re-pushes the data into the indicator, which fires dataChanged again
         indicator.dataChanged.subscribe(() => {
+            if (feedsAutoscale && !recalculating) {
+                recalculating = true;
+                try { this._model.recalculateAllPanes(); } finally { recalculating = false; }
+            }
             this._updateMainLegend();
             // Canli tick'te agac yalnizca satir durumu (ad/gorunurluk) degistiyse yenilenir
             const sig = rowSig();
@@ -4847,6 +4989,8 @@ export class ChartWidget implements Disposable {
     // --- Cleanup ---
 
     dispose(): void {
+        this._unsubscribeFonts?.();
+        this._unsubscribeFonts = null;
         if (this._countdownTimer !== null) { clearInterval(this._countdownTimer); this._countdownTimer = null; }
         if (_keyboardActiveChart === this) _keyboardActiveChart = null;
         document.removeEventListener('keydown', this._boundKeyDown);

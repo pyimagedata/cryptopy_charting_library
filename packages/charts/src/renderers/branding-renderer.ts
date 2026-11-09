@@ -1,4 +1,5 @@
 import { BitmapCoordinatesScope } from './watermark-renderer';
+import { canvasSans } from '../helpers/fonts';
 
 /**
  * Permanent branding renderer for the "cryptopy" logo.
@@ -19,7 +20,7 @@ export class BrandingRenderer {
         const text = 'cryptopy';
 
         // Use a premium font stack
-        const fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+        const fontFamily = canvasSans();
         const fontSize = 24 * vpr;
 
         ctx.font = `bold ${fontSize}px ${fontFamily}`;

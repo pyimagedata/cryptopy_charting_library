@@ -61,4 +61,7 @@ export { EqHLIndicatorV2, EqHLIndicatorV2Options } from './eqhl-v2-indicator';
 export { NewsIndicator, NewsIndicatorOptions, NewsProvider, NewsQuery, NewsResponse, NewsItem } from './news-indicator';
 export { LiqHeatmapIndicator, LiqHeatmapOptions, LiqHeatmapProvider, LiqHeatmapQuery, LiqHeatmapResponse, LiqHeatmapBin, LiqHeatmapPeriod, LiqHeatmapPalette, LiqHeatmapSideSplit, liqHeatmapSymbol } from './liq-heatmap-indicator';
 export { JudasSwingIndicator, JudasSwingIndicatorOptions } from './judas-swing-indicator';
+export { EvoScriptOverlayIndicator, EvoScriptPanelIndicator, EvoScriptIndicatorOptions, isEvoScriptIndicator } from './evo-script-indicator';
+export { EvoScriptCore, setEvoScriptRunner, getEvoScriptRunner, evoScriptEvents } from './evo-script-core';
+export type { EvoScriptRunner, EvoRunRequest, EvoScriptState, EvoScriptSettings, EvoScriptError, EvoInputDef, EvoOutput, EvoStrategy, EvoStrategyTrade, EvoStrategyFill } from './evo-script-core';
 export { SMTDivergenceIndicator, SMTDivergenceIndicatorOptions } from './smt-divergence-indicator';

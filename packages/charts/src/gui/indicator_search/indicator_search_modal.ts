@@ -18,6 +18,7 @@ import {
     searchIndicators,
 } from './indicator_catalog';
 import { getIndicatorAccess, isIndicatorAllowed, requiredPlanLabel } from './indicator_access';
+import { FONT_SANS } from '../../helpers/fonts';
 
 export { IndicatorItem, AVAILABLE_INDICATORS } from './indicator_catalog';
 
@@ -27,13 +28,13 @@ const UI = {
     width: 760,
     height: 620,
     narrowBreakpoint: 600,
-    radius: 8,
+    radius: 12,
     headerHeight: 52,
     searchHeight: 40,
     sidebarWidth: 210,
     rowHeight: 34,
     sectionHeaderHeight: 28,
-    fontFamily: `-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif`,
+    fontFamily: `${FONT_SANS}`,
     zIndex: 10000,
     favoriteColor: '#F7C948',
     addedColor: '#26A69A',
@@ -171,7 +172,7 @@ export class IndicatorSearchModal {
         const c = this._c;
 
         this._overlay = document.createElement('div');
-        this._overlay.className = 'tv-indicator-dialog-overlay';
+        this._overlay.className = 'tv-indicator-dialog-overlay soft-overlay';
         this._overlay.style.cssText = `
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -184,7 +185,7 @@ export class IndicatorSearchModal {
         `;
 
         this._element = document.createElement('div');
-        this._element.className = 'tv-indicator-dialog';
+        this._element.className = 'tv-indicator-dialog soft-dialog';
         this._element.setAttribute('role', 'dialog');
         this._element.setAttribute('aria-label', t('Indicators'));
         this._element.style.cssText = `
@@ -234,7 +235,7 @@ export class IndicatorSearchModal {
             flex-shrink: 0;
             padding: 0 20px 12px;
             position: relative;
-            border-bottom: 1px solid ${c.border};
+            border-bottom: 1px solid var(--sep, ${c.border});
         `;
         const searchIcon = document.createElement('span');
         searchIcon.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${c.muted}" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>`;
@@ -277,7 +278,7 @@ export class IndicatorSearchModal {
             display: none; flex-shrink: 0; align-items: center; gap: 8px;
             padding: 8px 20px; font-size: 13px; color: ${c.text};
             background: ${this._theme === 'dark' ? 'rgba(247, 201, 72, 0.12)' : 'rgba(247, 201, 72, 0.22)'};
-            border-bottom: 1px solid ${c.border};
+            border-bottom: 1px solid var(--sep, ${c.border});
         `;
         this._element.appendChild(this._notice);
 
@@ -361,7 +362,7 @@ export class IndicatorSearchModal {
             this._body.style.flexDirection = 'column';
             this._sidebar.style.cssText = `
                 flex-shrink: 0; display: flex; flex-direction: row; gap: 4px; overflow-x: auto;
-                padding: 8px 12px; border-bottom: 1px solid ${c.border}; box-sizing: border-box;
+                padding: 8px 12px; border-bottom: 1px solid var(--sep, ${c.border}); box-sizing: border-box;
             `;
         } else {
             this._overlay.style.alignItems = 'center';
@@ -372,7 +373,7 @@ export class IndicatorSearchModal {
             this._body.style.flexDirection = 'row';
             this._sidebar.style.cssText = `
                 width: ${UI.sidebarWidth}px; flex-shrink: 0; overflow-y: auto;
-                padding: 8px; border-right: 1px solid ${c.border}; box-sizing: border-box;
+                padding: 8px; box-sizing: border-box;
             `;
         }
         this._renderSidebar();
@@ -391,7 +392,7 @@ export class IndicatorSearchModal {
             btn.textContent = t(CATEGORY_LABELS[id]);
             btn.style.cssText = `
                 display: block; ${narrow ? 'white-space: nowrap; flex-shrink: 0;' : 'width: 100%;'}
-                text-align: left; border: none; border-radius: 6px;
+                text-align: left; border: none; border-radius: 8px;
                 padding: 0 12px; height: 34px; line-height: 34px;
                 font-family: inherit; font-size: 14px; cursor: pointer;
                 font-weight: ${active ? 600 : 400};

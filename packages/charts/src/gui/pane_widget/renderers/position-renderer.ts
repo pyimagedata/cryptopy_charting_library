@@ -8,6 +8,7 @@ import { LongPositionDrawing } from '../../../drawings/long-position-drawing';
 import { ShortPositionDrawing } from '../../../drawings/short-position-drawing';
 import { PositionDrawingBase, buildPositionBlocks, pickLastClose } from '../../../drawings/position-common';
 import { estimatePricePrecision } from '../../../drawings/line-tool-common';
+import { canvasSans } from '../../../helpers/fonts';
 
 /** Renderer'in hesaplar icin ihtiyac duydugu grafik baglami */
 export interface PositionRenderContext {
@@ -63,7 +64,7 @@ function drawBlock(
     bg: string, fg: string, fontPx: number, dpr: number
 ): void {
     if (lines.length === 0) return;
-    ctx.font = `${fontPx}px Arial`;
+    ctx.font = `${fontPx}px ${canvasSans()}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const padX = 6 * dpr;

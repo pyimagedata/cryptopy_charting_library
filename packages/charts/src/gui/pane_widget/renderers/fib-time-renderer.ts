@@ -6,8 +6,9 @@
 
 import { FibTimeToolBase } from '../../../drawings/fib-time-drawing';
 import { drawControlPoint } from './utils';
+import { canvasSans } from '../../../helpers/fonts';
 
-const FONT = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+const font = () => `12px ${canvasSans()}`;
 
 export function drawFibTimeTool(
     ctx: CanvasRenderingContext2D,
@@ -46,7 +47,7 @@ export function drawFibTimeTool(
     }
     ctx.setLineDash([]);
 
-    ctx.font = FONT;
+    ctx.font = font();
     for (const lb of geom.labels) {
         ctx.fillStyle = lb.color;
         ctx.textAlign = lb.align;

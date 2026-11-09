@@ -10,6 +10,7 @@ import {
     checkboxRow,
     lineWidthRow,
 } from '../gui/indicator_settings';
+import { canvasSans } from '../helpers/fonts';
 
 interface AlphaTrendState {
     time: number;
@@ -410,7 +411,7 @@ export class AlphaTrendIndicator extends OverlayIndicator {
         const y = priceScale.priceToCoordinate(price) * vpr;
 
         ctx.save();
-        ctx.font = `${10 * hpr}px Arial`;
+        ctx.font = `${10 * hpr}px ${canvasSans()}`;
         const paddingX = 5 * hpr;
         const textWidth = ctx.measureText(text).width;
         const boxWidth = textWidth + paddingX * 2;

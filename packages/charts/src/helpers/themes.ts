@@ -2,6 +2,8 @@
  * Theme definitions for dark and light modes
  */
 
+import { SOFT } from '../gui/soft_theme';
+
 export type ThemeType = 'dark' | 'light';
 
 export interface ThemeColors {
@@ -47,30 +49,30 @@ export interface ThemeColors {
 export const THEMES: Record<ThemeType, ThemeColors> = {
     dark: {
         layout: {
-            backgroundColor: '#1a1a2e',
+            backgroundColor: SOFT.dark.surface,
             textColor: 'rgba(255, 255, 255, 0.7)',
         },
         grid: {
-            color: 'rgba(242, 242, 242, 0.06)',
+            color: SOFT.dark.grid,
         },
         crosshair: {
-            lineColor: 'rgba(255, 255, 255, 0.3)',
+            lineColor: SOFT.dark.crosshair,
             labelBackgroundColor: '#2962ff',
         },
         toolbar: {
-            backgroundColor: '#131722',
-            borderColor: '#2a2e39',
+            backgroundColor: SOFT.dark.surface,
+            borderColor: SOFT.dark.sep,
             textColor: '#d1d4dc',
             hoverColor: '#2a2e39',
             activeColor: '#2962ff',
         },
         priceAxis: {
-            backgroundColor: '#16213e',
+            backgroundColor: SOFT.dark.surface,
             textColor: 'rgba(255, 255, 255, 0.7)',
-            lineColor: 'rgba(255, 255, 255, 0.1)',
+            lineColor: 'transparent',
         },
         timeAxis: {
-            backgroundColor: '#16213e',
+            backgroundColor: SOFT.dark.surface,
             textColor: 'rgba(255, 255, 255, 0.5)',
         },
         candle: {
@@ -86,30 +88,30 @@ export const THEMES: Record<ThemeType, ThemeColors> = {
     },
     light: {
         layout: {
-            backgroundColor: '#ffffff',
+            backgroundColor: SOFT.light.surface,
             textColor: '#131722',
         },
         grid: {
-            color: 'rgba(42, 46, 57, 0.06)',
+            color: SOFT.light.grid,
         },
         crosshair: {
-            lineColor: 'rgba(0, 0, 0, 0.3)',
+            lineColor: SOFT.light.crosshair,
             labelBackgroundColor: '#2962ff',
         },
         toolbar: {
-            backgroundColor: '#f8f9fa',
-            borderColor: '#e0e3eb',
+            backgroundColor: SOFT.light.surface,
+            borderColor: SOFT.light.sep,
             textColor: '#131722',
             hoverColor: '#e0e3eb',
             activeColor: '#2962ff',
         },
         priceAxis: {
-            backgroundColor: '#f8f9fa',
+            backgroundColor: SOFT.light.surface,
             textColor: '#131722',
-            lineColor: 'rgba(0, 0, 0, 0.1)',
+            lineColor: 'transparent',
         },
         timeAxis: {
-            backgroundColor: '#f8f9fa',
+            backgroundColor: SOFT.light.surface,
             textColor: '#787b86',
         },
         candle: {

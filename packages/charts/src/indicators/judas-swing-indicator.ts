@@ -5,6 +5,7 @@
 import { OverlayIndicator } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+import { canvasSans } from '../helpers/fonts';
 
 export interface JudasSwingIndicatorOptions {
     name: string;
@@ -270,7 +271,7 @@ export class JudasSwingIndicator extends OverlayIndicator {
                 ctx.lineTo(mx2, my);
                 ctx.stroke();
                 if (o.showLabels) {
-                    ctx.font = `${8 * hpr}px sans-serif`;
+                    ctx.font = `${8 * hpr}px ${canvasSans()}`;
                     ctx.fillStyle = rgbaFrom(color, 0.8);
                     ctx.textAlign = 'left';
                     ctx.textBaseline = 'middle';
@@ -305,7 +306,7 @@ export class JudasSwingIndicator extends OverlayIndicator {
                 ctx.lineWidth = 1 * hpr;
                 ctx.strokeRect(fx1, Math.min(fyTop, fyBot), fx2 - fx1, Math.abs(fyBot - fyTop));
                 if (o.showLabels) {
-                    ctx.font = `${9 * hpr}px sans-serif`;
+                    ctx.font = `${9 * hpr}px ${canvasSans()}`;
                     ctx.fillStyle = rgbaFrom(o.fvgColor, 0.9 * fAlpha);
                     ctx.textAlign = 'left';
                     ctx.textBaseline = 'middle';
@@ -329,7 +330,7 @@ export class JudasSwingIndicator extends OverlayIndicator {
                 ctx.fill();
 
                 if (o.showLabels) {
-                    ctx.font = `bold ${10 * hpr}px sans-serif`;
+                    ctx.font = `bold ${10 * hpr}px ${canvasSans()}`;
                     ctx.fillStyle = rgbaFrom(color, 0.95);
                     ctx.textAlign = 'left';
                     ctx.textBaseline = isBull ? 'bottom' : 'top';

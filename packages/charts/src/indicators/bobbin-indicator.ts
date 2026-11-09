@@ -4,6 +4,7 @@
 import { OverlayIndicator } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+import { canvasSans } from '../helpers/fonts';
 
 export interface BobbinIndicatorOptions {
     name: string;
@@ -188,7 +189,7 @@ export class BobbinIndicator extends OverlayIndicator {
 
             if (this._bOptions.showScore) {
                 ctx.fillStyle = rgbaFrom(this._bOptions.bobbinColor, 0.95);
-                ctx.font = `${10 * hpr}px sans-serif`;
+                ctx.font = `${10 * hpr}px ${canvasSans()}`;
                 ctx.textBaseline = 'bottom';
                 ctx.textAlign = 'left';
                 ctx.fillText(box.score.toFixed(2), left + 2 * hpr, top - 2 * vpr);

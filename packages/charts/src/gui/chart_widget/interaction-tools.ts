@@ -9,6 +9,7 @@
 import { formatDurationMs, resolvePipSize } from '../../drawings/line-tool-common';
 import { fmt, fmtSigned } from '../../drawings/position-common';
 import { t } from '../../helpers/translations';
+import { canvasSans } from '../../helpers/fonts';
 
 // ---------------------------------------------------------------------------
 // Tool ids
@@ -542,7 +543,7 @@ export class InteractionTools {
 
         // Label chip: above the box when up, below when down (clamped to the pane)
         const lines = measureLabelLines(r, env.precision);
-        ctx.font = '12px -apple-system, BlinkMacSystemFont, "Trebuchet MS", Roboto, sans-serif';
+        ctx.font = `12px ${canvasSans()}`;
         ctx.textBaseline = 'middle';
         const padX = 8;
         const lineH = 16;

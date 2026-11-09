@@ -7,6 +7,7 @@
 import { OverlayIndicator } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+import { canvasSans } from '../helpers/fonts';
 
 export interface FVGIndicatorOptions {
   name: string;
@@ -247,13 +248,13 @@ export class FVGIndicator extends OverlayIndicator {
         ctx.beginPath(); ctx.moveTo(left, ty); ctx.lineTo(left + width, ty); ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = fvgHexToRgba(this._opt.targetColor, 1);
-        ctx.font = `bold ${9 * hpr}px sans-serif`;
+        ctx.font = `bold ${9 * hpr}px ${canvasSans()}`;
         ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
         ctx.fillText(`TP 1:${this._opt.targetRR}`, left + width - 3 * hpr, ty - 2 * hpr);
       }
 
       if (this._opt.showLabels) {
-        ctx.fillStyle = border; ctx.font = `bold ${9 * hpr}px sans-serif`;
+        ctx.fillStyle = border; ctx.font = `bold ${9 * hpr}px ${canvasSans()}`;
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         ctx.fillText((isBull ? 'FVG +' : 'FVG -') + (isLondon ? ' (LDN)' : ''), left + 3 * hpr, topY + height / 2);
       }

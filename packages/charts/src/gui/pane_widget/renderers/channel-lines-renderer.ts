@@ -8,6 +8,7 @@ import { ChannelLinesTool } from '../../../drawings/channel-lines-drawing';
 import { shapeFillCss } from '../../../drawings/shape-common';
 import { drawArrowHead, drawMiddlePoint, drawStatsLabel } from '../../../drawings/line-tool-common';
 import { drawControlPoint } from './utils';
+import { canvasSans } from '../../../helpers/fonts';
 
 export function drawChannelLinesTool(
     ctx: CanvasRenderingContext2D,
@@ -73,7 +74,7 @@ export function drawChannelLinesTool(
         const slope = Math.abs(r.x - l.x) < 1e-9 ? 0 : (r.y - l.y) / (r.x - l.x);
         const yLine = l.y + slope * (x - l.x);
         const off = style.lineWidth / 2 + 3;
-        ctx.font = `${style.fontStyle || 'normal'} ${style.fontWeight || 'normal'} ${style.fontSize || 14}px Arial`;
+        ctx.font = `${style.fontStyle || 'normal'} ${style.fontWeight || 'normal'} ${style.fontSize || 14}px ${canvasSans()}`;
         ctx.fillStyle = style.textColor || style.color;
         ctx.textAlign = h;
         ctx.textBaseline = v === 'top' ? 'bottom' : v === 'bottom' ? 'top' : 'middle';

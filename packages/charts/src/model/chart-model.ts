@@ -7,10 +7,18 @@ import { AreaSeries, AreaSeriesOptions } from './area-series';
 import { HeikenAshiSeries, HeikenAshiSeriesOptions } from '../series/heiken-ashi-series';
 import { Delegate } from '../helpers/delegate';
 import { displaySymbol, exchangeAlias } from '../helpers/display-aliases';
-
+import { FONT_SANS } from '../helpers/fonts';
 /**
  * Layout options
  */
+/** Extra autoscale content contributed by overlay indicators */
+export interface AutoscaleExtra {
+    min: number;
+    max: number;
+    padTopPx?: number;
+    padBottomPx?: number;
+}
+
 export interface LayoutOptions {
     backgroundColor: string;
     textColor: string;
@@ -109,25 +117,25 @@ export const defaultChartOptions: ChartModelOptions = {
         backgroundColor: '#ffffff',  // Light background
         textColor: '#131722',
         fontSize: 12,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily: FONT_SANS,
     },
     grid: {
         vertLines: {
             visible: true,
-            color: 'rgba(0, 0, 0, 0.06)',  // Light grid
-            style: 'solid',
+            color: 'rgba(0, 0, 0, 0.15)',  // soft layout: dotted, ~15-18% alpha (themes.ts overrides per theme)
+            style: 'dotted',
         },
         horzLines: {
             visible: true,
-            color: 'rgba(0, 0, 0, 0.06)',  // Light grid
-            style: 'solid',
+            color: 'rgba(0, 0, 0, 0.15)',  // soft layout: dotted, ~15-18% alpha (themes.ts overrides per theme)
+            style: 'dotted',
         },
     },
     crosshair: {
         mode: 'magnet',
         vertLine: {
             visible: true,
-            color: 'rgba(0, 0, 0, 0.3)',  // Darker crosshair for light mode
+            color: '#8e8e98',  // neutral grey, readable on both themes
             width: 1,
             style: 'dashed',
             labelVisible: true,
@@ -135,7 +143,7 @@ export const defaultChartOptions: ChartModelOptions = {
         },
         horzLine: {
             visible: true,
-            color: 'rgba(0, 0, 0, 0.3)',
+            color: '#8e8e98',
             width: 1,
             style: 'dashed',
             labelVisible: true,
@@ -147,7 +155,7 @@ export const defaultChartOptions: ChartModelOptions = {
         color: 'rgba(0, 0, 0, 0.08)',
         text: '',
         fontSize: 48,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily: FONT_SANS,
         align: 'center',
         vertAlign: 'middle',
     },
@@ -395,6 +403,16 @@ export class ChartModel {
         this._timeScale.setPointsCount(maxPoints);
     }
 
+    private _autoscaleProvider: ((from: number, to: number) => AutoscaleExtra | null) | null = null;
+
+    /**
+     * Extra content (overlay indicator plots, shapes) that the main price scale autoscale must include.
+     * `padTopPx` / `padBottomPx` ask for pixel room beyond the value range (markers drawn above / below bars).
+     */
+    setAutoscaleProvider(fn: ((from: number, to: number) => AutoscaleExtra | null) | null): void {
+        this._autoscaleProvider = fn;
+    }
+
     private _updatePriceRange(): void {
         const visibleRange = this._timeScale.visibleRange();
         if (!visibleRange) return;
@@ -407,6 +425,25 @@ export class ChartModel {
             if (range) {
                 min = Math.min(min, range.min);
                 max = Math.max(max, range.max);
+            }
+        }
+
+        if (min !== Infinity && this._autoscaleProvider) {
+            let ext: AutoscaleExtra | null = null;
+            try { ext = this._autoscaleProvider(visibleRange.from, visibleRange.to); } catch { ext = null; }
+            if (ext) {
+                min = Math.min(min, ext.min);
+                max = Math.max(max, ext.max);
+                const ps = this._rightPriceScale;
+                // pixel room beyond the scale margins that are already reserved
+                const top = Math.max(0, (ext.padTopPx ?? 0) - ps.topMarginPx);
+                const bottom = Math.max(0, (ext.padBottomPx ?? 0) - ps.bottomMarginPx);
+                const room = ps.internalHeight - top - bottom;
+                if ((top > 0 || bottom > 0) && room > 40) {
+                    const perPx = (max > min ? max - min : Math.abs(max) * 0.01 || 1) / room;
+                    min -= bottom * perPx;
+                    max += top * perPx;
+                }
             }
         }
 

@@ -1,6 +1,7 @@
 import { toEpochMs } from '../helpers/time';
 import { BarData } from '../model/data';
 import { t } from '../helpers/translations';
+import { canvasSans } from '../helpers/fonts';
 
 /**
  * Backend'de hesaplanan indikatörlerin ortak istemci tarafı.
@@ -237,7 +238,7 @@ export function drawAccessNotice(
     const denied = remote.denied;
     if (denied === null) return;
     ctx.save();
-    ctx.font = `${12 * vpr}px sans-serif`;
+    ctx.font = `${12 * vpr}px ${canvasSans()}`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color;
     const message = denied === 401 ? t('Sign in to use this indicator') : t('This indicator requires a PRO membership');

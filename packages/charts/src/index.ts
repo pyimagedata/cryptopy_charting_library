@@ -105,7 +105,15 @@ export {
     SpecialForcesZonesProvider,
     SpecialForcesZone,
     SpecialForcesZones,
+    EvoScriptOverlayIndicator,
+    EvoScriptPanelIndicator,
+    EvoScriptIndicatorOptions,
+    isEvoScriptIndicator,
+    setEvoScriptRunner,
+    getEvoScriptRunner,
+    evoScriptEvents,
 } from './indicators';
+export type { EvoScriptRunner, EvoRunRequest, EvoScriptState, EvoScriptSettings, EvoScriptError, EvoInputDef, EvoOutput } from './indicators';
 
 
 // Drawings

@@ -82,7 +82,7 @@ export class ContextMenu {
 
     private _createElement(): void {
         this._element = document.createElement('div');
-        this._element.className = 'chart-context-menu';
+        this._element.className = 'chart-context-menu soft-menu';
         this._applyElementStyle();
         this._renderItems();
         this._container.appendChild(this._element);
@@ -162,7 +162,7 @@ export class ContextMenu {
             }
 
             const menuItem = document.createElement('div');
-            menuItem.className = 'chart-context-menu-item';
+            menuItem.className = 'chart-context-menu-item soft-menu-row';
             menuItem.dataset.id = item.id;
             menuItem.style.cssText = `
                 box-sizing: border-box;
@@ -249,7 +249,7 @@ export class ContextMenu {
         const m = ATTR_BAR_STYLE.metrics;
         const colors = barColors(this._theme);
         const fly = document.createElement('div');
-        fly.className = 'chart-context-submenu';
+        fly.className = 'chart-context-submenu soft-menu';
         const skinT = this._theme === 'dark' ? 'dark' : 'light';
         fly.style.cssText = `
             position: absolute;
@@ -274,6 +274,7 @@ export class ContextMenu {
         for (const child of children) {
             const row = document.createElement('div');
             row.dataset.id = child.id;
+            row.className = 'soft-menu-row';
             row.style.cssText = `box-sizing: border-box; height: ${m.popupItemHeight}px; display: flex; align-items: center; padding: 0 ${m.popupPadX}px; cursor: ${child.disabled ? 'default' : 'pointer'}; color: ${child.disabled ? colors.popupDisabledText : colors.popupText};`;
             if (this._skin) row.style.borderRadius = '8px';
             if (child.icon) {

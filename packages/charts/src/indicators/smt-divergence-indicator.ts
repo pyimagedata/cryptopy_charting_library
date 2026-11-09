@@ -12,6 +12,7 @@ import {
     selectRow,
     lineWidthRow,
 } from '../gui/indicator_settings';
+import { canvasSans } from '../helpers/fonts';
 
 // SMT Divergence backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
 interface RemoteSmt {
@@ -250,7 +251,7 @@ export class SMTDivergenceIndicator extends OverlayIndicator {
 
             if (o.showLabels) {
                 ctx.setLineDash([]);
-                ctx.font = `bold ${9 * hpr}px sans-serif`;
+                ctx.font = `bold ${9 * hpr}px ${canvasSans()}`;
                 ctx.fillStyle = color;
                 ctx.textAlign = 'center';
                 const bear = l.side === 'bearish';

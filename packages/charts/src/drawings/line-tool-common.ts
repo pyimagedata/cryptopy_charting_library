@@ -20,6 +20,7 @@ import {
     checkboxRow,
     selectRow
 } from './drawing-settings-config';
+import { canvasSans } from '../helpers/fonts';
 
 // ============================================================================
 // Properties
@@ -516,7 +517,7 @@ export function drawMiddlePoint(
 }
 
 /** Yuvarlak koseli yari saydam kutu icinde cok satirli istatistik metni. */
-const STATS_FONT = 'Arial, "Segoe UI Symbol", "Apple Symbols", "DejaVu Sans", sans-serif';
+const statsFont = () => canvasSans() + ', "Segoe UI Symbol", "Apple Symbols", "DejaVu Sans"';
 
 export function drawStatsLabel(
     ctx: CanvasRenderingContext2D,
@@ -534,7 +535,7 @@ export function drawStatsLabel(
     ctx.save();
     ctx.setLineDash([]);
     const fontPx = 12 * dpr;
-    ctx.font = `${fontPx}px ${STATS_FONT}`;
+    ctx.font = `${fontPx}px ${statsFont()}`;
     // Aci simgesi bu yazi tiplerinde yoksa (bos/cok dar glif) "Aci:" yazisina dus
     if (lines.some(l => l.includes('∠')) && ctx.measureText('∠').width < fontPx * 0.3) {
         lines = lines.map(l => l.replace('∠', `${t('Angle')}:`));
@@ -672,7 +673,7 @@ type VAlign = 'top' | 'middle' | 'bottom';
 
 function textFont(style: DrawingStyle, defaultSize: number, dpr: number): { font: string; size: number } {
     const size = (style.fontSize || defaultSize) * dpr;
-    return { font: `${style.fontStyle || 'normal'} ${style.fontWeight || 'normal'} ${size}px Arial`, size };
+    return { font: `${style.fontStyle || 'normal'} ${style.fontWeight || 'normal'} ${size}px ${canvasSans()}`, size };
 }
 
 /**

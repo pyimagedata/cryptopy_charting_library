@@ -15,6 +15,8 @@ const MIN_WIDTH = 240;
 const MAX_WIDTH = 640;
 const MIN_CHART_WIDTH = 320;
 const DEFAULT_WIDTH = 360;
+/** Below this layout width the panel opens as a full-width overlay sheet (with a close button) instead of a side column. */
+const SHEET_BELOW = 640;
 
 const STYLE_ID = 'tv-right-panel-style';
 function ensureStyle(): void {
@@ -32,6 +34,8 @@ export interface RightPanelHostOptions {
     getAvailableWidth: () => number;
     /** Fired on every live width change (resize drag, programmatic set). */
     onWidthChange: (width: number) => void;
+    /** Close button of the narrow-screen sheet. */
+    onClose?: () => void;
 }
 
 function readNumber(key: string): number {
@@ -52,6 +56,7 @@ export class RightPanelHost {
     private _width: number | null = null;
     private _theme: 'dark' | 'light' = 'dark';
     private _frame = 0;
+    private readonly _closeBtn: HTMLButtonElement;
 
     constructor(parent: HTMLElement, opts: RightPanelHostOptions) {
         this._opts = opts;
@@ -65,6 +70,16 @@ export class RightPanelHost {
         this.element = el;
         this._handle = this._createHandle();
         el.appendChild(this._handle);
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'tv-right-panel-close';
+        close.setAttribute('aria-label', 'Close');
+        close.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="m4.5 4.5 9 9M13.5 4.5l-9 9"/></svg>';
+        close.style.cssText = 'display:none;position:absolute;top:6px;right:6px;z-index:46;width:30px;height:30px;align-items:center;justify-content:center;'
+            + 'border:0;border-radius:6px;background:var(--rp-bg);color:var(--rp-text,#d1d4dc);cursor:pointer;';
+        close.addEventListener('click', () => this._opts.onClose?.());
+        this._closeBtn = close;
+        el.appendChild(close);
         this._applyTheme();
         parent.appendChild(el);
     }
@@ -80,6 +95,12 @@ export class RightPanelHost {
     /** Width the layout must reserve: the shared width while a view is open, 0 when closed. */
     get width(): number {
         return this._active !== null ? this._ensureWidth() : 0;
+    }
+
+    /** True when the panel is shown as a full-width overlay sheet (narrow layout). */
+    get isSheet(): boolean {
+        const w = this._opts.getAvailableWidth();
+        return w > 0 && w < SHEET_BELOW;
     }
 
     clamp(w: number): number {
@@ -98,6 +119,18 @@ export class RightPanelHost {
             if (!(Number.isFinite(w) && w > 0)) w = DEFAULT_WIDTH;
             this._width = this.clamp(w);
         }
+        const sheet = this.isSheet;
+        this._closeBtn.style.display = sheet ? 'flex' : 'none';
+        this._handle.style.display = sheet ? 'none' : '';
+        if (sheet) {
+            // overlay sheet: covers the chart, reserves no layout width
+            this.element.style.left = 'var(--tv-drawing-toolbar-width, 48px)'; // keep the left drawing toolbar usable
+            this.element.style.width = 'auto';
+            this.element.style.zIndex = '60';
+            return 0;
+        }
+        this.element.style.zIndex = '30';
+        this.element.style.left = '';
         const next = this.clamp(this._width);
         this.element.style.width = `${next}px`;
         return next;
@@ -186,7 +219,7 @@ export class RightPanelHost {
     private _createHandle(): HTMLElement {
         const handle = document.createElement('div');
         handle.className = 'tv-right-panel-resize';
-        handle.style.cssText = 'position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:45;touch-action:none;';
+        handle.style.cssText = 'position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:45;touch-action:none;';
         let startX = 0;
         let startW = 0;
         handle.addEventListener('pointerdown', (e) => {

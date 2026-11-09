@@ -1,6 +1,7 @@
 import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, accessNoticeText, drawAccessNotice } from './remote-compute';
+import { canvasSans } from '../helpers/fonts';
 
 // TDOJI-SR: seviyeler (önceki haftalık kapanışa göre) backend'de hesaplanır (bkz.
 // remote-compute.ts). Burada yalnızca çizilir; etiket metni ve fiyat biçimlendirme yereldir.
@@ -259,7 +260,7 @@ export class TdojiSRIndicator extends OverlayIndicator {
         const lineHeight = fontSize + 3 * vpr;
         const lines = text.split('\n');
 
-        ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.font = `${fontSize}px ${canvasSans()}`;
         const width = Math.max(...lines.map((line) => ctx.measureText(line).width)) + paddingX * 2;
         const height = lines.length * lineHeight + paddingY * 2;
         const preferredX = side === 'right' ? x + 6 * hpr : x - width - 6 * hpr;

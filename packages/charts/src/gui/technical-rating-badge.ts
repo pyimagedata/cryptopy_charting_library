@@ -7,6 +7,7 @@
 
 import { TechnicalRating, getRatingLabel, fetchTechnicalRating } from '../services/technical-rating-service';
 import { t } from '../helpers/translations';
+import { FONT_SANS } from '../helpers/fonts';
 
 /**
  * Technical Rating Badge Widget
@@ -46,7 +47,7 @@ export class TechnicalRatingBadge {
             align-items: center;
             gap: 8px;
             pointer-events: auto;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: ${FONT_SANS};
         `;
 
         // Inject modern styles

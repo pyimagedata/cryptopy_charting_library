@@ -41,6 +41,7 @@ import { EqHLIndicatorV2 } from './eqhl-v2-indicator';
 import { NewsIndicator } from './news-indicator';
 import { LiqHeatmapIndicator } from './liq-heatmap-indicator';
 import { JudasSwingIndicator } from './judas-swing-indicator';
+import { EvoScriptOverlayIndicator, EvoScriptPanelIndicator, isEvoScriptIndicator } from './evo-script-indicator';
 import { SMTDivergenceIndicator } from './smt-divergence-indicator';
 import { SpecialForcesIndicator } from './special-forces-indicator';
 import { TYPE_ID_TO_CATALOG_ID, isIndicatorAllowed, getIndicatorAccess } from '../gui/indicator_search/indicator_access';
@@ -160,6 +161,7 @@ export class IndicatorManager {
      */
     addOverlayIndicator(indicator: OverlayIndicator): void {
         if (!this.isAllowed(indicator)) return;
+        this._wireEvoKind(indicator);
         this._overlayIndicators.push(indicator);
         // Indicators added after a theme switch must not start on the default
         indicator.setTheme(this._theme);
@@ -177,6 +179,7 @@ export class IndicatorManager {
      */
     addPanelIndicator(indicator: PanelIndicator): void {
         if (!this.isAllowed(indicator)) return;
+        this._wireEvoKind(indicator);
         this._panelIndicators.push(indicator);
         indicator.setTheme(this._theme);
 
@@ -187,6 +190,26 @@ export class IndicatorManager {
 
         this._onIndicatorAdded?.(indicator);
         this._onPaneAdded?.(indicator);
+    }
+
+    /**
+     * Evo Script: the script's meta.overlay is only known after its first run. When it differs from
+     * the flavour the indicator was created as, move it to the other collection (same id, same core).
+     */
+    private _wireEvoKind(indicator: Indicator): void {
+        if (!isEvoScriptIndicator(indicator)) return;
+        indicator.core.onKindMismatch = (overlay: boolean) => {
+            const current = this.getIndicator(indicator.id);
+            if (current !== indicator) return;
+            const core = indicator.core;
+            const opts = { ...indicator.options, overlay } as any;
+            core.keepOnDestroy = true;
+            this.removeIndicator(indicator.id);
+            core.keepOnDestroy = false;
+            const next = overlay ? new EvoScriptOverlayIndicator(opts, core) : new EvoScriptPanelIndicator(opts, core);
+            if (overlay) this.addOverlayIndicator(next as any);
+            else this.addPanelIndicator(next as any);
+        };
     }
 
     /**
@@ -358,6 +381,7 @@ export class IndicatorManager {
         else if (indicator instanceof JudasSwingIndicator) typeId = 'JudasSwing';
         else if (indicator instanceof SMTDivergenceIndicator) typeId = 'SMTDivergence';
         else if (indicator instanceof SpecialForcesIndicator) typeId = 'SpecialForces';
+        else if (isEvoScriptIndicator(indicator)) typeId = 'EvoScript';
         return typeId;
     }
 
@@ -517,6 +541,11 @@ export class IndicatorManager {
                 return;
             case 'SpecialForces':
                 indicator = new SpecialForcesIndicator(item.options as any);
+                break;
+            case 'EvoScript':
+                indicator = item.type === 'overlay' || (item.options as any).overlay === true
+                    ? new EvoScriptOverlayIndicator(item.options as any)
+                    : new EvoScriptPanelIndicator(item.options as any);
                 break;
 
 

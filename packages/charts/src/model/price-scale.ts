@@ -399,7 +399,15 @@ export class PriceScale {
         return p === null ? undefined : Math.pow(10, -p);
     }
 
+    private _valueFormatter: ((v: number) => string) | null = null;
+
+    /** Own label formatting (e.g. Evo Script percent / volume plots in a pane); null restores the default. */
+    setValueFormatter(fn: ((v: number) => string) | null): void {
+        this._valueFormatter = fn;
+    }
+
     formatPrice(price: number): string {
+        if (this._valueFormatter) return this._valueFormatter(price);
         const prec = this.precision();
         if (prec !== null) {
             const out = price.toFixed(prec);

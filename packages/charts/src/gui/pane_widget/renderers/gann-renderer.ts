@@ -6,8 +6,8 @@
 
 import { GannToolBase } from '../../../drawings/gann-drawing';
 import { drawControlPoint } from './utils';
+import { canvasSans } from '../../../helpers/fonts';
 
-const FONT_FAMILY = '-apple-system, BlinkMacSystemFont, sans-serif';
 
 export function drawGannTool(
     ctx: CanvasRenderingContext2D,
@@ -56,7 +56,7 @@ export function drawGannTool(
     ctx.setLineDash([]);
 
     for (const lb of geom.labels) {
-        ctx.font = `${lb.size}px ${FONT_FAMILY}`;
+        ctx.font = `${lb.size}px ${canvasSans()}`;
         ctx.fillStyle = lb.color;
         ctx.textAlign = lb.align;
         ctx.textBaseline = lb.baseline;

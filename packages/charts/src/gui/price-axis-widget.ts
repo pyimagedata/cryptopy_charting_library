@@ -1,6 +1,9 @@
 import { startDragSession } from '../helpers/drag-session';
 import { PriceMark } from '../model/price-scale';
 import { Coordinate, BarPrice, coordinate } from '../model/coordinate';
+import { resolveFontFamily, FONT_SANS } from '../helpers/fonts';
+import { spreadAxisTags, AxisTagSlot } from '../helpers/axis-label-layout';
+import { SOFT } from './soft_theme';
 
 /** Eksenin kullandigi olcek yuzeyi: PriceScale ya da OffsetPriceScale. */
 export interface PriceAxisScale {
@@ -38,10 +41,10 @@ const ALERT_GLYPH_W = 14;
 
 const defaultPriceAxisOptions: PriceAxisWidgetOptions = {
     width: 52,
-    backgroundColor: '#16213e',  // Darker navy (original panel bg)
+    backgroundColor: SOFT.dark.surface,
     textColor: 'rgba(255, 255, 255, 0.5)',
     fontSize: 11,
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    fontFamily: FONT_SANS,
 };
 
 /**
@@ -131,18 +134,12 @@ export class PriceAxisWidget implements Disposable {
         this._ctx.fillStyle = this._options.backgroundColor;
         this._ctx.fillRect(0, 0, width, height);
 
-        // Draw border
-        this._ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-        this._ctx.lineWidth = 1;
-        this._ctx.beginPath();
-        this._ctx.moveTo(0.5, 0);
-        this._ctx.lineTo(0.5, height);
-        this._ctx.stroke();
+        // No border: the axis continues the pane surface seamlessly (soft layout)
 
         // Draw price labels
         const marks = this._priceScale.marks();
         this._ctx.fillStyle = this._options.textColor;
-        this._ctx.font = `${this._options.fontSize}px ${this._options.fontFamily}`;
+        this._ctx.font = `${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
         this._ctx.textAlign = 'right';
         this._ctx.textBaseline = 'middle';
 
@@ -154,22 +151,27 @@ export class PriceAxisWidget implements Disposable {
             this._ctx.fillStyle = this._options.textColor; // Reset fill style
             if (this._options.title && y < 26) continue;
             this._ctx.fillText(mark.label, width - 8, y);
-
-            // Small tick mark
-            this._ctx.beginPath();
-            this._ctx.moveTo(0, y);
-            this._ctx.lineTo(4, y);
-            this._ctx.stroke();
+            // No tick marks (soft layout). The old tick stroked with whatever strokeStyle the
+            // previous frame left behind (e.g. the green last-price badge), giving green "-" marks.
         }
 
         // Cizim fiyat etiketleri (ornegin trend cizgisi uclari): son fiyat rozetinin ALTINDA kalsin diye once
         // Cizim fiyat etiketleri (ornegin trend cizgisi uclari)
+        // Etiketler (cizim + gosterge): `stack` isaretliler (Evo Script) cakisirsa dikey olarak ayrilir
+        const visible: { label: { text: string; color: string; stack?: boolean }; y: number }[] = [];
         for (const label of this._drawingLabels) {
             const y = this._priceScale.priceToCoordinate(label.price);
             // TradingView gibi: gorunur olcegin disindaki cizim etiketleri gizlenir (±20 tolerans sadece crosshair/son fiyat)
             if (y < 0 || y > this._height) continue;
-            this._drawLabel(y, label.text, label.color, false);
+            visible.push({ label, y });
         }
+        if (visible.some((v) => v.label.stack)) {
+            const slots: AxisTagSlot[] = visible.map((v) => ({ y: v.y, h: 20, fixed: !v.label.stack }));
+            if (this._lastValue) slots.push({ y: this._priceScale.priceToCoordinate(this._lastValue.price), h: this._countdown ? 34 : 20, fixed: true });
+            const ys = spreadAxisTags(slots, 0, this._height);
+            visible.forEach((v, i) => { v.y = ys[i]; });
+        }
+        for (const v of visible) this._drawLabel(v.y, v.label.text, v.label.color, false);
 
         // Alarm etiketleri (zil + fiyat): son fiyatin altinda, imlecin ustunde
         for (const label of this._alertLabels) {
@@ -188,7 +190,7 @@ export class PriceAxisWidget implements Disposable {
             const text = this._crosshairText
                 ?? this._priceScale.formatPrice(this._priceScale.coordinateToPrice(coordinate(this._crosshairY)));
             this._drawLabel(this._crosshairY, text, this._options.accentColor ?? '#2962ff', false);
-            this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+            this._ctx.font = `bold ${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
             this._crosshairBoxWidth = Math.ceil(this._ctx.measureText(text).width + 4);
         }
         this._positionAddButton();
@@ -201,7 +203,7 @@ export class PriceAxisWidget implements Disposable {
     private _drawTitle(title: string): void {
         if (!this._ctx) return;
         const ctx = this._ctx;
-        ctx.font = `bold ${this._options.fontSize - 1}px ${this._options.fontFamily}`;
+        ctx.font = `bold ${this._options.fontSize - 1}px ${resolveFontFamily(this._options.fontFamily)}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = this._options.backgroundColor;
@@ -217,20 +219,20 @@ export class PriceAxisWidget implements Disposable {
 
         let maxTextWidth = 0;
 
-        this._ctx.font = `${this._options.fontSize}px ${this._options.fontFamily}`;
+        this._ctx.font = `${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
         for (const mark of this._priceScale.marks()) {
             maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(mark.label).width);
         }
 
         if (this._lastValue) {
-            this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+            this._ctx.font = `bold ${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
             maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(this._lastValue.text).width);
         }
 
 
 
         if (this._drawingLabels.length) {
-            this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+            this._ctx.font = `bold ${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
             for (const label of this._drawingLabels) {
                 const ly = this._priceScale.priceToCoordinate(label.price);
                 if (ly < 0 || ly > this._height) continue;
@@ -239,7 +241,7 @@ export class PriceAxisWidget implements Disposable {
         }
 
         if (this._alertLabels.length) {
-            this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+            this._ctx.font = `bold ${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
             for (const label of this._alertLabels) {
                 maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(label.text).width + ALERT_GLYPH_W);
             }
@@ -257,7 +259,7 @@ export class PriceAxisWidget implements Disposable {
         if (y < -20 || y > height + 20) return;
 
         const horizontalPadding = 2;
-        this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+        this._ctx.font = `bold ${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
         const textWidth = this._ctx.measureText(text).width;
 
         // Calculate box dimensions - taller if countdown is shown
@@ -270,7 +272,12 @@ export class PriceAxisWidget implements Disposable {
 
         // Background
         this._ctx.fillStyle = color;
-        this._ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+        {
+            // 2px radius label (soft layout)
+            const c2d = this._ctx as any;
+            if (typeof c2d.roundRect === 'function') { c2d.beginPath(); c2d.roundRect(boxX, boxY, boxWidth, boxHeight, 2); c2d.fill(); }
+            else this._ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+        }
 
         // Price text
         this._ctx.fillStyle = '#ffffff';
@@ -287,7 +294,7 @@ export class PriceAxisWidget implements Disposable {
 
         // Countdown text (below price)
         if (hasCountdown && this._countdown) {
-            this._ctx.font = `${this._options.fontSize - 1}px ${this._options.fontFamily}`;
+            this._ctx.font = `${this._options.fontSize - 1}px ${resolveFontFamily(this._options.fontFamily)}`;
             this._ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
             this._ctx.fillText(this._countdown, boxX + (boxWidth / 2), boxY + 25);
         }
@@ -313,10 +320,10 @@ export class PriceAxisWidget implements Disposable {
     }
 
     private _lastValue: { price: number; text: string; color: string } | null = null;
-    private _drawingLabels: { price: number; text: string; color: string }[] = [];
+    private _drawingLabels: { price: number; text: string; color: string; stack?: boolean }[] = [];
 
     /** Cizimlerin fiyat etiketleri (her cizimde yeniden verilir) */
-    setDrawingLabels(labels: { price: number; text: string; color: string }[]): void {
+    setDrawingLabels(labels: { price: number; text: string; color: string; stack?: boolean }[]): void {
         this._drawingLabels = labels;
     }
     private _crosshairY: number | null = null;
@@ -433,7 +440,7 @@ export class PriceAxisWidget implements Disposable {
      */
     setTheme(theme: 'dark' | 'light'): void {
         const isDark = theme === 'dark';
-        this._options.backgroundColor = isDark ? '#16213e' : '#f8f9fa';
+        this._options.backgroundColor = isDark ? SOFT.dark.surface : SOFT.light.surface;
         this._options.textColor = isDark ? 'rgba(255, 255, 255, 0.5)' : '#787b86';
         this.render();
     }

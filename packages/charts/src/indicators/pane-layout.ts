@@ -24,8 +24,8 @@ export const PANE_STYLE = {
         radius: 4,
     },
     dark: {
-        separator: '#2A2E39',
-        separatorHover: '#434651',
+        separator: 'rgba(255, 255, 255, 0.07)',
+        separatorHover: 'rgba(255, 255, 255, 0.22)',
         zoneHover: 'rgba(120, 123, 134, 0.25)',
         controlsBg: 'rgba(26, 26, 46, 0.85)',
         icon: '#B2B5BE',
@@ -34,8 +34,8 @@ export const PANE_STYLE = {
         disabled: 'rgba(120, 123, 134, 0.4)',
     },
     light: {
-        separator: '#E0E3EB',
-        separatorHover: '#B2B5BE',
+        separator: 'rgba(0, 0, 0, 0.07)',
+        separatorHover: 'rgba(0, 0, 0, 0.2)',
         zoneHover: 'rgba(120, 123, 134, 0.18)',
         controlsBg: 'rgba(255, 255, 255, 0.85)',
         icon: '#6A6D78',

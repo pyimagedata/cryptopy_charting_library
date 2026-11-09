@@ -1,3 +1,4 @@
+import { FONT_SANS } from '../../helpers/fonts';
 /** Theme tokens + stylesheet for the symbol search dialog (dark / light). */
 
 export type SearchTheme = 'dark' | 'light';
@@ -54,7 +55,7 @@ export function applyThemeVars(el: HTMLElement, theme: SearchTheme): void {
 }
 
 const CSS = `
-.ss-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:var(--ss-backdrop);color:var(--ss-text);font-family:-apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,Ubuntu,sans-serif;}
+.ss-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:var(--ss-backdrop);color:var(--ss-text);font-family:${FONT_SANS};}
 .ss-overlay *{box-sizing:border-box;}
 .ss-dialog{position:relative;display:flex;flex-direction:column;height:680px;max-height:calc(100vh - 16px);width:100%;min-width:719px;max-width:840px;background:var(--ss-bg);border:1px solid var(--ss-border);border-radius:8px;box-shadow:var(--ss-shadow);overflow:hidden;}
 @media (max-width:768px){.ss-dialog{min-width:480px;max-width:640px;height:562px;}}

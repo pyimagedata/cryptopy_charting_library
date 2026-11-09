@@ -17,6 +17,7 @@ import {
     sliderRow,
 } from './drawing-settings-config';
 import { t } from '../helpers/translations';
+import { canvasSans } from '../helpers/fonts';
 
 export type FibLabelHAlign = 'left' | 'center' | 'right';
 export type FibLabelVAlign = 'top' | 'middle' | 'bottom';
@@ -276,7 +277,7 @@ export class FibCommonSettings {
     ): void {
         if (!text) return;
         const pad = 4 * dpr;
-        ctx.font = `${this.labelFontSize * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+        ctx.font = `${this.labelFontSize * dpr}px ${canvasSans()}`;
         ctx.fillStyle = color;
         let x: number;
         let y: number;
@@ -323,7 +324,7 @@ export class FibCommonSettings {
     ): void {
         if (!this.showText || !text) return;
         const pad = 4 * dpr;
-        ctx.font = `${this.labelFontSize * dpr}px -apple-system, BlinkMacSystemFont, sans-serif`;
+        ctx.font = `${this.labelFontSize * dpr}px ${canvasSans()}`;
         ctx.fillStyle = color;
         let x: number;
         if (this.horzTextAlign === 'left') {

@@ -29,6 +29,7 @@ import {
     sizesFromLegacyRatios,
 } from './layouts/layout-catalog';
 import { LayoutMenu, LayoutSyncState } from './layouts/layout-menu';
+import { ensureSoftTheme } from './soft_theme';
 
 /** Any catalog layout id (see `LAYOUT_CATALOG`) or a legacy id ('1x1' | '2x1' | '1x2' | '1x3' | '2x2' | 'single'). */
 export type MultiChartLayoutType = LayoutId | LegacyLayoutId;
@@ -195,11 +196,12 @@ const defaultSlotOptions: MultiChartSlotOptions = {
     exchange: 'BINANCE',
 };
 
-const DEFAULT_GAP = 8;
+const DEFAULT_GAP = 4; // = --region-gap (soft_theme.ts)
 const DEFAULT_MIN_CHART_PX = 120;
 const DIVIDER_HIT_PX = 14;
-const DIVIDER_ACCENT = 'rgba(41, 98, 255, 0.85)';
-const SLOT_BORDER = 'rgba(148, 163, 184, 0.16)';
+const DIVIDER_ACCENT = 'rgba(41, 98, 255, 0.5)';
+/** Slot border is always 1px (keeps the chart size maths) but transparent: only the active chart of a multi layout gets `--active-outline`. */
+const SLOT_BORDER = 'transparent';
 
 const DEFAULT_SYNC: MultiChartSync = { symbol: false, interval: false, crosshair: true, time: false, dateRange: false };
 
@@ -379,6 +381,7 @@ export class MultiChartLayout {
             this._baseSlotOptions = rest;
         }
 
+        ensureSoftTheme(this._theme);
         this._element = document.createElement('div');
         this._element.className = 'tv-multi-chart-layout-shell';
         this._element.style.cssText = `
@@ -388,7 +391,7 @@ export class MultiChartLayout {
             flex-direction: column;
             min-width: 0;
             min-height: 0;
-            background: #131722;
+            background: var(--app-bg, #0d0d17);
         `;
 
         this._grid = document.createElement('div');
@@ -400,7 +403,7 @@ export class MultiChartLayout {
             min-height: 0;
             position: relative;
             overflow: hidden;
-            background: #0f172a;
+            background: transparent;
         `;
 
         this._body = document.createElement('div');
@@ -446,6 +449,7 @@ export class MultiChartLayout {
         this._rightHost = new RightPanelHost(this._body, {
             getAvailableWidth: () => this._body.clientWidth,
             onWidthChange: () => this._applyRightInset(),
+            onClose: () => this.setRightPanel(null),
         });
         this._rightHost.setTheme(this._theme);
 
@@ -782,6 +786,7 @@ export class MultiChartLayout {
 
     setTheme(theme: 'dark' | 'light'): void {
         this._theme = theme;
+        ensureSoftTheme(theme);
         this._toolbarWidget?.setTheme(theme);
         this._drawingToolbar?.setTheme(theme);
         this._watchlistPanel?.setTheme(theme === 'light' ? 'light' : 'dark');
@@ -805,10 +810,9 @@ export class MultiChartLayout {
         // Armed drawing tool follows the active chart (before the click that activated it is processed)
         this._drawingToolbarBinding?.onActiveChartChanged(prevChart, this._charts[index] ?? null);
         this._slots.forEach((slot, slotIndex) => {
-            slot.style.borderColor = slotIndex === index ? '#2962ff' : SLOT_BORDER;
-            slot.style.boxShadow = slotIndex === index
-                ? 'inset 0 0 0 1px rgba(41, 98, 255, 0.3)'
-                : 'none';
+            // no outline in the single-chart layout; subtle low-alpha 1px outline (no inset glow) on the active chart otherwise
+            slot.style.borderColor = slotIndex === index && this._slots.length > 1 ? 'var(--active-outline, rgba(41, 98, 255, 0.35))' : SLOT_BORDER;
+            slot.style.boxShadow = 'none';
         });
 
         // replay control bar only on the active chart (followers just follow the cursor)
@@ -1096,7 +1100,7 @@ export class MultiChartLayout {
     private _applyRightInset(): void {
         const width = this._rightHost.width;
         if (width) this._watchlistPanel?.setHostWidth(width);
-        const margin = width ? `${width}px` : '0';
+        const margin = width ? `${width + DEFAULT_GAP}px` : '0'; // panel + the gap between chart and panel (plain px: host panels parseFloat it)
         if (this._grid.style.marginRight !== margin) this._grid.style.marginRight = margin;
         this._rightToolbar?.setActive(this.activeRightPanel);
     }
@@ -1292,8 +1296,8 @@ export class MultiChartLayout {
             min-height: 0;
             overflow: hidden;
             border: 1px solid ${SLOT_BORDER};
-            border-radius: 10px;
-            background: #131722;
+            border-radius: var(--region-radius, 6px);
+            background: var(--surface, #1a1a2e);
         `;
         slot.addEventListener('pointerdown', () => {
             this.setActiveChart(i);

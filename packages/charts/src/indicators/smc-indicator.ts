@@ -33,6 +33,7 @@ import {
     numberRow,
     selectRow,
 } from '../gui/indicator_settings';
+import { canvasSans } from '../helpers/fonts';
 
 export interface SMCIndicatorOptions extends IndicatorOptions {
     period: number;
@@ -351,7 +352,7 @@ export class SMCIndicator extends OverlayIndicator {
             const labelText = `${b.type} (${b.dir === 'Bullish' ? 'BULL' : 'BEAR'})`;
 
             ctx.save();
-            ctx.font = `bold ${10 * hpr}px sans-serif`;
+            ctx.font = `bold ${10 * hpr}px ${canvasSans()}`;
             const textMetrics = ctx.measureText(labelText);
             const textWidth = textMetrics.width;
             const textHeight = 12 * vpr;

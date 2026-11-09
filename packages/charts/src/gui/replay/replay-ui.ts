@@ -12,6 +12,7 @@ import type { ReplayController, ReplayState } from '../../replay/replay-controll
 import { REPLAY_SPEEDS, approxMs, detectTimeUnit, parseTf } from '../../replay/replay-core';
 import { legendColors } from '../indicator_legend/legend-constants';
 import { REPLAY_ICONS } from './replay-icons';
+import { FONT_SANS } from '../../helpers/fonts';
 
 export interface ReplayUIDeps {
     /** Chart widget root (position: relative). The control bar and menus live here. */
@@ -253,7 +254,7 @@ export class ReplayUI {
         badge.innerHTML = REPLAY_ICONS.scissors.replace('width="18" height="18"', 'width="16" height="16"');
         line.appendChild(badge);
         const tip = document.createElement('div');
-        tip.style.cssText = `position:absolute;padding:4px 8px;border-radius:4px;background:${p.bg};color:${p.text};border:1px solid ${p.border};font:12px -apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,sans-serif;white-space:nowrap;box-shadow:${p.shadow};`;
+        tip.style.cssText = `position:absolute;padding:4px 8px;border-radius:4px;background:${p.bg};color:${p.text};border:1px solid ${p.border};font:12px ${FONT_SANS};white-space:nowrap;box-shadow:${p.shadow};`;
         tip.textContent = t('Select bar');
         overlay.append(dim, line, tip);
         pane.appendChild(overlay);
@@ -282,7 +283,7 @@ export class ReplayUI {
         wrap.className = 'tv-replay-nodata';
         wrap.style.cssText = 'position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;pointer-events:none;';
         const card = document.createElement('div');
-        card.style.cssText = `pointer-events:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 24px;border-radius:10px;background:${p.bg};border:1px solid ${p.border};box-shadow:${p.shadow};color:${p.text};font:13px -apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,sans-serif;text-align:center;max-width:80%;`;
+        card.style.cssText = `pointer-events:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 24px;border-radius:10px;background:${p.bg};border:1px solid ${p.border};box-shadow:${p.shadow};color:${p.text};font:13px ${FONT_SANS};text-align:center;max-width:80%;`;
         for (const type of ['mousedown', 'pointerdown', 'wheel', 'contextmenu', 'dblclick']) {
             card.addEventListener(type, (e) => e.stopPropagation());
         }
@@ -294,7 +295,7 @@ export class ReplayUI {
             const b = document.createElement('button');
             b.type = 'button';
             b.textContent = label;
-            b.style.cssText = `height:30px;padding:0 12px;border-radius:6px;cursor:pointer;font:600 13px -apple-system,BlinkMacSystemFont,Roboto,sans-serif;${primary ? `border:none;background:${p.accent};color:#fff;` : `border:1px solid ${p.border};background:transparent;color:${p.text};`}`;
+            b.style.cssText = `height:30px;padding:0 12px;border-radius:6px;cursor:pointer;font:600 13px ${FONT_SANS};${primary ? `border:none;background:${p.accent};color:#fff;` : `border:1px solid ${p.border};background:transparent;color:${p.text};`}`;
             b.addEventListener('click', (e) => {
                 e.stopPropagation();
                 action();
@@ -385,7 +386,7 @@ export class ReplayUI {
     // ------------------------------------------------------------------ control bar
 
     private _btnStyle(p: ReturnType<typeof palette>): string {
-        return `display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:none;border-radius:6px;background:transparent;color:${p.text};font:13px -apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,sans-serif;cursor:pointer;white-space:nowrap;`;
+        return `display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:none;border-radius:6px;background:transparent;color:${p.text};font:13px ${FONT_SANS};cursor:pointer;white-space:nowrap;`;
     }
 
     private _mkBtn(key: string, html: string, title: string, onClick: (btn: HTMLButtonElement) => void): HTMLButtonElement {
@@ -449,11 +450,11 @@ export class ReplayUI {
         for (const b of [play, step, jump, close]) b.style.padding = '0 6px';
 
         const time = document.createElement('div');
-        time.style.cssText = `padding:0 8px;font:12px -apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,sans-serif;font-variant-numeric:tabular-nums;color:${p.muted};white-space:nowrap;min-width:104px;text-align:center;`;
+        time.style.cssText = `padding:0 8px;font:12px ${FONT_SANS};font-variant-numeric:tabular-nums;color:${p.muted};white-space:nowrap;min-width:104px;text-align:center;`;
         this._timeEl = time;
 
         const toast = document.createElement('div');
-        toast.style.cssText = `position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);padding:6px 10px;border-radius:6px;background:${p.bg};color:${p.text};border:1px solid ${p.border};box-shadow:${p.shadow};font:12px -apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,sans-serif;white-space:nowrap;display:none;pointer-events:none;`;
+        toast.style.cssText = `position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);padding:6px 10px;border-radius:6px;background:${p.bg};color:${p.text};border:1px solid ${p.border};box-shadow:${p.shadow};font:12px ${FONT_SANS};white-space:nowrap;display:none;pointer-events:none;`;
         this._toastEl = toast;
 
         bar.append(grip, selectBtn, this._sep(), play, step, this._sep(), speed, interval, this._sep(), time, this._sep(), jump, close, toast);
@@ -601,7 +602,7 @@ export class ReplayUI {
         const root = this._d.root;
         const menu = document.createElement('div');
         menu.className = 'tv-replay-menu';
-        menu.style.cssText = `position:absolute;z-index:70;min-width:${minWidth}px;padding:4px 0;border-radius:8px;background:${p.bg};border:1px solid ${p.border};box-shadow:${p.shadow};color:${p.text};font:13px -apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,sans-serif;user-select:none;visibility:hidden;`;
+        menu.style.cssText = `position:absolute;z-index:70;min-width:${minWidth}px;padding:4px 0;border-radius:8px;background:${p.bg};border:1px solid ${p.border};box-shadow:${p.shadow};color:${p.text};font:13px ${FONT_SANS};user-select:none;visibility:hidden;`;
         menu.addEventListener('mousedown', (e) => e.stopPropagation());
         menu.addEventListener('pointerdown', (e) => e.stopPropagation());
         menu.addEventListener('wheel', (e) => e.stopPropagation());
@@ -734,7 +735,7 @@ export class ReplayUI {
             const title = document.createElement('div');
             title.style.cssText = 'font-weight:600;';
             title.textContent = t('Select date');
-            const inputCss = `height:28px;padding:0 6px;border-radius:6px;border:1px solid ${p.border};background:${dark ? '#131722' : '#F8F9FA'};color:${p.text};font:13px -apple-system,BlinkMacSystemFont,Roboto,sans-serif;color-scheme:${dark ? 'dark' : 'light'};`;
+            const inputCss = `height:28px;padding:0 6px;border-radius:6px;border:1px solid ${p.border};background:${dark ? '#131722' : '#F8F9FA'};color:${p.text};font:13px ${FONT_SANS};color-scheme:${dark ? 'dark' : 'light'};`;
             const row = document.createElement('div');
             row.style.cssText = 'display:flex;gap:6px;';
             const dateIn = document.createElement('input');
@@ -774,7 +775,7 @@ export class ReplayUI {
             const go = document.createElement('button');
             go.type = 'button';
             go.textContent = t('Go');
-            go.style.cssText = `height:30px;border:none;border-radius:6px;background:${p.accent};color:#fff;font:600 13px -apple-system,BlinkMacSystemFont,Roboto,sans-serif;cursor:pointer;`;
+            go.style.cssText = `height:30px;border:none;border-radius:6px;background:${p.accent};color:#fff;font:600 13px ${FONT_SANS};cursor:pointer;`;
             go.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const ms = parse();

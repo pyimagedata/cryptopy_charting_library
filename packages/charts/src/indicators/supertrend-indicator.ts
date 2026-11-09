@@ -11,6 +11,7 @@ import {
     lineWidthRow,
 } from '../gui/indicator_settings';
 import { IndicatorLegendInfo, legendParams, legendBarIndex } from './legend-info';
+import { canvasSans } from '../helpers/fonts';
 
 interface SuperTrendState {
     time: number;
@@ -433,7 +434,7 @@ export class SuperTrendIndicator extends OverlayIndicator {
         }
 
         ctx.save();
-        ctx.font = `${11 * hpr}px Arial`;
+        ctx.font = `${11 * hpr}px ${canvasSans()}`;
         const paddingX = 6 * hpr;
         const textWidth = ctx.measureText(label).width;
         const boxWidth = textWidth + paddingX * 2;

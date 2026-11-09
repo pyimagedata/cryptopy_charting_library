@@ -119,6 +119,8 @@ export type SettingRow =
     | SelectSettingRow
     | TextSettingRow
     | TextareaSettingRow
+    | DatetimeSettingRow
+    | SessionSettingRow
     | ToggleColorSettingRow
     | GroupSettingRow;
 
@@ -126,6 +128,23 @@ export interface TextareaSettingRow {
     type: 'textarea';
     key: string;
     label?: string;
+}
+
+/** Date-time picker; value = ms timestamp, shown in time zone `tz` ('' = browser) */
+export interface DatetimeSettingRow {
+    type: 'datetime';
+    key: string;
+    label: string;
+    tz?: string;
+    defaultValue?: number;
+}
+
+/** Trading session: start / end time plus weekday toggles; value = "0930-1600" or "0930-1600:23456" */
+export interface SessionSettingRow {
+    type: 'session';
+    key: string;
+    label: string;
+    defaultValue?: string;
 }
 
 export interface ToggleColorSettingRow {
@@ -148,6 +167,8 @@ export interface GroupSettingRow {
 /** A section within a tab (can have optional title) */
 export interface SettingsSection {
     title?: string;
+    /** Title is script text: shown as written (no translation, no locale upper-casing) */
+    raw?: boolean;
     rows: SettingRow[];
 }
 

@@ -1,4 +1,5 @@
 import { WatermarkOptions } from '../model/chart-model';
+import { resolveFontFamily } from '../helpers/fonts';
 
 export interface BitmapCoordinatesScope {
     readonly context: CanvasRenderingContext2D;
@@ -31,7 +32,7 @@ export class WatermarkRenderer {
         ctx.save();
 
         const fontSize = this._options.fontSize;
-        ctx.font = `${fontSize}px ${this._options.fontFamily}`;
+        ctx.font = `${fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
         ctx.fillStyle = this._options.color;
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'center';

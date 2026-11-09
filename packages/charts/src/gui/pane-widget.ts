@@ -1,5 +1,7 @@
 import type { PriceMark } from '../model/price-scale';
 import { PriceScaleMode } from '../model/price-scale';
+import type { TimeScale as ETimeScale } from '../model/time-scale';
+import type { PriceScale as EPriceScale } from '../model/price-scale';
 import { ChartModel } from '../model/chart-model';
 import { Series, SeriesType } from '../model/series';
 import { CandlestickSeries } from '../model/candlestick-series';
@@ -17,6 +19,9 @@ import { isBarData } from '../model/data';
 import { OverlayIndicatorRenderer } from '../indicators/overlay-indicator-renderer';
 import { OverlayIndicator } from '../indicators/indicator';
 import { IndicatorLegendList, LegendActionHandler, LEGEND_STYLE } from './indicator_legend';
+import { HoverTip } from './hover-tip';
+import { syncEvoTables, clearEvoTables, evoTableTheme, EvoTableSource } from '../indicators/evo-script-tables';
+import type { EvoTable } from '../indicators/evo-script-core';
 import { OrderbookHeatmapRenderer } from '../renderers/orderbook-heatmap-renderer';
 import {
     drawPatternWave,
@@ -209,6 +214,23 @@ export class PaneWidget implements Disposable {
     setCrosshair(x: number | null, y: number | null): void {
         this._crosshairX = x;
         this._crosshairY = y;
+        this._updateLabelTip();
+    }
+
+    private readonly _labelTip = new HoverTip(() => this._element);
+
+    /** Evo Script label tooltips: shown while the pointer is over a label that has one */
+    private _updateLabelTip(): void {
+        let text: string | null = null;
+        if (this._crosshairX !== null && this._crosshairY !== null) {
+            for (const ind of this._overlayRenderer.indicators) {
+                const f = (ind as any).getLabelTooltipAt;
+                if (typeof f !== 'function' || !ind.shown) continue;
+                text = f.call(ind, this._crosshairX, this._crosshairY);
+                if (text) break;
+            }
+        }
+        this._labelTip.set(text, this._crosshairX ?? 0, this._crosshairY ?? 0);
     }
 
     /**
@@ -274,8 +296,9 @@ export class PaneWidget implements Disposable {
             const dpr = window.devicePixelRatio || 1;
             this._canvas.style.width = `${width}px`;
             this._canvas.style.height = `${height}px`;
-            this._canvas.width = width * dpr;
-            this._canvas.height = height * dpr;
+            // assigning canvas.width/height clears it: only touch them when the size really changed
+            if (this._canvas.width !== Math.trunc(width * dpr)) this._canvas.width = width * dpr;
+            if (this._canvas.height !== Math.trunc(height * dpr)) this._canvas.height = height * dpr;
         }
     }
 
@@ -334,7 +357,12 @@ export class PaneWidget implements Disposable {
 
         // Render foreground overlay indicators (EMA, SMA, Bollinger Bands, SAR, etc.)
         // These stay ON TOP of the candles
+        // content pinned to the top of the pane (location.top) starts below the legend
+        this._overlayRenderer.topInset = this._legendElement ? this._legendElement.offsetTop + this._legendElement.offsetHeight + 2 : 0;
         this._overlayRenderer.draw(scope, this._model.timeScale, this._model.rightPriceScale, 'non-histogram');
+        this._extraOverlayDraw?.(scope, this._model.timeScale, this._model.rightPriceScale, this._overlayRenderer.topInset);
+
+        this._syncEvoTables(width, height);
 
         // Render orderbook heatmap (liquidity visualization on right side)
         if (this._heatmapRenderer) {
@@ -365,7 +393,7 @@ export class PaneWidget implements Disposable {
                 const x = Math.round(this._crosshairX * hRatio) + 0.5;
 
                 if (opts.vertLine.style === 'dashed') {
-                    ctx.setLineDash([4 * hRatio, 4 * hRatio]);
+                    ctx.setLineDash([5 * hRatio, 6 * hRatio]);
                 } else if (opts.vertLine.style === 'dotted') {
                     ctx.setLineDash([2 * hRatio, 2 * hRatio]);
                 }
@@ -383,7 +411,7 @@ export class PaneWidget implements Disposable {
                 const y = Math.round(this._crosshairY * vRatio) + 0.5;
 
                 if (opts.horzLine.style === 'dashed') {
-                    ctx.setLineDash([4 * hRatio, 4 * hRatio]);
+                    ctx.setLineDash([5 * hRatio, 6 * hRatio]);
                 } else if (opts.horzLine.style === 'dotted') {
                     ctx.setLineDash([2 * hRatio, 2 * hRatio]);
                 } else {
@@ -400,6 +428,74 @@ export class PaneWidget implements Disposable {
 
         // Update legend and buy/sell
         this._updateLegend();
+    }
+
+    /** Evo Script tables of the overlay scripts (HTML overlay over the pane) */
+    private _syncEvoTables(width: number, height: number): void {
+        if (!this._element) return;
+        const sources: EvoTableSource[] = [];
+        for (const ind of this._overlayRenderer.indicators) {
+            const f = (ind as any).getEvoTables;
+            if (typeof f !== 'function') continue;
+            const tables = ind.shown ? (f.call(ind) as EvoTable[]) : [];
+            if (tables.length) sources.push({ id: ind.id, tables });
+        }
+        if (this._extraTables) for (const s of this._extraTables()) sources.push(s);
+        const inset = this._legendElement ? this._legendElement.offsetTop + this._legendElement.offsetHeight + 2 : 0;
+        if (sources.length === 0) { clearEvoTables(this._element); return; }
+        syncEvoTables(this._element, sources, width, height, evoTableTheme(this._model.options.layout.backgroundColor), inset, this._measureEvoAvoid());
+    }
+
+    /** Size of the technical-rating card (top right) and the branding logo (bottom left) when they cover this pane */
+    private _measureEvoAvoid(): { topRight: number; bottomLeft: number } {
+        const out = { topRight: 0, bottomLeft: 0 };
+        const el = this._element;
+        if (!el) return out;
+        const pr = el.getBoundingClientRect();
+        const root = el.closest('.tv-chart-container') ?? document;
+        const find = (sel: string): DOMRect | null => {
+            const e = (root as ParentNode).querySelector?.(sel) as HTMLElement | null;
+            if (!e || e.offsetWidth <= 0) return null;
+            const r = e.getBoundingClientRect();
+            return r.right > pr.left && r.left < pr.right && r.bottom > pr.top && r.top < pr.bottom ? r : null;
+        };
+        const badge = find('#tv-technical-rating-badge');
+        if (badge && badge.top - pr.top < 200) out.topRight = Math.max(0, Math.round(badge.bottom - pr.top)) + 2;
+        const logo = find('.tv-branding-logo');
+        if (logo && pr.bottom - logo.bottom < 200) out.bottomLeft = Math.max(0, Math.round(pr.bottom - logo.top)) + 2;
+        return out;
+    }
+
+    private _extraOverlayDraw: ((scope: BitmapCoordinatesScope, ts: ETimeScale, ps: EPriceScale, topInset: number) => void) | null = null;
+    /** Drawing hook of content that belongs on this pane but lives in other panes (Evo force_overlay items, strategy markers) */
+    setExtraOverlayDraw(fn: ((scope: BitmapCoordinatesScope, ts: ETimeScale, ps: EPriceScale, topInset: number) => void) | null): void { this._extraOverlayDraw = fn; }
+
+    private _extraTables: (() => EvoTableSource[]) | null = null;
+    /** Tables of scripts that live in other panes but are flagged forceOverlay */
+    setExtraEvoTables(fn: (() => EvoTableSource[]) | null): void { this._extraTables = fn; }
+
+    private _extraBarColors: (() => Array<{ colors: Uint16Array; table: string[]; offset: number } | null>) | null = null;
+    /** barcolor() overrides of scripts that live in other panes (they still recolour the main candles) */
+    setExtraBarColors(fn: (() => Array<{ colors: Uint16Array; table: string[]; offset: number } | null>) | null): void { this._extraBarColors = fn; }
+
+    /** barcolor() override of the main series: the last shown script that set one wins */
+    private _barColorOverride(): ((index: number) => string | null) | null {
+        let pick: { colors: Uint16Array; table: string[]; offset: number } | null = null;
+        if (this._extraBarColors) for (const r of this._extraBarColors()) if (r) pick = r;
+        for (const ind of this._overlayRenderer.indicators) {
+            const f = (ind as any).getBarColorOverride;
+            if (typeof f !== 'function' || !ind.shown) continue;
+            const r = f.call(ind);
+            if (r) pick = r;
+        }
+        if (!pick) return null;
+        const { colors, table, offset } = pick;
+        return (index) => {
+            const s = index - offset;
+            if (s < 0 || s >= colors.length) return null;
+            const k = colors[s];
+            return k === 0xFFFF ? null : (table[k] ?? null);
+        };
     }
 
     private _renderSeries(
@@ -431,6 +527,9 @@ export class PaneWidget implements Disposable {
             const backgroundColor = this._model.options.layout.backgroundColor;
             const barSpacing = this._model.timeScale.barSpacing;
             // Pass background color and barSpacing
+            if (renderer instanceof CandlestickRenderer) {
+                renderer.barColor = series === this._model.serieses[0] ? this._barColorOverride() : null;
+            }
             (renderer as any).draw(scope, bars, backgroundColor, barSpacing);
         }
     }
@@ -1140,11 +1239,12 @@ export class PaneWidget implements Disposable {
             left: 12px;
             z-index: 10;
             font-family: ${this._model.options.layout.fontFamily};
+            font-variant-numeric: tabular-nums;
             user-select: none;
             pointer-events: none;
         `;
         this._legendHeaderEl = document.createElement('div');
-        this._legendHeaderEl.style.cssText = 'display: flex; align-items: center; white-space: nowrap; pointer-events: none; height: 20px;';
+        this._legendHeaderEl.style.cssText = 'display: flex; align-items: center; white-space: nowrap; pointer-events: none; height: 22px; width: max-content; padding: 0 6px; margin-left: -6px; border-radius: 4px; background: var(--legend-scrim, transparent);';
         this._legendElement.appendChild(this._legendHeaderEl);
         this._overlayLegend.element.style.marginTop = `${LEGEND_STYLE.metrics.topOffset}px`;
         this._legendElement.appendChild(this._overlayLegend.element);

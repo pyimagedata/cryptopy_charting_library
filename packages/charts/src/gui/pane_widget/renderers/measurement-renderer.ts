@@ -6,6 +6,7 @@
 import { PriceRangeDrawing } from '../../../drawings/price-range-drawing';
 import { DateRangeDrawing } from '../../../drawings/date-range-drawing';
 import { DatePriceRangeDrawing } from '../../../drawings/date-price-range-drawing';
+import { canvasSans } from '../../../helpers/fonts';
 
 /**
  * Draw a Price Range measurement
@@ -78,7 +79,7 @@ export function drawPriceRange(
         // Format label text: "Diff (Percent%) Ticks"
         const priceText = `${priceDiff.toFixed(2)} (${(percentChange >= 0 ? '+' : '')}${percentChange.toFixed(2)}%)`;
 
-        ctx.font = `bold ${12 * dpr}px Arial`;
+        ctx.font = `bold ${12 * dpr}px ${canvasSans()}`;
         const textWidth = ctx.measureText(priceText).width;
         const padding = 6 * dpr;
         const boxHeight = 24 * dpr;
@@ -195,7 +196,7 @@ export function drawDateRange(
         const line1 = `${barCount} bars, ${durationText}`;
         const line2 = volValue > 0 ? `Vol ${formatVolume(volValue)}` : '';
 
-        ctx.font = `bold ${12 * dpr}px Arial`;
+        ctx.font = `bold ${12 * dpr}px ${canvasSans()}`;
         const textWidth1 = ctx.measureText(line1).width;
         const textWidth2 = line2 ? ctx.measureText(line2).width : 0;
         const textWidth = Math.max(textWidth1, textWidth2);
@@ -328,7 +329,7 @@ export function drawDatePriceRange(
         const line2 = `${barCount} bars, ${durationText}`;
         const line3 = volValue > 0 ? `Vol ${formatVolume(volValue)}` : '';
 
-        ctx.font = `bold ${12 * dpr}px Arial`;
+        ctx.font = `bold ${12 * dpr}px ${canvasSans()}`;
         const textWidth = Math.max(
             ctx.measureText(line1).width,
             ctx.measureText(line2).width,

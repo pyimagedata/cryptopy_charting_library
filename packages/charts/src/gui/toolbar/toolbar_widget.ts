@@ -6,6 +6,7 @@ import { Delegate } from '../../helpers/delegate';
 import { t, getCurrentLanguage } from '../../helpers/translations';
 import { displaySymbol } from '../../helpers/display-aliases';
 import { REPLAY_ICONS } from '../replay/replay-icons';
+import { FONT_SANS } from '../../helpers/fonts';
 
 // SVG Icons for toolbar
 const TOOLBAR_ICONS = {
@@ -287,11 +288,11 @@ export class ToolbarWidget {
         this._element.style.cssText = `
             display: flex;
             align-items: center;
-            height: 38px;
-            background: #131722;
-            border-bottom: 1px solid #2B2B43;
+            height: 40px;
+            background: var(--surface, #1a1a2e);
+            border-bottom: 0;
             padding: 0 8px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+            font-family: ${FONT_SANS};
             font-size: 13px;
             user-select: none;
             gap: 4px;
@@ -733,14 +734,14 @@ export class ToolbarWidget {
 
         const dark = this._currentTheme === 'dark';
         const menu = document.createElement('div');
-        menu.className = 'toolbar-menu';
+        menu.className = 'toolbar-menu soft-menu';
         menu.setAttribute('role', 'menu');
         // text-transform:uppercase dile gore: 'tr' ile "Dakika" -> "DAKİKA" (lang yoksa "DAKIKA").
         menu.lang = getCurrentLanguage();
         menu.style.cssText = `
             position: fixed; z-index: 1000; min-width: 190px; max-height: 70vh; overflow-y: auto;
-            padding: 4px 0; border-radius: 6px; font-size: 13px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+            padding: 6px; border-radius: 6px; font-size: 13px;
+            font-family: ${FONT_SANS};
             background: ${dark ? '#1e222d' : '#ffffff'}; color: ${dark ? '#d1d4dc' : '#131722'};
             border: 1px solid ${dark ? '#2a2e39' : '#e0e3eb'};
             box-shadow: 0 6px 20px rgba(0,0,0,${dark ? 0.45 : 0.15});
@@ -814,6 +815,7 @@ export class ToolbarWidget {
 
     private _menuSeparator(menu: HTMLElement): void {
         const el = document.createElement('div');
+        el.className = 'soft-menu-sep';
         el.style.cssText = `height:1px;margin:4px 0;background:${this._currentTheme === 'dark' ? '#2a2e39' : '#e0e3eb'};`;
         menu.appendChild(el);
     }
@@ -827,9 +829,10 @@ export class ToolbarWidget {
         const activeBg = dark ? 'rgba(41,98,255,0.18)' : 'rgba(41,98,255,0.10)';
         const row = document.createElement('div');
         row.dataset.menuItem = '';
+        if (opts.active) row.dataset.softOn = '1';
         row.setAttribute('role', 'menuitem');
         row.tabIndex = 0;
-        row.style.cssText = `display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;cursor:pointer;outline:none;background:${opts.active ? activeBg : 'transparent'};color:${opts.active ? '#2962ff' : 'inherit'};`;
+        row.style.cssText = `display:flex;align-items:center;gap:8px;padding:0 10px;min-height:32px;cursor:pointer;outline:none;background:${opts.active ? activeBg : 'transparent'};color:inherit;`;
         const label = document.createElement('div');
         label.style.cssText = 'display:flex;align-items:center;flex:1;white-space:nowrap;';
         label.innerHTML = opts.html;
@@ -1436,8 +1439,8 @@ export class ToolbarWidget {
         const isDark = theme === 'dark';
         // Hook for host-injected controls (CSS: .chart-toolbar[data-theme="light"] ...).
         this._element.dataset.theme = theme;
-        this._element.style.background = isDark ? '#131722' : '#f8f9fa';
-        this._element.style.borderBottomColor = isDark ? '#2a2e39' : '#e0e3eb';
+        this._element.style.background = 'var(--surface)';
+        this._element.style.borderBottomColor = 'transparent';
 
         // Update all buttons
         const buttons = this._element.querySelectorAll('button:not([data-active="true"])');

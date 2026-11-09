@@ -7,6 +7,8 @@ import { OverlayIndicator } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteContext, barTimeMs } from './remote-compute';
 import { IndicatorLegendInfo } from './legend-info';
+import { canvasSans } from '../helpers/fonts';
+import { FONT_SANS } from '../helpers/fonts';
 
 export type NewsFilter = 'all' | 'featured' | 'high';
 
@@ -672,7 +674,7 @@ export class NewsIndicator extends OverlayIndicator {
             ctx.fill();
             ctx.stroke();
             ctx.fillStyle = this.isDark ? '#d1d4dc' : '#131722';
-            ctx.font = `bold ${8 * hpr}px sans-serif`;
+            ctx.font = `bold ${8 * hpr}px ${canvasSans()}`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(c.items.length > 99 ? '99+' : String(c.items.length), bx, by + 0.5 * vpr);
@@ -833,7 +835,7 @@ export class NewsIndicator extends OverlayIndicator {
             'position:fixed', 'z-index:2147483000', 'box-sizing:border-box', 'width:320px', 'max-width:92vw',
             `background:${dark ? '#1e222d' : '#ffffff'}`, `color:${fg}`,
             `border:1px solid ${dark ? '#363a45' : '#d0d3db'}`, 'border-radius:8px', 'padding:8px 10px',
-            'box-shadow:0 6px 24px rgba(0,0,0,0.35)', 'font:12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+            'box-shadow:0 6px 24px rgba(0,0,0,0.35)', 'font:12px/1.35 ' + FONT_SANS + '',
             `pointer-events:${pinned ? 'auto' : 'none'}`, 'left:0', 'top:0',
         ].join(';');
         const today = this._fmtTime(Date.now()).day;

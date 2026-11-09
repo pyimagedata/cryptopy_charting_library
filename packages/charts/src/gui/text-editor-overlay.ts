@@ -8,7 +8,8 @@
 
 import type { DrawingManager } from '../drawings/drawing-manager';
 import type { Drawing } from '../drawings/drawing';
-import { FONT_FAMILY, textBoxBackgroundCss, EditorSpec } from '../drawings/text-common';
+import { textBoxBackgroundCss, EditorSpec } from '../drawings/text-common';
+import { canvasSans } from '../helpers/fonts';
 
 const LINE_HEIGHT = 1.2;
 
@@ -157,7 +158,7 @@ export class TextEditorOverlay {
         }
         s.borderRadius = `${spec.radius}px`;
         s.color = spec.color;
-        s.font = `${spec.italic ? 'italic ' : ''}${spec.bold ? 'bold ' : ''}${spec.fontSize}px ${FONT_FAMILY}`;
+        s.font = `${spec.italic ? 'italic ' : ''}${spec.bold ? 'bold ' : ''}${spec.fontSize}px ${canvasSans()}`;
         s.lineHeight = `${spec.fontSize * (spec.lineHeightRatio ?? LINE_HEIGHT)}px`;
         s.textAlign = spec.align;
         s.whiteSpace = spec.wrap ? 'pre-wrap' : 'pre';

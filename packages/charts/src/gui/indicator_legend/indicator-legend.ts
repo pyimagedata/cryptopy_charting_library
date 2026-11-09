@@ -45,12 +45,13 @@ function ensureStyles(): void {
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-        .tvl-list { display: flex; flex-direction: column; align-items: flex-start; gap: ${m.rowGap}px; font-size: ${m.fontSize}px; line-height: ${m.rowHeight}px; pointer-events: none; color: var(--tvl-text); }
+        .tvl-list { display: flex; flex-direction: column; align-items: flex-start; gap: ${m.rowGap}px; font-size: ${m.fontSize}px; line-height: ${m.rowHeight}px; pointer-events: none; color: var(--tvl-text); font-variant-numeric: tabular-nums; }
         .tvl-row { display: flex; align-items: center; gap: ${m.gap}px; height: ${m.rowHeight}px; padding: 0 ${m.rowPadX}px; margin-left: -${m.rowPadX}px; border-radius: ${m.radius}px; width: max-content; max-width: 100%; box-sizing: border-box; white-space: nowrap; cursor: default; pointer-events: auto; user-select: none; }
         .tvl-row:hover, .tvl-row.tvl-menu-open { background: var(--tvl-rowbg); }
         .tvl-title { display: inline-flex; align-items: baseline; gap: 4px; }
         .tvl-name { color: var(--tvl-text); }
         .tvl-params { color: var(--tvl-muted); }
+        .tvl-err { color: #f23645; background: rgba(242, 54, 69, 0.14); border-radius: 3px; padding: 0 5px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
         .tvl-values { display: inline-flex; align-items: center; gap: ${m.gap}px; }
         .tvl-hidden .tvl-title { opacity: ${m.dimmedOpacity}; }
         .tvl-hidden .tvl-values { display: none; }
@@ -125,7 +126,7 @@ export class IndicatorLegendList {
 
         const signature = [
             theme, collapsed ? 'c' : 'e', toggleShown ? 't' : '-',
-            ...indicators.map((ind, i) => `${ind.id}|${ind.visible ? 1 : 0}|${ind.hiddenByInterval ? 1 : 0}|${infos[i].title}|${infos[i].params.join(' ')}|${infos[i].plots.length}`),
+            ...indicators.map((ind, i) => `${ind.id}|${ind.visible ? 1 : 0}|${ind.hiddenByInterval ? 1 : 0}|${infos[i].title}|${infos[i].params.join(' ')}|${infos[i].plots.length}|${infos[i].error ?? ''}|${infos[i].busy ? 1 : 0}|${infos[i].alert ?? ''}`),
         ].join('\n');
 
         if (signature !== this._signature) {
@@ -223,6 +224,28 @@ export class IndicatorLegendList {
             title.appendChild(params);
         }
         row.appendChild(title);
+
+        if (info.busy) {
+            const busy = document.createElement('span');
+            busy.className = 'tvl-params';
+            busy.textContent = t('Running...');
+            row.appendChild(busy);
+        }
+        if (info.alert) {
+            const bell = document.createElement('span');
+            bell.className = 'tvl-bell';
+            bell.title = info.alert;
+            bell.style.cssText = 'display:inline-flex;align-items:center;margin-left:4px;color:#f5a623;';
+            bell.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><path d="M6 1.2a3.2 3.2 0 0 0-3.2 3.2c0 2.2-1.1 3.3-1.1 3.3h8.6s-1.1-1.1-1.1-3.3A3.2 3.2 0 0 0 6 1.2z M5 9.2a1 1 0 0 0 2 0z"/></svg>';
+            row.appendChild(bell);
+        }
+        if (info.error) {
+            const err = document.createElement('span');
+            err.className = 'tvl-err';
+            err.textContent = '\u26A0 ' + (info.error.length > 48 ? info.error.slice(0, 47) + '\u2026' : info.error);
+            err.title = info.error;
+            row.appendChild(err);
+        }
 
         const values = document.createElement('span');
         values.className = 'tvl-values';

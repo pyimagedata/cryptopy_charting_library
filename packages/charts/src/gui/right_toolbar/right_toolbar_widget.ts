@@ -4,6 +4,7 @@
  * renders items, the active highlight and numeric badges. Hosts may register extra items via `addItem`.
  */
 import { Delegate } from '../../helpers/delegate';
+import { FONT_SANS } from '../../helpers/fonts';
 
 export const RIGHT_TOOLBAR_WIDTH = 45;
 
@@ -164,9 +165,9 @@ export class RightToolbarWidget {
         this._theme = theme;
         const dark = theme === 'dark';
         this._el.dataset.theme = theme;
-        this._el.style.background = dark ? '#131722' : '#f8f9fa';
-        this._el.style.borderLeft = `1px solid ${dark ? '#2a2e39' : '#e0e3eb'}`;
-        this._separator.style.background = dark ? '#2a2e39' : '#e0e3eb';
+        this._el.style.background = 'var(--surface)';
+        this._el.style.borderLeft = '0';
+        this._separator.style.background = 'var(--sep)';
         for (const id of this._items.keys()) this._style(id);
     }
 
@@ -181,11 +182,11 @@ export class RightToolbarWidget {
         if (!anchor || wasOpen || items.length === 0) return;
         const dark = this._theme === 'dark';
         const el = document.createElement('div');
-        el.className = 'tv-right-toolbar-menu';
+        el.className = 'tv-right-toolbar-menu soft-menu';
         el.setAttribute('role', 'menu');
         el.style.cssText = `
             position: fixed; z-index: 10000; min-width: 180px; padding: 4px 0; box-sizing: border-box; border-radius: 6px;
-            font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; visibility: hidden;
+            font: 13px ${FONT_SANS}; visibility: hidden;
             background: ${dark ? '#1e222d' : '#ffffff'}; color: ${dark ? '#d1d4dc' : '#131722'};
             border: 1px solid ${dark ? '#363a45' : '#e0e3eb'};
             box-shadow: ${dark ? '0 8px 24px rgba(0,0,0,0.45)' : '0 8px 24px rgba(19,23,34,0.18)'};
@@ -195,8 +196,9 @@ export class RightToolbarWidget {
             const b = document.createElement('button');
             b.type = 'button';
             b.setAttribute('role', 'menuitem');
+            b.className = 'soft-menu-row';
             b.style.cssText = `
-                display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 14px; border: none; cursor: pointer;
+                display: flex; align-items: center; gap: 10px; width: 100%; padding: 0 10px; border: none; cursor: pointer;
                 background: transparent; color: inherit; font: inherit; text-align: left; white-space: nowrap;
             `;
             if (item.icon) {

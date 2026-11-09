@@ -10,6 +10,7 @@ import {
     checkboxRow,
     lineWidthRow,
 } from '../gui/indicator_settings';
+import { canvasSans } from '../helpers/fonts';
 
 interface HalfTrendState {
     time: number;
@@ -477,7 +478,7 @@ export class HalfTrendIndicator extends OverlayIndicator {
         }
 
         const label = direction === 'buy' ? 'Buy' : 'Sell';
-        ctx.font = `${11 * hpr}px Arial`;
+        ctx.font = `${11 * hpr}px ${canvasSans()}`;
         const paddingX = 6 * hpr;
         const textWidth = ctx.measureText(label).width;
         const boxWidth = textWidth + paddingX * 2;

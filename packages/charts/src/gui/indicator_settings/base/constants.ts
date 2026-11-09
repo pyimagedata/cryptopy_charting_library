@@ -1,3 +1,4 @@
+import { FONT_SANS } from '../../../helpers/fonts';
 /**
  * Indicator settings dialog: every colour / size in one place (TradingView look).
  * The dialog root exposes the palette as CSS variables (`--tvs-*`), so components
@@ -73,7 +74,7 @@ export const TV_SIZES = {
     footerPad: '12px 20px',
     rowGap: 12,
     zIndex: 10000,
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif",
+    fontFamily: FONT_SANS,
     fontSize: 14,
     smallFontSize: 12,
     titleFontSize: 18,

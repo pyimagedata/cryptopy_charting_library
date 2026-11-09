@@ -2,6 +2,7 @@ import { toEpochMs } from '../helpers/time';
 import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
 import { t } from '../helpers/translations';
+import { canvasSans } from '../helpers/fonts';
 
 /**
  * Special Forces: destek/direnç çizgileri + Bobbin/Engulf kutuları.
@@ -276,7 +277,7 @@ export class SpecialForcesIndicator extends OverlayIndicator {
 
     private _drawNotice(ctx: CanvasRenderingContext2D, hpr: number, vpr: number, text: string): void {
         ctx.save();
-        ctx.font = `${12 * vpr}px sans-serif`;
+        ctx.font = `${12 * vpr}px ${canvasSans()}`;
         ctx.textBaseline = 'middle';
         ctx.fillStyle = withAlpha(this._sfOptions.resistanceColor, 0.95);
         ctx.fillText(text, 70 * hpr, 120 * vpr);

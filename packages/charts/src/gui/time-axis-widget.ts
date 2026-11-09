@@ -1,6 +1,8 @@
 import { TimeScale } from '../model/time-scale';
 import { TimeParts } from '../model/time-marks';
 import { getCurrentLanguage } from '../helpers/translations';
+import { resolveFontFamily, FONT_SANS } from '../helpers/fonts';
+import { SOFT } from './soft_theme';
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -26,10 +28,10 @@ export interface TimeAxisWidgetOptions {
 
 const defaultTimeAxisOptions: TimeAxisWidgetOptions = {
     height: 28,
-    backgroundColor: '#16213e',  // Darker navy (original panel bg)
+    backgroundColor: SOFT.dark.surface,
     textColor: 'rgba(255, 255, 255, 0.5)',
     fontSize: 11,
-    fontFamily: '-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif',
+    fontFamily: FONT_SANS,
     timezone: '',
 };
 
@@ -92,14 +94,17 @@ export class TimeAxisWidget implements Disposable {
         this._timeScale.timeMarks.setTimestamps(timestamps);
     }
 
+    /** Re-measure tick labels after the webfont changed. */
+    refreshFont(): void { this._installMeasure(); }
+
     /** Tick marks are laid out with the real canvas text metrics (label width + padding). */
     private _installMeasure(): void {
         const o = this._options;
         this._timeScale.timeMarks.setMeasure((text, bold) => {
             if (!this._ctx) return text.length * 7;
-            this._ctx.font = `${bold ? 'bold ' : ''}${o.fontSize}px ${o.fontFamily}`;
+            this._ctx.font = `${bold ? 'bold ' : ''}${o.fontSize}px ${resolveFontFamily(o.fontFamily)}`;
             return this._ctx.measureText(text).width;
-        }, `${o.fontSize}|${o.fontFamily}`);
+        }, `${o.fontSize}|${resolveFontFamily(o.fontFamily)}`);
     }
 
     render(): void {
@@ -115,13 +120,7 @@ export class TimeAxisWidget implements Disposable {
         this._ctx.fillStyle = this._options.backgroundColor;
         this._ctx.fillRect(0, 0, width, height);
 
-        // Draw top border
-        this._ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-        this._ctx.lineWidth = 1;
-        this._ctx.beginPath();
-        this._ctx.moveTo(0, 0.5);
-        this._ctx.lineTo(width, 0.5);
-        this._ctx.stroke();
+        // No top border: the axis continues the pane surface seamlessly (soft layout)
 
         // Get visible range
         const visibleRange = this._timeScale.visibleRange();
@@ -145,7 +144,7 @@ export class TimeAxisWidget implements Disposable {
 
             // Label: day and above are bold / brighter, like TradingView
             this._ctx.fillStyle = mark.bold ? this._boldColor : this._options.textColor;
-            this._ctx.font = `${mark.bold ? 'bold ' : ''}${this._options.fontSize}px ${this._options.fontFamily}`;
+            this._ctx.font = `${mark.bold ? 'bold ' : ''}${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
             this._ctx.fillText(mark.label, x, 8);
         }
 
@@ -183,7 +182,7 @@ export class TimeAxisWidget implements Disposable {
         if (!this._ctx) return;
 
         const padding = 8;
-        this._ctx.font = `bold ${this._options.fontSize}px ${this._options.fontFamily}`;
+        this._ctx.font = `bold ${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
         const textWidth = this._ctx.measureText(text).width;
         const boxWidth = textWidth + (padding * 2);
         const boxHeight = 20;
@@ -197,7 +196,12 @@ export class TimeAxisWidget implements Disposable {
 
         // Background
         this._ctx.fillStyle = color;
-        this._ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+        {
+            // 2px radius label (soft layout)
+            const c2d = this._ctx as any;
+            if (typeof c2d.roundRect === 'function') { c2d.beginPath(); c2d.roundRect(boxX, boxY, boxWidth, boxHeight, 2); c2d.fill(); }
+            else this._ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+        }
 
         // Text
         this._ctx.fillStyle = '#ffffff';
@@ -215,7 +219,7 @@ export class TimeAxisWidget implements Disposable {
      */
     setTheme(theme: 'dark' | 'light'): void {
         const isDark = theme === 'dark';
-        this._options.backgroundColor = isDark ? '#16213e' : '#f8f9fa';
+        this._options.backgroundColor = isDark ? SOFT.dark.surface : SOFT.light.surface;
         this._options.textColor = isDark ? 'rgba(255, 255, 255, 0.5)' : '#787b86';
         this._boldColor = isDark ? '#d1d4dc' : '#131722';
         this.render();

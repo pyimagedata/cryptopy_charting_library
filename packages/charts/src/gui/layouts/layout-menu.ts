@@ -1,5 +1,6 @@
 import { t } from '../../helpers/translations';
 import { LayoutDef, LayoutId, isLayoutLocked, layoutThumbnailSvg, layoutsByCount } from './layout-catalog';
+import { FONT_SANS } from '../../helpers/fonts';
 
 export interface LayoutSyncState {
     symbol: boolean;
@@ -124,6 +125,7 @@ export class LayoutMenu {
         const pop = document.createElement('div');
         pop.className = 'tv-layout-menu';
         document.body.appendChild(pop);
+        pop.classList.add('soft-menu');
         this._popover = pop;
         this._notice = '';
         this._render();
@@ -183,7 +185,7 @@ export class LayoutMenu {
         const max = this._host.getMaxCharts();
         pop.style.cssText = `position:fixed;z-index:100000;width:292px;box-sizing:border-box;padding:8px 0;border-radius:8px;
             background:${c.bg};color:${c.text};border:1px solid ${c.border};box-shadow:${c.shadow};
-            font:13px -apple-system,BlinkMacSystemFont,'Trebuchet MS',Roboto,Ubuntu,sans-serif;user-select:none;
+            font:13px ${FONT_SANS};user-select:none;
             top:${pop.style.top};left:${pop.style.left};`;
         pop.innerHTML = '';
 

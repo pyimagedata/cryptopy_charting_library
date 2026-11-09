@@ -13,6 +13,7 @@ import { FlagMarkedDrawing } from '../../../drawings/flag-marked-drawing';
 import { StickerDrawing } from '../../../drawings/sticker-drawing';
 import { cssFont, wrapText, textBoxBackgroundCss, withAlpha } from '../../../drawings/text-common';
 import { parseColor } from '../../../drawings/shape-common';
+import { canvasSans } from '../../../helpers/fonts';
 
 /** Metni ayarlara gore satirlara boler (kelime kaydirma aciksa wrapWidth px'e sigdirir); ctx.font ayarli olmali. */
 function layoutLines(ctx: CanvasRenderingContext2D, text: string, wrap: boolean, wrapWidth: number, dpr: number): string[] {
@@ -333,7 +334,7 @@ export function drawFlagMarked(
     ctx.fill();
 
     if (text) {
-        ctx.font = `${10 * dpr}px sans-serif`;
+        ctx.font = `${10 * dpr}px ${canvasSans()}`;
         ctx.fillStyle = '#787b86';
         ctx.textAlign = 'left';
         ctx.fillText(text, x + 4 * dpr, pixelPoint.y + 12 * dpr);
@@ -361,7 +362,7 @@ export function drawSticker(
     ctx.save();
 
     const fontScalar = fontSize * dpr;
-    ctx.font = `${fontScalar}px sans-serif`;
+    ctx.font = `${fontScalar}px ${canvasSans()}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 

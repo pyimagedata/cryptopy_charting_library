@@ -19,6 +19,7 @@ import { DrawingStyle } from '../../../drawings/drawing';
 import { t } from '../../../helpers/translations';
 
 import { fillWithOpacity } from './utils';
+import { canvasSans } from '../../../helpers/fonts';
 
 export type PatternDrawing =
     | XABCDPatternDrawing
@@ -545,7 +546,7 @@ function drawControlPoints(
 
 function fontFor(style: DrawingStyle, dpr: number): string {
     const size = (style.fontSize || 12) * dpr;
-    return `${style.fontStyle === 'italic' ? 'italic ' : ''}${style.fontWeight === 'bold' ? 'bold ' : ''}${size}px Arial`;
+    return `${style.fontStyle === 'italic' ? 'italic ' : ''}${style.fontWeight === 'bold' ? 'bold ' : ''}${size}px ${canvasSans()}`;
 }
 
 /** Fill the current path with the pattern's background (colour + opacity + enabled flag). */

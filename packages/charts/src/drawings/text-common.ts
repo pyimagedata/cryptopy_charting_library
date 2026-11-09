@@ -14,6 +14,7 @@ import {
     textareaRow,
     lineWidthRow,
 } from './drawing-settings-config';
+import { canvasSans } from '../helpers/fonts';
 
 /** TradingView paleti */
 export const TV_COLORS = {
@@ -26,7 +27,7 @@ export const TV_COLORS = {
     white: '#FFFFFF',
 };
 
-export const FONT_FAMILY = '-apple-system, BlinkMacSystemFont, sans-serif';
+export const FONT_FAMILY_FN = canvasSans; // runtime-resolved (see helpers/fonts)
 
 export const FONT_SIZES = [10, 11, 12, 14, 16, 20, 24, 28, 32, 40, 48];
 
@@ -35,7 +36,7 @@ export function fontSizeOptions(): { value: string; label: string }[] {
 }
 
 export function cssFont(size: number, bold: boolean, italic: boolean): string {
-    return `${italic ? 'italic' : 'normal'} ${bold ? 'bold' : 'normal'} ${size}px ${FONT_FAMILY}`;
+    return `${italic ? 'italic' : 'normal'} ${bold ? 'bold' : 'normal'} ${size}px ${canvasSans()}`;
 }
 
 /** Rengi (hex / rgb / rgba) verilen opaklikla rgba() metnine cevirir; cozulemezse oldugu gibi doner. */

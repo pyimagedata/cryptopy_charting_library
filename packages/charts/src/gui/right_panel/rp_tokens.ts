@@ -8,12 +8,12 @@ export type RpTheme = 'dark' | 'light';
 
 export const RP_TOKENS: Record<RpTheme, Record<string, string>> = {
     dark: {
-        bg: '#131722', surface: '#1a1e29', border: '#2a2e39', text: '#e6e8ee', muted: '#787b86', hover: '#252a37',
-        chip: '#252a37', accent: '#2962ff', glow: 'rgba(120,140,200,.08)', up: '#089981', down: '#f23645',
+        bg: '#1a1a2e', surface: '#212139', border: 'rgba(255,255,255,.08)', text: '#e6e8ee', muted: '#787b86', hover: 'rgba(255,255,255,.07)',
+        chip: 'rgba(255,255,255,.1)', accent: '#2962ff', glow: 'rgba(120,140,200,.08)', up: '#089981', down: '#f23645',
     },
     light: {
-        bg: '#ffffff', surface: '#f5f7fa', border: '#e0e3eb', text: '#131722', muted: '#6a6d78', hover: '#eef1f6',
-        chip: '#e8ebf1', accent: '#2962ff', glow: 'rgba(41,98,255,.05)', up: '#089981', down: '#f23645',
+        bg: '#ffffff', surface: '#f4f5f8', border: 'rgba(0,0,0,.09)', text: '#131722', muted: '#6a6d78', hover: 'rgba(0,0,0,.05)',
+        chip: 'rgba(0,0,0,.07)', accent: '#2962ff', glow: 'rgba(41,98,255,.05)', up: '#089981', down: '#f23645',
     },
 };
 
@@ -21,8 +21,8 @@ export const RP_TOKENS: Record<RpTheme, Record<string, string>> = {
 export function applyRpTokens(el: HTMLElement, theme: RpTheme): void {
     const tk = RP_TOKENS[theme === 'light' ? 'light' : 'dark'];
     for (const k of Object.keys(tk)) el.style.setProperty(`--rp-${k}`, tk[k]);
-    el.style.setProperty('--rp-r-lg', '18px');
-    el.style.setProperty('--rp-r-md', '12px');
+    el.style.setProperty('--rp-r-lg', '12px');
+    el.style.setProperty('--rp-r-md', '10px');
     el.style.setProperty('--rp-r-sm', '8px');
     el.dataset.theme = theme === 'light' ? 'light' : 'dark';
 }
@@ -34,10 +34,10 @@ export function v(name: string): string {
 
 /** Soft look for ContextMenu (menus are appended outside the panel root, so concrete colours). */
 export const RP_MENU_SKIN = {
-    bg: { dark: RP_TOKENS.dark.surface, light: RP_TOKENS.light.surface },
-    border: { dark: RP_TOKENS.dark.border, light: RP_TOKENS.light.border },
-    radius: 12,
-    shadow: { dark: '0 10px 30px rgba(0,0,0,.45)', light: '0 10px 30px rgba(19,23,34,.14)' },
+    bg: { dark: '#23233b', light: '#ffffff' },
+    border: { dark: 'transparent', light: 'transparent' },
+    radius: 6,
+    shadow: { dark: '0 2px 6px rgba(0,0,0,.45)', light: '0 2px 6px rgba(0,0,0,.18)' },
 };
 
 /** Font stacks: host page defines --rp-font-sans / --rp-font-mono (e.g. via @font-face); system fallbacks otherwise. */

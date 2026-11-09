@@ -7,6 +7,7 @@
 
 import { t } from '../../../helpers/translations';
 import { getPopoverHost, registerOpenPopover, unregisterOpenPopover, copyThemeVars } from '../../settings_modal/components/popover';
+import { FONT_SANS } from '../../../helpers/fonts';
 
 const GRAYSCALE = ['#ffffff', '#e0e0e0', '#bdbdbd', '#9e9e9e', '#757575', '#424242', '#212121', '#000000'];
 
@@ -122,7 +123,7 @@ export function createColorInput(
         popup.className = 'tvs-color-popup';
         popup.style.cssText = `position: fixed; top: 0; left: 0; visibility: hidden; background: var(--modal-bg); color: var(--text-primary);
             border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; box-shadow: var(--shadow); z-index: 10001; width: 284px;
-            box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif; font-size: 13px;`;
+            box-sizing: border-box; font-family: ${FONT_SANS}; font-size: 13px;`;
 
         let boxes: HTMLElement[] = [];
         const refreshBoxes = () => {

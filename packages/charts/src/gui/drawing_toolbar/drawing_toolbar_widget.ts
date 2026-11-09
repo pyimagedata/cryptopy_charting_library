@@ -5,6 +5,7 @@
 import { Delegate } from '../../helpers/delegate';
 import { t } from '../../helpers/translations';
 import { DRAWING_ICONS } from './icons';
+import { FONT_SANS } from '../../helpers/fonts';
 
 // SVG Icons for drawing tools
 const KEEP_DRAWING_STORAGE_KEY = 'charts.keepDrawingMode';
@@ -616,7 +617,7 @@ export class DrawingToolbarWidget {
             display: flex;
             flex-direction: column;
             padding: 4px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+            font-family: ${FONT_SANS};
             user-select: none;
             z-index: 100;
             overflow-y: auto;

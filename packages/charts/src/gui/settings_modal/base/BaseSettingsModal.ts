@@ -7,6 +7,7 @@
 import { Delegate } from '../../../helpers/delegate';
 import { Drawing } from '../../../drawings';
 import { t, getCurrentLanguage } from '../../../helpers/translations';
+import { FONT_SANS } from '../../../helpers/fonts';
 
 /** Tab configuration */
 export interface ModalTab {
@@ -163,7 +164,7 @@ export abstract class BaseSettingsModal {
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: ${FONT_SANS};
         `;
 
         this._applyThemeVariables();

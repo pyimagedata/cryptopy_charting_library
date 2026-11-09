@@ -14,6 +14,7 @@ import { getAlertSettings, onAlertSettingsChange } from '../../alerts/alert-sett
 import { DEFAULT_ALERT_COLOR, alertTicker, conditionLabel, isAutoAlertMessage, isMovingCondition, snapAlertPrice } from '../../alerts/alert-text';
 import { ChartAlert } from '../../alerts/types';
 import { showToast } from '../toast/toast';
+import { FONT_SANS } from '../../helpers/fonts';
 
 export const ALERT_HIT_PX = 4;
 const DRAG_THRESHOLD_PX = 3;
@@ -170,7 +171,7 @@ export class AlertLinesController {
         pill.className = 'chart-alert-pill';
         pill.dataset.alertId = a.id;
         pill.style.cssText = 'position:absolute;right:6px;height:20px;box-sizing:border-box;display:flex;align-items:center;gap:5px;padding:0 6px;'
-            + 'border:1px solid;border-radius:4px;font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;'
+            + 'border:1px solid;border-radius:4px;font:11px ' + FONT_SANS + ';'
             + 'white-space:nowrap;pointer-events:auto;cursor:ns-resize;user-select:none;';
         const icon = document.createElement('span');
         icon.style.cssText = 'display:inline-flex;align-items:center;';

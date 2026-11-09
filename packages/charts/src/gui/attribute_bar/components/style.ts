@@ -1,3 +1,4 @@
+import { FONT_SANS } from '../../../helpers/fonts';
 /**
  * Attribute bar visual constants (TradingView floating drawing toolbar look).
  * All pixel / colour values live here (they are estimates and meant to be fine-tuned in one place).
@@ -39,7 +40,7 @@ export const ATTR_BAR_STYLE = {
         swatchSize: 20,
         swatchGap: 2,
         swatchRadius: 2,
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif",
+        fontFamily: FONT_SANS,
     },
     dark: {
         barBg: '#1e222d',

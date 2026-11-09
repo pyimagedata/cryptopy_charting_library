@@ -1,10 +1,10 @@
 import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } from './indicator';
 import { BarData } from '../model/data';
+import { canvasSans } from '../helpers/fonts';
 import {
     IndicatorSettingsConfig,
     createInputsTab,
-    createStyleTab,
-    createVisibilityTab,
+    createStyleTab,    createVisibilityTab,
     checkboxRow,
     colorRow,
     lineWidthRow,
@@ -293,7 +293,7 @@ function drawBreakoutLabel(
     const paddingY = 4 * vpr;
     const radius = 6 * hpr;
 
-    ctx.font = `${12 * hpr}px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+    ctx.font = `${12 * hpr}px ${canvasSans()}`;
     const text = match.labelText;
     const metrics = ctx.measureText(text);
     const width = metrics.width + paddingX * 2;

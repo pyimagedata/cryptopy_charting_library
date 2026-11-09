@@ -16,6 +16,7 @@ import {
 import { AlertIndicatorEntry, indicatorRefKey, operandLabel, plotShortLabel, alertableIndicatorDef } from '../../alerts/indicator-plots';
 import { AlertsError, AlertCondition, AlertDraft, AlertEventId, AlertGeometry, AlertInterval, AlertSound, AlertSource, AlertTrigger, ChartAlert, IndicatorRef, Operand } from '../../alerts/types';
 import { detectUiTheme, showToast, ToastTheme } from '../toast/toast';
+import { FONT_SANS } from '../../helpers/fonts';
 
 /** What the dialog needs to know about the chart it was opened from (all optional behaviour). */
 export interface AlertDialogChart {
@@ -61,7 +62,7 @@ const PALETTE = {
         backdrop: 'rgba(19,23,34,.45)', shadow: '0 12px 40px rgba(0,0,0,.25)', disabled: '#b2b5be', scheme: 'light',
     },
 };
-const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
+const FONT = FONT_SANS;
 
 let current: { close(): void } | null = null;
 

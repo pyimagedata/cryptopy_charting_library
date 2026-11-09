@@ -1,3 +1,4 @@
+import { canvasSans } from '../../../helpers/fonts';
 /**
  * Drawing Renderer Utilities
  * Shared utility functions for drawing renderers
@@ -91,7 +92,7 @@ export function drawLabel(
     dpr: number,
     padding: number = 4
 ): void {
-    ctx.font = `bold ${fontSize * dpr}px Arial`;
+    ctx.font = `bold ${fontSize * dpr}px ${canvasSans()}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 

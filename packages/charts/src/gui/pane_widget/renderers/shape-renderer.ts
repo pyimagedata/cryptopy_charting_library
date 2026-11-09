@@ -20,6 +20,7 @@ import {
 
 import { shapeFillCss } from '../../../drawings/shape-common';
 import { dashFromLineStyle, drawArrowHead } from '../../../drawings/line-tool-common';
+import { canvasSans } from '../../../helpers/fonts';
 
 /** Kapali sekil dolgusu: renk + seffaflik (style.fillColor/fillOpacity/fillEnabled). Mevcut yolu doldurur. */
 function fillShape(ctx: CanvasRenderingContext2D, style: RectangleDrawing['style']): void {
@@ -51,7 +52,7 @@ function drawShapeText(
     ctx.beginPath();
     ctx.rect(span ? span.x : box.x, box.y, span ? span.w : box.w, box.h);
     ctx.clip();
-    ctx.font = `${style.fontStyle === 'italic' ? 'italic' : 'normal'} ${style.fontWeight === 'bold' ? 'bold' : 'normal'} ${size}px Arial`;
+    ctx.font = `${style.fontStyle === 'italic' ? 'italic' : 'normal'} ${style.fontWeight === 'bold' ? 'bold' : 'normal'} ${size}px ${canvasSans()}`;
     ctx.fillStyle = style.textColor || style.color;
     ctx.textBaseline = 'top';
     const sx = span ? span.x : box.x;

@@ -15,6 +15,8 @@ import { BarData, isBarData } from '../model/data';
  */
 export class CandlestickRenderer {
     private readonly _series: CandlestickSeries;
+    /** Per-bar colour override (Evo Script barcolor): bar index -> colour for body, border and wick; null = series colours */
+    barColor: ((index: number) => string | null) | null = null;
 
     constructor(series: CandlestickSeries) {
         this._series = series;
@@ -36,7 +38,11 @@ export class CandlestickRenderer {
             if (!isBarData(bar.data)) continue;
 
             const data = bar.data as BarData;
-            const colors = this._series.getBarColors(data);
+            let colors = this._series.getBarColors(data);
+            if (this.barColor) {
+                const o = this.barColor(bar.index as number);
+                if (o) colors = { body: o, border: o, wick: o };
+            }
 
             const x = Math.round(bar.x * horizontalPixelRatio);
             const openY = Math.round((bar.openY ?? 0) * verticalPixelRatio);

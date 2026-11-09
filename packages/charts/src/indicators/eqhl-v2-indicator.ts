@@ -4,6 +4,7 @@
 import { OverlayIndicator } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+import { canvasSans } from '../helpers/fonts';
 
 export interface EqHLIndicatorV2Options {
     name: string;
@@ -288,7 +289,7 @@ export class EqHLIndicatorV2 extends OverlayIndicator {
                     else if (lvl.confirmStatus === 'pending') suffix = ' (bekliyor)';
                 }
                 const label = `${lvl.type === 'high' ? 'EQH' : 'EQL'}${lvl.touches > 2 ? ' x' + lvl.touches : ''}${suffix}`;
-                ctx.font = `${10 * hpr}px sans-serif`;
+                ctx.font = `${10 * hpr}px ${canvasSans()}`;
                 ctx.textAlign = 'left';
                 const stateLabel = showConf && lvl.swept && lvl.confirmStatus !== null;
                 if (stateLabel) {

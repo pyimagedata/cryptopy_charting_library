@@ -11,6 +11,7 @@ import {
     checkboxRow,
 } from '../gui/indicator_settings';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+import { canvasSans } from '../helpers/fonts';
 
 // ABCD formasyonları backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
 interface ABCDPoint {
@@ -254,7 +255,7 @@ export class ABCDPatternIndicator extends OverlayIndicator {
         vpr: number
     ): void {
         const labels = ['A', 'B', 'C', 'D'];
-        ctx.font = `${11 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.font = `${11 * Math.min(hpr, vpr)}px ${canvasSans()}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
@@ -277,7 +278,7 @@ export class ABCDPatternIndicator extends OverlayIndicator {
         hpr: number,
         vpr: number
     ): void {
-        ctx.font = `bold ${10 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.font = `bold ${10 * Math.min(hpr, vpr)}px ${canvasSans()}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 

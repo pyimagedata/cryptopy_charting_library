@@ -11,6 +11,7 @@ import {
     checkboxRow,
 } from '../gui/indicator_settings';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
+import { canvasSans } from '../helpers/fonts';
 
 // Formasyon tespiti backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
 interface PatternPoint {
@@ -454,7 +455,7 @@ export class ChartPatternsIndicator extends OverlayIndicator {
         ctx.fillRect(x, y - height / 2, width, height);
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#ffffff';
-        ctx.font = `${10 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.font = `${10 * Math.min(hpr, vpr)}px ${canvasSans()}`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, x + paddingX, y + 0.5 * vpr);
@@ -471,7 +472,7 @@ export class ChartPatternsIndicator extends OverlayIndicator {
         vpr: number
     ): void {
         const text = `Seviye ${formatPatternPrice(price)}`;
-        ctx.font = `${10 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.font = `${10 * Math.min(hpr, vpr)}px ${canvasSans()}`;
         const paddingX = 6 * hpr;
         const width = ctx.measureText(text).width + paddingX * 2;
         const height = 16 * vpr;

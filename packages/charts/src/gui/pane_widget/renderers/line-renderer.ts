@@ -5,6 +5,7 @@
 
 import type { DrawingStyle } from '../../../drawings/drawing';
 import { LineToolProps, drawLineToolDecorations, drawLabeledHorizontalLine } from '../../../drawings/line-tool-common';
+import { canvasSans } from '../../../helpers/fonts';
 
 /** Trend Line ailesi icin ek cizimler: uc sekilleri, orta nokta, istatistik kutusu */
 export interface LineToolDecor {
@@ -78,7 +79,7 @@ export function drawTrendLine(
         const fontSize = (style.fontSize || 14) * dpr;
         const fontWeight = style.fontWeight || 'normal';
         const fontStyle = style.fontStyle || 'normal';
-        ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px Arial`;
+        ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${canvasSans()}`;
 
         const textMetrics = ctx.measureText(style.text!);
         const textWidth = textMetrics.width;
@@ -281,7 +282,7 @@ export function drawTrendAngle(
     const labelX = p1.x + arcRadius + 15 * dpr;
     const labelY = p1.y + (angleDeg >= 0 ? -5 * dpr : 15 * dpr);
 
-    ctx.font = `${12 * dpr}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+    ctx.font = `${12 * dpr}px ${canvasSans()}`;
     ctx.fillStyle = style.color;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';

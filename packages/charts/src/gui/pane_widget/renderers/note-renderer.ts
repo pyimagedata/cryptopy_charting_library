@@ -16,6 +16,7 @@ import {
 import { cssFont, textBoxBackgroundCss } from '../../../drawings/text-common';
 import { parseColor } from '../../../drawings/shape-common';
 import { drawControlPoint } from './utils';
+import { canvasSans } from '../../../helpers/fonts';
 
 function isDrawable(c: string): boolean {
     return !!c && c !== 'transparent' && parseColor(c) !== null;
@@ -187,7 +188,7 @@ function drawSignpost(ctx: CanvasRenderingContext2D, d: SignpostDrawing, selecte
         const b = d.box;
         const midY = g.plate.y + g.plate.height / 2;
         if (d.showImage) {
-            ctx.font = `${Math.round(b.fontSize * 1.3)}px sans-serif`;
+            ctx.font = `${Math.round(b.fontSize * 1.3)}px ${canvasSans()}`;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#ffffff';

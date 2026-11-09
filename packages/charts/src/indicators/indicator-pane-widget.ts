@@ -15,6 +15,12 @@ import { Drawing } from '../drawings';
 import { IndicatorLegendList, LegendActionHandler, LEGEND_STYLE } from '../gui/indicator_legend';
 import { PANE_STYLE, PaneAction, paneColors } from './pane-layout';
 import { t } from '../helpers/translations';
+import { canvasSans } from '../helpers/fonts';
+import { HoverTip } from '../gui/hover-tip';
+import { spreadAxisTags } from '../helpers/axis-label-layout';
+import { syncEvoTables, clearEvoTables, evoTableTheme, EvoTableSource } from './evo-script-tables';
+import type { EvoTable } from './evo-script-core';
+import { FONT_SANS } from '../helpers/fonts';
 
 /** Disposable interface for cleanup */
 interface Disposable {
@@ -39,19 +45,21 @@ export interface IndicatorPaneOptions {
     crosshairColor: string;
 }
 
+import { SOFT } from '../gui/soft_theme';
+
 const defaultIndicatorPaneOptions: IndicatorPaneOptions = {
     height: 100,
     minHeight: 50,
     maxHeight: Infinity,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: SOFT.dark.surface,
     borderColor: 'rgba(255, 255, 255, 0.06)',
     showPriceScale: true,
     priceScaleWidth: 80,
-    priceAxisBackgroundColor: '#16213e',
+    priceAxisBackgroundColor: SOFT.dark.surface,
     priceAxisTextColor: 'rgba(255, 255, 255, 0.5)',
-    priceAxisBorderColor: 'rgba(255, 255, 255, 0.1)',
-    gridColor: 'rgba(255, 255, 255, 0.06)',
-    crosshairColor: 'rgba(255, 255, 255, 0.4)',
+    priceAxisBorderColor: 'transparent',
+    gridColor: SOFT.dark.grid,
+    crosshairColor: SOFT.dark.crosshair,
 };
 
 /**
@@ -361,13 +369,46 @@ export class IndicatorPaneWidget implements Disposable {
             }
         }
 
+        this._syncEvoTables(width, height);
+
         // Draw crosshair
         this._drawCrosshair(scope);
+    }
+
+    /** Evo Script tables of the scripts in this pane (HTML overlay) */
+    private _syncEvoTables(width: number, height: number): void {
+        if (!this._element) return;
+        const sources: EvoTableSource[] = [];
+        for (const ind of this._indicators) {
+            const f = (ind as any).getEvoTables;
+            if (typeof f !== 'function' || !ind.shown) continue;
+            const tables = (f.call(ind) as EvoTable[]).filter((t) => !t.forceOverlay);
+            if (tables.length) sources.push({ id: ind.id, tables });
+        }
+        if (sources.length === 0) { clearEvoTables(this._element); return; }
+        syncEvoTables(this._element, sources, width, height, evoTableTheme(this._options.backgroundColor), 30);
     }
 
     setCrosshair(x: number | null, y: number | null): void {
         this._crosshairX = x;
         this._crosshairY = y;
+        this._updateLabelTip();
+    }
+
+    private readonly _labelTip = new HoverTip(() => this._element);
+
+    /** Evo Script label tooltips: shown while the pointer is over a label that has one */
+    private _updateLabelTip(): void {
+        let text: string | null = null;
+        if (this._crosshairX !== null && this._crosshairY !== null) {
+            for (const ind of this._indicators) {
+                const f = (ind as any).getLabelTooltipAt;
+                if (typeof f !== 'function') continue;
+                text = f.call(ind, this._crosshairX, this._crosshairY);
+                if (text) break;
+            }
+        }
+        this._labelTip.set(text, this._crosshairX ?? 0, this._crosshairY ?? 0);
     }
 
     private _drawCrosshair(scope: BitmapCoordinatesScope): void {
@@ -377,7 +418,7 @@ export class IndicatorPaneWidget implements Disposable {
 
         const co = this._crosshairOptions;
         const dash = (style: string) =>
-            ctx.setLineDash(style === 'dotted' ? [2, 2] : style === 'solid' ? [] : [4, 4]);
+            ctx.setLineDash(style === 'dotted' ? [2, 2] : style === 'solid' ? [] : [5, 6]);
         const v = co ? co.vertLine : { visible: true, color: this._options.crosshairColor, width: 1, style: 'dashed' };
         const h = co ? co.horzLine : { visible: true, color: this._options.crosshairColor, width: 1, style: 'dashed' };
 
@@ -477,6 +518,12 @@ export class IndicatorPaneWidget implements Disposable {
         if (!visibleRange || data.length === 0) return;
 
         const options = indicator.options;
+
+        // Indicators that render their whole pane themselves (Evo Script)
+        if (typeof (indicator as any).drawPane === 'function') {
+            (indicator as any).drawPane(ctx, this._timeScale, this._priceScale, mediaSize.width, mediaSize.height);
+            return;
+        }
 
         // Draw level lines if available (e.g., RSI overbought/oversold)
         if ('getLevelLines' in indicator && typeof (indicator as any).getLevelLines === 'function') {
@@ -693,10 +740,13 @@ export class IndicatorPaneWidget implements Disposable {
         this._priceAxisCtx.lineTo(0.5, height);
         this._priceAxisCtx.stroke();
 
+        // Indicators with their own number format (Evo Script percent / volume / precision) label the scale themselves
+        this._priceScale.setValueFormatter((this._indicators[0] as any)?.getScaleFormatter?.() ?? null);
+
         // Price labels
         const marks = this._priceScale.marks();
         this._priceAxisCtx.fillStyle = this._options.priceAxisTextColor;
-        this._priceAxisCtx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        this._priceAxisCtx.font = `11px ${canvasSans()}`;
         this._priceAxisCtx.textAlign = 'right';
         this._priceAxisCtx.textBaseline = 'middle';
 
@@ -704,12 +754,33 @@ export class IndicatorPaneWidget implements Disposable {
             this._priceAxisCtx.fillText(mark.label, width - 8, mark.coord);
         }
 
-        this._updateLastValueLabel();
-
-        if (this._lastValueLabel) {
-            const y = this._priceScale.priceToCoordinate(this._lastValueLabel.price);
-            this._drawAxisLabel(y, this._lastValueLabel.text, this._lastValueLabel.color, true);
+        // Tags: hlines of an Evo Script, its per-plot last-value tags or the default last-value tag.
+        // Tags that would overlap are stacked vertically (the default last-value tag stays put).
+        const tags: Array<{ y: number; text: string; color: string; last: boolean }> = [];
+        for (const ind of this._indicators) {
+            const labels = typeof (ind as any).getAxisLabels === 'function' ? (ind as any).getAxisLabels() : [];
+            for (const l of labels as Array<{ price: number; color: string; text?: string }>) {
+                const y = this._priceScale.priceToCoordinate(l.price);
+                if (y >= 0 && y <= height) tags.push({ y, text: l.text ?? this._priceScale.formatPrice(l.price), color: l.color, last: false });
+            }
         }
+        // Indicators that list their own last-value tags (one per plot, own colour / format) replace the single default tag
+        const own = typeof (this._indicators[0] as any)?.getLastValueLabels === 'function'
+            ? (this._indicators[0] as any).getLastValueLabels() as Array<{ price: number; text: string; color: string }> : null;
+        if (own) {
+            this._lastValueLabel = null;
+            for (const l of own) {
+                const y = this._priceScale.priceToCoordinate(l.price);
+                if (y >= 0 && y <= height) tags.push({ y, text: l.text, color: l.color, last: false });
+            }
+        } else {
+            this._updateLastValueLabel();
+        }
+        if (this._lastValueLabel) {
+            tags.push({ y: this._priceScale.priceToCoordinate(this._lastValueLabel.price), text: this._lastValueLabel.text, color: this._lastValueLabel.color, last: true });
+        }
+        const ys = spreadAxisTags(tags.map((t) => ({ y: t.y, h: 20, fixed: t.last })), 0, height);
+        tags.forEach((t, i) => this._drawAxisLabel(ys[i], t.text, t.color, t.last));
 
         if (this._crosshairY !== null) {
             const value = this._priceScale.coordinateToPrice(this._crosshairY as any);
@@ -774,7 +845,7 @@ export class IndicatorPaneWidget implements Disposable {
         if (y < -20 || y > height + 20) return;
 
         const padding = 8;
-        ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.font = `bold 11px ${canvasSans()}`;
         const textWidth = ctx.measureText(text).width;
         const boxHeight = 20;
         const boxWidth = textWidth + (padding * 2);
@@ -863,7 +934,7 @@ export class IndicatorPaneWidget implements Disposable {
             right: ${this._options.priceScaleWidth + LEGEND_STYLE.metrics.reservedRight}px;
             z-index: 11;
             pointer-events: none;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: ${FONT_SANS};
         `;
         this._legendHost.appendChild(this._legend.element);
         this._element.appendChild(this._legendHost);
@@ -949,7 +1020,7 @@ export class IndicatorPaneWidget implements Disposable {
             align-items: center;
             z-index: 12;
             border-radius: ${m.radius}px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: ${FONT_SANS};
         `;
         this._element.appendChild(this._controlsEl);
         this._element.addEventListener('mouseenter', () => this._showControls(true));
@@ -1100,13 +1171,13 @@ export class IndicatorPaneWidget implements Disposable {
         const isDark = theme === 'dark';
         this._theme = theme;
 
-        this._options.backgroundColor = isDark ? '#1a1a2e' : '#ffffff';
+        this._options.backgroundColor = isDark ? SOFT.dark.surface : SOFT.light.surface;
         this._options.borderColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
-        this._options.priceAxisBackgroundColor = isDark ? '#16213e' : '#f8f9fa';
+        this._options.priceAxisBackgroundColor = isDark ? SOFT.dark.surface : SOFT.light.surface;
         this._options.priceAxisTextColor = isDark ? 'rgba(255, 255, 255, 0.5)' : '#787b86';
-        this._options.priceAxisBorderColor = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
-        this._options.gridColor = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
-        this._options.crosshairColor = isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.3)';
+        this._options.priceAxisBorderColor = 'transparent';
+        this._options.gridColor = isDark ? SOFT.dark.grid : SOFT.light.grid;
+        this._options.crosshairColor = isDark ? SOFT.dark.crosshair : SOFT.light.crosshair;
 
         if (this._element) this._element.style.background = this._options.backgroundColor;
         this._paintSeparator(false);

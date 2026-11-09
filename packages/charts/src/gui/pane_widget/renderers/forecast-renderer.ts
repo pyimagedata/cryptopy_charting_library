@@ -10,6 +10,7 @@ import { GhostFeedDrawing } from '../../../drawings/ghost-feed-drawing';
 import { estimatePricePrecision } from '../../../drawings/line-tool-common';
 import { colorWithTransparency } from '../../../drawings/volume-tools-common';
 import { drawControlPoint } from './utils';
+import { canvasSans } from '../../../helpers/fonts';
 
 type Pt = { x: number; y: number };
 type TimeToPixel = (time: number) => number | null;
@@ -84,7 +85,7 @@ export function drawPositionForecast(
     const stats = forecastStats(p1, p2, { precision, symbol, barIntervalMs: barIntervalMs(bars) });
     const lines = forecastLines(stats, precision, status);
     const fontPx = 12;
-    ctx.font = `${fontPx}px Arial`;
+    ctx.font = `${fontPx}px ${canvasSans()}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const padX = 8, padY = 5, lineH = fontPx * 1.4;

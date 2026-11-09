@@ -23,6 +23,12 @@ export interface IndicatorLegendInfo {
     plots: LegendPlot[];
     /** Decimals for plot values; undefined picks an adaptive precision */
     precision?: number;
+    /** Script/compute error shown as a red badge next to the title */
+    error?: string;
+    /** A (re-)run is in progress; the legend shows a subtle running state */
+    busy?: boolean;
+    /** Tooltip text of the bell badge shown when the last bar fired alert() events */
+    alert?: string;
 }
 
 /** Glyph TradingView shows when a plot has no value on the bar */

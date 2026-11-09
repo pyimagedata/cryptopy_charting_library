@@ -25,6 +25,8 @@ interface BitmapCoordinatesScope {
  */
 export class OverlayIndicatorRenderer {
     private _indicators: OverlayIndicator[] = [];
+    /** Media px at the top of the pane covered by the legend (indicators keep `location.top` content below it) */
+    topInset = 0;
 
     constructor() { }
 
@@ -75,7 +77,8 @@ export class OverlayIndicatorRenderer {
                     horizontalPixelRatio,
                     verticalPixelRatio,
                     visibleRange,
-                    scope
+                    scope,
+                    this.topInset
                 );
                 continue;
             }

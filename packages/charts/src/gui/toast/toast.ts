@@ -3,6 +3,7 @@
  * Alert toasts stay until dismissed; ordinary toasts auto-hide. Max 5 visible (oldest dropped).
  */
 import { t } from '../../helpers/translations';
+import { FONT_SANS } from '../../helpers/fonts';
 
 export type ToastTheme = 'light' | 'dark';
 export type ToastKind = 'info' | 'success' | 'error' | 'alert';
@@ -58,7 +59,7 @@ const PALETTE = {
     light: { bg: '#ffffff', border: '#e0e3eb', text: '#131722', sub: '#6a6d78', hover: '#f0f3fa', shadow: '0 6px 24px rgba(0,0,0,.18)' },
 };
 const KIND_COLOR: Record<ToastKind, string> = { info: '#2962ff', success: '#089981', error: '#f23645', alert: '#ff9800' };
-const FONT = "-apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif";
+const FONT = FONT_SANS;
 
 const ICONS: Record<ToastKind, string> = {
     alert: '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"><path d="M9 2.5a4.5 4.5 0 0 0-4.5 4.5c0 3-1.5 4.5-1.5 4.5h12s-1.5-1.5-1.5-4.5A4.5 4.5 0 0 0 9 2.5z"/><path d="M7.6 14a1.5 1.5 0 0 0 2.8 0"/></svg>',

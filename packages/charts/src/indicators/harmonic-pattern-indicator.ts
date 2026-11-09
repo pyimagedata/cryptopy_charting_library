@@ -12,6 +12,7 @@ import {
 } from '../gui/indicator_settings';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
 import { t } from '../helpers/translations';
+import { canvasSans } from '../helpers/fonts';
 
 // Formasyon tespiti ve sinyal mantığı backend'de çalışır (bkz. remote-compute.ts);
 // burada yalnızca çizilir.
@@ -297,7 +298,7 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
         hpr: number,
         vpr: number
     ): void {
-        ctx.font = `${11 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.font = `${11 * Math.min(hpr, vpr)}px ${canvasSans()}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         points.forEach((point, index) => {
@@ -360,7 +361,7 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
         const d = pattern.points[pattern.points.length - 1];
         const dx = timeScale.indexToCoordinate(d.index as any) * hpr;
         const dy = priceScale.priceToCoordinate(d.price) * vpr;
-        ctx.font = `${11 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.font = `${11 * Math.min(hpr, vpr)}px ${canvasSans()}`;
         const nameWidth = ctx.measureText(KIND_LABELS[pattern.kind]).width + 12 * hpr;
         const labelLeft = dx;
         const labelRight = dx + 12 * hpr + nameWidth;
@@ -383,7 +384,7 @@ export class HarmonicPatternIndicator extends OverlayIndicator {
         ctx.fill();
 
         const text = t(bullish ? 'Buy' : 'Sell').toUpperCase();
-        ctx.font = `bold ${10 * Math.min(hpr, vpr)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.font = `bold ${10 * Math.min(hpr, vpr)}px ${canvasSans()}`;
         const padX = 4 * hpr;
         const boxH = 15 * vpr;
         const boxW = ctx.measureText(text).width + padX * 2;

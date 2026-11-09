@@ -7,6 +7,7 @@
 import { AnchoredVwapDrawing, VolumeProfileDrawing } from '../../../drawings/volume-drawings';
 import { colorWithTransparency, formatVolume } from '../../../drawings/volume-tools-common';
 import { drawControlPoint } from './utils';
+import { canvasSans } from '../../../helpers/fonts';
 
 type TimeToPixel = (time: number) => number | null;
 type PriceToPixel = (price: number) => number | null;
@@ -204,7 +205,7 @@ export function drawVolumeProfile(
     const yBottom = priceToPixel(profile.lowest);
 
     if (p.showTotals && yTop !== null) {
-        ctx.font = '11px Arial';
+        ctx.font = `11px ${canvasSans()}`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
         ctx.fillStyle = drawing.style.color;
