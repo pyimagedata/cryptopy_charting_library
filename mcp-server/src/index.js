@@ -25,6 +25,7 @@ import {
 } from './draft-backtests.js';
 import { buildBacktestSlice, listBacktestDatasets, MAX_BARS, CHART_MAX_BARS, TIMEFRAMES } from './backtest-data.js';
 import { loadDatasetToChart } from './chart-dataset.js';
+import { registerEvoTools } from './evo-tools.js';
 
 const MCP_PORT = Number(process.env.MCP_PORT || 8766);
 const BEARER_TOKEN = process.env.MCP_BEARER_TOKEN;
@@ -302,7 +303,8 @@ server.registerTool(
         title: 'List indicators currently on the chart',
         description:
             'List every indicator currently added to the active chart, with its id, name, current settings, ' +
-            'and the settings schema (valid keys/ranges) accepted by update_indicator.',
+            'and the settings schema (valid keys/ranges) accepted by update_indicator. Evo Script indicators are reported as ' +
+            '{evo:true, strategy, name, chartId, inputs} WITHOUT their source: use evo_read_script / evo_get_output for those.',
         inputSchema: {},
     },
     async () => {
@@ -886,6 +888,9 @@ server.registerTool(
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
 );
+
+// Evo Script tools (evo_*): owner developer channel, see evo-tools.js.
+registerEvoTools(server, bridge);
 
 server.registerTool(
     'analyze_chart',
