@@ -211,6 +211,13 @@ export class PaneWidget implements Disposable {
         return this._canvas;
     }
 
+    private _lastPriceLine: { price: number; color: string } | null = null;
+
+    /** Last price line of the main pane (same price/colour as the axis label); null hides it. Drawn on the next render. */
+    setLastPriceLine(price: number | null, color: string): void {
+        this._lastPriceLine = price === null || !Number.isFinite(price) ? null : { price, color };
+    }
+
     setCrosshair(x: number | null, y: number | null): void {
         this._crosshairX = x;
         this._crosshairY = y;
@@ -373,6 +380,26 @@ export class PaneWidget implements Disposable {
                 height,
                 dpr
             );
+        }
+
+        // Last price line: above candles/indicators/heatmap, below crosshair (drawings render later, on top)
+        if (this._lastPriceLine && this._model.options.priceLine.visible) {
+            const ctx = scope.context;
+            const yMedia = this._model.rightPriceScale.priceToCoordinate(this._lastPriceLine.price) as number;
+            if (Number.isFinite(yMedia) && yMedia >= 0 && yMedia <= height) {
+                const hRatio = scope.horizontalPixelRatio;
+                const vRatio = scope.verticalPixelRatio;
+                ctx.save();
+                ctx.beginPath();
+                ctx.strokeStyle = this._lastPriceLine.color;
+                ctx.lineWidth = Math.max(1, Math.floor(vRatio));
+                ctx.setLineDash([2 * hRatio, 2 * hRatio]);
+                const y = Math.round(yMedia * vRatio) + 0.5;
+                ctx.moveTo(0, y);
+                ctx.lineTo(scope.bitmapSize.width, y);
+                ctx.stroke();
+                ctx.restore();
+            }
         }
 
         // Draw crosshair

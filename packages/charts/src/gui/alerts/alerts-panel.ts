@@ -7,7 +7,7 @@
 import { Delegate } from '../../helpers/delegate';
 import { t } from '../../helpers/translations';
 import { alertsStore, AlertsStoreEvent } from '../../alerts/alerts-store';
-import { alertErrorText, alertMatchesSymbol, alertTicker, conditionLabel, indicatorAlertSummary, exactPrice, isMovingCondition, movingSummary, triggerLabel, DEFAULT_ALERT_INTERVAL } from '../../alerts/alert-text';
+import { alertErrorText, alertMatchesSymbol, alertTicker, conditionLabel, indicatorAlertSummary, exactPrice, isMovingCondition, movingSummary, scriptAlertSummary, triggerLabel, DEFAULT_ALERT_INTERVAL } from '../../alerts/alert-text';
 import { AlertsError } from '../../alerts/types';
 import type { AlertLogEntry, AlertStatus, ChartAlert } from '../../alerts/types';
 import { ContextMenu, ContextMenuItem } from '../context_menu/context_menu';
@@ -697,6 +697,8 @@ export class AlertsPanel {
         if (a.source === 'drawing') {
             condText = `${conditionLabel(a.condition)} ${a.drawingLabel || t('Drawing')}`;
             if (alertsStore.drawingPresence(a) === false) condText += ` ${t('(drawing deleted)')}`;
+        } else if (a.source === 'script' && a.script) {
+            condText = scriptAlertSummary(a);
         } else if (a.source === 'indicator' && a.left) {
             condText = indicatorAlertSummary(a);
         } else if (isMovingCondition(a.condition) && a.moveValue != null && a.moveBars != null) {
@@ -721,6 +723,14 @@ export class AlertsPanel {
         el.appendChild(line2);
         const sub = a.name || a.message;
         if (sub) el.appendChild(h('div', '', sub, 'al-sub'));
+        if (a.source === 'script') {
+            // script alerts are evaluated in the browser: idle while no open chart hosts the script
+            const idle = normStatus(a.status) === 'active' && !alertsStore.scriptHosted(a);
+            const note = h('div', '', idle ? t('Idle: chart not open') : t('Works while the chart is open'), 'al-sub al-script-note');
+            note.title = t('The script is evaluated in this browser; closing the chart pauses the alert.');
+            if (idle) note.dataset.idle = '1';
+            el.appendChild(note);
+        }
 
         const acts = h('div', '', undefined, 'al-actions');
         const mk = (svg: string, title: string, cls: string, fn: () => void): HTMLButtonElement => {

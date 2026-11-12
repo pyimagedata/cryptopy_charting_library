@@ -37,8 +37,11 @@ export { TimeAxisWidget } from './gui/time-axis-widget';
 
 // Alerts
 export { alertsStore } from './alerts/alerts-store';
+export { startScriptAlerts, describeScriptCore } from './alerts/script-alerts';
+export type { ScriptAlertSourceInfo, ScriptAlertConditionInfo } from './alerts/script-alerts';
 export type { AlertsStore, AlertsStoreEvent, AlertsStoreListener } from './alerts/alerts-store';
 export { AlertsError } from './alerts/types';
+export type { ScriptAlertBinding, ScriptFireBody, ScriptFireResult } from './alerts/types';
 export type {
     AlertCondition, AlertStatus, AlertSound, ChartAlert, AlertDraft, AlertLogEntry, AlertsEvent, AlertsBackend, AlertsErrorCode,
     AlertTrigger, AlertInterval, AlertSource, AlertGeometry, AlertGeometryLine, IndicatorRef, Operand, AlertEventId,
@@ -96,6 +99,45 @@ export {
     NewsQuery,
     NewsResponse,
     NewsItem,
+    LiquidationsIndicator,
+    LiquidationsOptions,
+    LiquidationsProvider,
+    LiquidationsQuery,
+    LiquidationsResponse,
+    FundingRateIndicator,
+    FundingRateOptions,
+    FundingProvider,
+    FundingQuery,
+    FundingResponse,
+    FundingCurrent,
+    OpenInterestIndicator,
+    OpenInterestOptions,
+    OpenInterestMode,
+    LongShortRatioIndicator,
+    LongShortRatioOptions,
+    DerivsPaneIndicator,
+    DerivsProvider,
+    DerivsQuery,
+    DerivsResponse,
+    DerivsRow,
+    SessionsIndicator,
+    SessionsOptions,
+    PrevLevelsIndicator,
+    PrevLevelsOptions,
+    AdrLevelsIndicator,
+    AdrLevelsOptions,
+    PivotPointsIndicator,
+    PivotPointsOptions,
+    AutoFibIndicator,
+    AutoFibOptions,
+    CandlestickPatternsIndicator,
+    CandlestickPatternsOptions,
+    DivergenceIndicator,
+    DivergenceIndicatorOptions,
+    SessionVolumeProfileIndicator,
+    SessionVolumeProfileOptions,
+    VisibleRangeVolumeProfileIndicator,
+    VisibleRangeVolumeProfileOptions,
     LiqHeatmapIndicator,
     LiqHeatmapOptions,
     LiqHeatmapProvider,

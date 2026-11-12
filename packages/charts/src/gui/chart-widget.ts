@@ -22,6 +22,8 @@ import { alertCatalogId, alertIndicatorEntries, AlertIndicatorEntry } from '../a
 import { DrawingAlertsController } from './alerts/drawing-alerts';
 import { alertGeometryFor, alertDrawingLabel, geometrySeedPrice, isAlertableDrawing } from '../alerts/drawing-geometry';
 import { AlertLinesController } from './alerts/alert-lines';
+import { startScriptAlerts, describeScriptCore, ScriptAlertSourceInfo } from '../alerts/script-alerts';
+import { notifyEvoScriptCoresChanged } from '../indicators/evo-script-core';
 import { alertTicker, exactPrice, makeAlertSymbolId, snapAlertPrice } from '../alerts/alert-text';
 import { LegendAction, LegendPoint, LEGEND_ICONS } from './indicator_legend';
 import { WatchlistPanel } from './watchlist/watchlist_panel';
@@ -30,7 +32,7 @@ import { AlertsPanel, AlertsPanelChart } from './alerts/alerts-panel';
 import { indicatorRowSignature } from './object_tree/object_tree_model';
 import { ToolbarWidget, ChartType } from './toolbar';
 import { SymbolSearch, SymbolInfo } from './symbol_search';
-import { IndicatorType, IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, NewsIndicator, LiqHeatmapIndicator, JudasSwingIndicator, SMTDivergenceIndicator } from '../indicators';
+import { IndicatorType, IndicatorPaneWidget, PanelIndicator, IndicatorManager, Indicator, RSIIndicator, EMAIndicator, SMAIndicator, BBIndicator, MACDIndicator, StochIndicator, ParabolicSARIndicator, SuperTrendIndicator, AlphaTrendIndicator, IchimokuIndicator, FixedRangeVolumeProfileIndicator, ZigZagTrendlineIndicator, TrendlineBreakoutIndicator, VolumeIndicator, HMAIndicator, StochRSIIndicator, HalfTrendIndicator, TdojiOscillatorIndicator, ThunderbirdxIndicator, TdojiSRIndicator, TdojiMomIndicator, ZigZagIndicator, ABCDPatternIndicator, HarmonicPatternIndicator, ChartPatternsIndicator, DeMarkPivotIndicator, SMCIndicator, SpecialForcesIndicator, OverlayIndicator, BobbinIndicator, FVGIndicator, FvgInversionIndicator, EqHLIndicatorV2, NewsIndicator, LiqHeatmapIndicator, LiquidationsIndicator, FundingRateIndicator, OpenInterestIndicator, LongShortRatioIndicator, JudasSwingIndicator, SMTDivergenceIndicator, SessionsIndicator, PrevLevelsIndicator, AdrLevelsIndicator, PivotPointsIndicator, AutoFibIndicator, CandlestickPatternsIndicator, DivergenceIndicator, SessionVolumeProfileIndicator, VisibleRangeVolumeProfileIndicator } from '../indicators';
 import { EvoScriptOverlayIndicator, EvoScriptPanelIndicator, isEvoScriptIndicator } from '../indicators/evo-script-indicator';
 import { EvoScriptState, EvoScriptSettings, evoScriptEvents } from '../indicators/evo-script-core';
 import { IndicatorSearchModal, IndicatorAccess, isIndicatorAllowed, getIndicatorAccess, setIndicatorAccess, subscribeIndicatorAccess } from './indicator_search';
@@ -976,6 +978,15 @@ export class ChartWidget implements Disposable {
     /** Alertable, unlocked indicators on this chart (indicator alerts in the alert dialog). */
     alertIndicators(): AlertIndicatorEntry[] {
         return alertIndicatorEntries(this._indicatorManager.allIndicators as any, (i) => this._indicatorManager.typeIdOf(i));
+    }
+
+    /** Evo Scripts on this chart and what each can alert on (script alerts in the alert dialog). */
+    alertScripts(): ScriptAlertSourceInfo[] {
+        const out: ScriptAlertSourceInfo[] = [];
+        for (const ind of this._indicatorManager.allIndicators) {
+            if (isEvoScriptIndicator(ind)) out.push(describeScriptCore(ind.core));
+        }
+        return out;
     }
 
     /** Indicator alert entry (legend menu): opens the dialog with this indicator's first event (else first plot) preselected. */
@@ -4191,11 +4202,17 @@ export class ChartWidget implements Disposable {
     }
 
     private _updateLastPriceLabel(): void {
-        if (!this._priceAxisWidget || this._model.serieses.length === 0) return;
+        if (!this._priceAxisWidget || this._model.serieses.length === 0) {
+            this._paneWidget?.setLastPriceLine(null, '');
+            return;
+        }
 
         const series = this._model.serieses[0];
         const data = series.data;
-        if (data.length === 0) return;
+        if (data.length === 0) {
+            this._paneWidget?.setLastPriceLine(null, '');
+            return;
+        }
 
         const last = data[data.length - 1];
         let price = 0;
@@ -4222,6 +4239,7 @@ export class ChartWidget implements Disposable {
         }
 
         this._priceAxisWidget.setLastValue(price, this._model.rightPriceScale.formatPrice(price), color);
+        this._paneWidget?.setLastPriceLine(price, color);
 
         // Calculate and set countdown
         const countdown = this._calculateCountdown();
@@ -4833,8 +4851,47 @@ export class ChartWidget implements Disposable {
             case 'liq-heatmap':
                 this.addOverlayIndicator(new LiqHeatmapIndicator({}));
                 break;
+            case 'liquidations':
+                this.addIndicator(new LiquidationsIndicator());
+                break;
+            case 'funding-rate':
+                this.addIndicator(new FundingRateIndicator());
+                break;
+            case 'open-interest':
+                this.addIndicator(new OpenInterestIndicator());
+                break;
+            case 'long-short-ratio':
+                this.addIndicator(new LongShortRatioIndicator());
+                break;
             case 'judas-swing':
                 this.addOverlayIndicator(new JudasSwingIndicator({}));
+                break;
+            case 'sessions':
+                this.addOverlayIndicator(new SessionsIndicator({}));
+                break;
+            case 'prev-levels':
+                this.addOverlayIndicator(new PrevLevelsIndicator({}));
+                break;
+            case 'adr-levels':
+                this.addOverlayIndicator(new AdrLevelsIndicator({}));
+                break;
+            case 'pivot-points':
+                this.addOverlayIndicator(new PivotPointsIndicator({}));
+                break;
+            case 'auto-fib':
+                this.addOverlayIndicator(new AutoFibIndicator({}));
+                break;
+            case 'candlestick-patterns':
+                this.addOverlayIndicator(new CandlestickPatternsIndicator({}));
+                break;
+            case 'divergence':
+                this.addOverlayIndicator(new DivergenceIndicator({}));
+                break;
+            case 'session-volume-profile':
+                this.addOverlayIndicator(new SessionVolumeProfileIndicator({}));
+                break;
+            case 'visible-range-volume-profile':
+                this.addOverlayIndicator(new VisibleRangeVolumeProfileIndicator({}));
                 break;
             case 'smt-divergence':
                 this.addOverlayIndicator(new SMTDivergenceIndicator({}));
@@ -4958,6 +5015,9 @@ export class ChartWidget implements Disposable {
         if (isEvoScriptIndicator(indicator)) {
             indicator.core.timezoneProvider = () => this.getTimezone();
             indicator.core.onPersist = () => this._chartStateManager?.requestSave();
+            indicator.core.alertContext = () => ({ symbol: this.alertSymbolId(), replay: this._replay.active });
+            startScriptAlerts();
+            notifyEvoScriptCoresChanged();
         }
         const rowSig = () => indicatorRowSignature(indicator.name || indicator.options?.name || 'Indicator', indicator.visible);
         let lastRowSig = rowSig();

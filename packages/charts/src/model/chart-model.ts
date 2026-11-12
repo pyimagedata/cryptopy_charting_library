@@ -87,6 +87,8 @@ export interface ChartModelOptions {
     layout: LayoutOptions;
     grid: GridOptions;
     crosshair: CrosshairOptions;
+    /** Full-width last price line across the main pane (colour follows the last price label). */
+    priceLine: { visible: boolean };
     watermark: WatermarkOptions;
     timeScale: Partial<TimeScaleOptions>;
     rightPriceScale: Partial<PriceScaleOptions>;
@@ -149,6 +151,9 @@ export const defaultChartOptions: ChartModelOptions = {
             labelVisible: true,
             labelBackgroundColor: '#2962ff',
         },
+    },
+    priceLine: {
+        visible: true,
     },
     watermark: {
         visible: false,

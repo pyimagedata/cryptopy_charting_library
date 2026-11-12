@@ -23,6 +23,7 @@ const CONDITION_EN: Record<AlertCondition, string> = {
     moving_up_percent: 'Moving Up %',
     moving_down_percent: 'Moving Down %',
     signal: 'Signal',
+    script: 'Script',
 };
 
 export const LINE_CONDITIONS: readonly AlertCondition[] = ALERT_CONDITIONS;
@@ -101,6 +102,11 @@ export const ALERT_PLACEHOLDERS: readonly string[] = [
     'ticker', 'exchange', 'close', 'open', 'high', 'low', 'volume', 'time', 'timenow', 'interval', 'alert_name', 'condition',
     'plot_0', 'plot_1', 'event',
 ];
+/** Extra placeholder of script alerts: the script's own message. */
+export const SCRIPT_PLACEHOLDERS: readonly string[] = [...ALERT_PLACEHOLDERS, 'message'];
+
+/** Triggers a script alert can use (no per-minute mode: the script is evaluated per bar). */
+export const SCRIPT_TRIGGERS: readonly AlertTrigger[] = ['once', 'once_per_bar', 'once_per_bar_close'];
 
 /** Localised condition label (EN keys double as translation keys). */
 export function conditionLabel(c: AlertCondition): string {
@@ -241,6 +247,13 @@ export function indicatorAlertSummary(a: ChartAlert): string {
     const lo = operandLabel(a.right2, tk);
     const rhs = isChannelCondition(a.condition) && lo ? `${lo} - ${hi}` : hi;
     return [a.left?.kind === 'price' ? '' : left, conditionLabel(a.condition), rhs].filter((x) => x !== '').join(' ');
+}
+
+/** Condition text of a script alert row: "<script> · alert() calls" / "<script> · <alertcondition title>". */
+export function scriptAlertSummary(a: ChartAlert): string {
+    const b = a.script;
+    if (!b) return conditionLabel(a.condition);
+    return `${b.scriptName} \u00B7 ${b.mode === 'condition' ? (b.title ?? '') : t('alert() calls')}`;
 }
 
 /** Default message the server builds for an indicator alert (see indicatorAutoMessage). */

@@ -7,10 +7,10 @@ export type AlertCondition =
     | 'crossing' | 'crossing_up' | 'crossing_down' | 'greater_than' | 'less_than'
     | 'entering_channel' | 'exiting_channel' | 'inside_channel' | 'outside_channel'
     | 'moving_up' | 'moving_down' | 'moving_up_percent' | 'moving_down_percent'
-    | 'signal';
+    | 'signal' | 'script';
 export type AlertTrigger = 'once' | 'once_per_bar' | 'once_per_bar_close' | 'once_per_minute';
 export type AlertInterval = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d';
-export type AlertSource = 'price' | 'drawing' | 'indicator';
+export type AlertSource = 'price' | 'drawing' | 'indicator' | 'script';
 
 /** Indicator snapshot stored with an indicator alert (params = only the alert-relevant option keys, same keys the server uses). */
 export interface IndicatorRef {
@@ -33,6 +33,22 @@ export interface AlertGeometryLine { t1: number; p1: number; t2: number; p2: num
 export type AlertGeometry =
     | { type: 'line'; line: AlertGeometryLine }
     | { type: 'channel'; upper: AlertGeometryLine; lower: AlertGeometryLine };
+/**
+ * Binding of a script alert (source = script): which Evo Script and which of its alerts. Evaluated in the browser while a
+ * chart hosting the script is open; delivered by the server (POST /api/alerts/<id>/fire/).
+ */
+export interface ScriptAlertBinding {
+    /** Display name of the script when the alert was created */
+    scriptName: string;
+    /** Id of the script instance on the chart (stable across reloads of a saved layout); null = match by name only */
+    scriptId: string | null;
+    /** 'alert' = any alert() call; 'condition' = the alertcondition with `title` */
+    mode: 'alert' | 'condition';
+    title: string | null;
+    /** Chart timeframe the alert is bound to, in the form scriptAlertInterval() produces ("15m", "1h", "1d", "1w", "1M") */
+    timeframe: string;
+}
+
 export type AlertStatus = 'active' | 'stopped' | 'triggered' | 'expired';
 export type AlertSound = 'chime' | 'bell' | 'beep' | 'alarm';
 
@@ -47,6 +63,8 @@ export interface ChartAlert {
     geometry?: AlertGeometry | null; moveValue?: number | null; moveBars?: number | null; webhookUrl?: string | null;
     /** Phase 3 (source = indicator): `right` = upper bound for channel conditions, `right2` = lower bound. */
     left?: Operand | null; right?: Operand | null; right2?: Operand | null;
+    /** Phase 4 (source = script) */
+    script?: ScriptAlertBinding | null;
 }
 
 /** `price` is null for a drawing alert without a usable seed price (the server then stores its informational default). */
@@ -71,7 +89,20 @@ export interface AlertsBackend {
     log(): Promise<AlertLogEntry[]>;
     clearLog(): Promise<void>;
     subscribe(listener: (ev: AlertsEvent) => void): () => void;
+    /**
+     * Script alerts: reports one fired bar to the server. Resolves with the HTTP status (200 delivered / duplicate, 404 / 409
+     * alert gone or inactive, 400 / 422 / 429 rejected) and rejects only when the server cannot be reached.
+     */
+    fire?(id: string, body: ScriptFireBody): Promise<ScriptFireResult>;
 }
+
+export interface ScriptFireBody {
+    /** Open time of the bar, unix seconds */
+    barTime: number;
+    message: string;
+    price?: number;
+}
+export interface ScriptFireResult { status: number; duplicate?: boolean; code?: string }
 
 export type AlertsErrorCode = 'limit_reached' | 'feed_capacity' | 'invalid' | 'network' | 'auth';
 

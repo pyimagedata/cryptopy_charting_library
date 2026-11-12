@@ -240,7 +240,32 @@ export interface EvoOutput {
     arrows: EvoArrow[];
     logs: EvoLogEntry[];
     alertEvents: EvoAlertEvent[];
+    /** alertcondition() flags: title -> one flag per bar of the run (script alerts) */
+    alertFlags: Record<string, Uint8Array>;
+    /** alertcondition() messages by title */
+    alertMessages: Record<string, string>;
     warnings: Array<{ message: string; line?: number; column?: number }>;
+}
+
+/** What the script alert evaluator needs to know about the last successful run (times in unix seconds). */
+export interface EvoRunInfo {
+    /** Identity of the run (script, inputs, symbol, timeframe): a change means "other data" */
+    key: string;
+    /** Alert symbol id ("EXCHANGE:CODE") and chart timeframe of the owning widget when the run started */
+    symbol: string;
+    timeframe: string;
+    /** Bar replay was active when the run started */
+    replay: boolean;
+    len: number;
+    firstTime: number;
+    lastTime: number;
+    prevTime: number | null;
+    lastClose: number;
+    prevClose: number | null;
+    /** The last bar was still forming (not closed) when the run started */
+    forming: boolean;
+    /** Bar length in seconds when known */
+    barSec: number | null;
 }
 
 export interface EvoScriptState {
@@ -281,6 +306,19 @@ let _runner: EvoScriptRunner | null = null;
 const _cores = new Set<EvoScriptCore>();
 /** Fires for any core state change (status / result / error); widgets filter by id */
 export const evoScriptEvents = new Delegate<EvoScriptState>();
+/** Fires after every successful run of any script core (script alerts evaluate here) */
+export const evoScriptRunEvents = new Delegate<EvoScriptCore>();
+
+/** Fires when the set of live cores or one core's chart context (symbol / timeframe / owner) changed */
+export const evoScriptCoreEvents = new Delegate<void>();
+export function notifyEvoScriptCoresChanged(): void {
+    try { evoScriptCoreEvents.fire(); } catch (e) { console.warn('evo-script core listener failed', e); }
+}
+
+/** Live script cores (one per Evo Script indicator on any chart) */
+export function evoScriptCores(): EvoScriptCore[] {
+    return [..._cores];
+}
 
 export function setEvoScriptRunner(fn: EvoScriptRunner | null): void {
     _runner = typeof fn === 'function' ? fn : null;
@@ -524,6 +562,7 @@ export function normalizeEvoOutput(raw0: any): EvoOutput {
         })) : [],
         plots: [], hlines: [], fills: [], shapes: [], bgcolors: [], labels: [], boxes: [], lines: [], polylines: [], linefills: [],
         tables: [], barColors: undefined, barColorOffset: 0, candles: [], arrows: [], logs: [], alertEvents: [],
+        alertFlags: Object.create(null), alertMessages: Object.create(null),
         warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
     };
 
@@ -722,6 +761,13 @@ export function normalizeEvoOutput(raw0: any): EvoOutput {
     for (const a of Array.isArray(raw?.alertEvents) ? raw.alertEvents : []) {
         out.alertEvents.push({ bar: Math.round(num(a?.bar, -1)), message: str(a?.message), freq: str(a?.freq, 'all') });
     }
+    let nFlags = 0;
+    for (const [title, v] of Object.entries<any>(raw.alerts)) {
+        if (nFlags++ >= 32 || !v || typeof v !== 'object' || typeof v.length !== 'number') continue;
+        Object.defineProperty(out.alertFlags, title, { value: v instanceof Uint8Array ? v : Uint8Array.from(v as ArrayLike<number>, (x) => (x ? 1 : 0)), enumerable: true, writable: true, configurable: true });
+        const msg = raw.alertMessages[title];
+        if (typeof msg === 'string') Object.defineProperty(out.alertMessages, title, { value: msg, enumerable: true, writable: true, configurable: true });
+    }
     const strat = normalizeStrategy(raw?.strategy);
     if (strat) {
         out.strategy = strat;
@@ -811,6 +857,10 @@ export class EvoScriptCore {
     onPersist: (() => void) | null = null;
     /** Chart time zone provider (set by the chart widget) */
     timezoneProvider: (() => string) | null = null;
+    /** Alert symbol id + replay state of the owning chart (set by the chart widget; script alerts) */
+    alertContext: (() => { symbol: string; replay: boolean }) | null = null;
+    /** Facts about the last successful run for the script alert evaluator; null while there is no valid output */
+    runInfo: EvoRunInfo | null = null;
 
     private _runTimes: Float64Array = new Float64Array(0);
     private _seq = 0;
@@ -848,6 +898,8 @@ export class EvoScriptCore {
     }
 
     get firstTime(): number { return this._firstTime; }
+    /** Timeframe of the owning chart as last pushed through setContext ('' = unknown) */
+    get chartTimeframe(): string { return this._ctx?.timeframe ?? ''; }
 
     state(displayName: string): EvoScriptState {
         return {
@@ -901,6 +953,7 @@ export class EvoScriptCore {
         if (key === this._ctxKey) return;
         const first = this._ctxKey === '';
         this._ctxKey = key;
+        notifyEvoScriptCoresChanged();
         if (first) return; // initial context: data push that follows triggers the first run
         // new symbol / timeframe: re-run for the next bars. The previous output stays drawn (busy state)
         // unless the new bars turn out to be incompatible (see onData).
@@ -995,6 +1048,7 @@ export class EvoScriptCore {
         this._seq++; // drop in-flight result
         this.output = null;
         this.runLen = 0;
+        this.runInfo = null;
         if (this.status !== 'error') this.status = 'idle';
         this._emit();
     }
@@ -1086,6 +1140,7 @@ export class EvoScriptCore {
         const forming = this._isForming(bars);
         const varip = this.output !== null && this._outKey === key ? this.output.varip : undefined;
         this._tickKey = EvoScriptCore._barKey(bars);
+        const info = this._captureRunInfo(bars, key, forming);
         if (!quiet) {
             this.status = 'running';
             this._emit();
@@ -1132,6 +1187,7 @@ export class EvoScriptCore {
             this.error = normalizeError(res?.error ?? 'Runner returned no output');
             this.output = null;
             this.runLen = 0;
+            this.runInfo = null;
             this._emit();
             return;
         }
@@ -1141,6 +1197,7 @@ export class EvoScriptCore {
             this.status = 'error';
             this.error = { message: `Bad script output: ${e instanceof Error ? e.message : String(e)}` };
             this.output = null;
+            this.runInfo = null;
             this._emit();
             return;
         }
@@ -1150,13 +1207,30 @@ export class EvoScriptCore {
         this.lastTitle = this.output.meta.shortTitle || this.output.meta.title;
         this.runLen = barsLen;
         this._runTimes = this.output.logs.length || this.output.alertEvents.length ? Float64Array.from(bars, (b) => b.time) : new Float64Array(0);
+        this.runInfo = info;
         this._emit();
+        try { evoScriptRunEvents.fire(this); } catch (e) { console.warn('evo-script run listener failed', e); }
         if (this.output.meta.overlay !== this.settings.overlay) {
             this.settings.overlay = this.output.meta.overlay;
             this.onSettings?.();
             this.onPersist?.();
             this.onKindMismatch?.(this.settings.overlay);
         }
+    }
+
+    private _captureRunInfo(bars: readonly BarData[], key: string, forming: boolean): EvoRunInfo | null {
+        const n = bars.length;
+        if (n === 0) return null;
+        const sec = (t: number): number => (t > 1e11 ? t / 1000 : t);
+        let ctx: { symbol: string; replay: boolean } | null = null;
+        try { ctx = this.alertContext?.() ?? null; } catch { ctx = null; }
+        const dur = this._barDurationMs(bars);
+        return {
+            key, symbol: ctx?.symbol ?? '', timeframe: this._ctx?.timeframe ?? '', replay: ctx?.replay === true, len: n,
+            firstTime: sec(bars[0].time), lastTime: sec(bars[n - 1].time),
+            prevTime: n >= 2 ? sec(bars[n - 2].time) : null, lastClose: bars[n - 1].close, prevClose: n >= 2 ? bars[n - 2].close : null,
+            forming, barSec: dur ? dur / 1000 : null,
+        };
     }
 
     private _emit(): void {
@@ -1173,6 +1247,8 @@ export class EvoScriptCore {
         this._timer = null;
         if (this._tickTimer !== null) clearTimeout(this._tickTimer);
         this._tickTimer = null;
+        this.runInfo = null;
         _cores.delete(this);
+        notifyEvoScriptCoresChanged();
     }
 }

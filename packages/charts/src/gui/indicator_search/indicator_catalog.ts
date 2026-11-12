@@ -3,6 +3,10 @@
  * used by the indicator dialog. Kept free of DOM so it can be smoke-tested in node.
  */
 
+import { t } from '../../helpers/translations';
+import { AUTO_FIB_DESCRIPTION } from '../../indicators/auto-fib-indicator';
+import { CANDLESTICK_PATTERNS_DESCRIPTION } from '../../indicators/candlestick-patterns-indicator';
+
 export interface IndicatorItem {
     id: string;
     name: string;
@@ -10,6 +14,8 @@ export interface IndicatorItem {
     description: string;
     category: 'standard' | 'custom' | 'pattern';
     type: 'overlay' | 'panel';
+    /** name / description are translation keys (shown and searched through t()); other items stay as written. */
+    i18n?: boolean;
 }
 
 type BaseIndicator = IndicatorItem;
@@ -315,10 +321,127 @@ const BASE_INDICATORS: BaseIndicator[] = [
         category: 'pattern',
         type: 'overlay'
     },
+    {
+        id: 'liquidations',
+        name: 'Liquidations',
+        shortName: 'Liq',
+        description: 'Per-bar liquidated USD, shorts and longs separately. Binance USDⓈ-M only. Binance\'s stream reports at most one liquidation per symbol per second, so totals are a lower bound.',
+        category: 'standard',
+        type: 'panel',
+        i18n: true
+    },
+    {
+        id: 'funding-rate',
+        name: 'Funding Rate',
+        shortName: 'Funding',
+        description: 'Settled funding rates of the Binance USDⓈ-M perpetual, with the predicted rate for the next settlement. Positive = longs pay shorts. When several settlements fall into one bar their sum is shown.',
+        category: 'standard',
+        type: 'panel',
+        i18n: true
+    },
+    {
+        id: 'open-interest',
+        name: 'Open Interest',
+        shortName: 'OI',
+        description: 'Open interest of the Binance USDⓈ-M perpetual in USD. Intraday detail is available for about the last 30 days; longer history exists only for symbols and periods collected by the platform.',
+        category: 'standard',
+        type: 'panel',
+        i18n: true
+    },
+    {
+        id: 'long-short-ratio',
+        name: 'Long/Short Ratio',
+        shortName: 'L/S',
+        description: 'Binance long/short ratios: all accounts, top traders by accounts and by positions, and taker buy/sell volume. Context data, not a signal. Intraday detail covers about the last 30 days.',
+        category: 'standard',
+        type: 'panel',
+        i18n: true
+    },
+    {
+        id: 'sessions',
+        name: 'Sessions',
+        shortName: 'Sessions',
+        description: 'Draws a box for each trading session (Sydney, Tokyo, London, New York or ICT killzones) from its high-low range, with labels and an optional open line.',
+        category: 'pattern',
+        type: 'overlay',
+        i18n: true
+    },
+    {
+        id: 'prev-levels',
+        name: 'Previous Levels',
+        shortName: 'Prev H/L',
+        description: 'Horizontal lines at the previous day, week and month high and low (optionally close and current open), built only from completed periods.',
+        category: 'pattern',
+        type: 'overlay',
+        i18n: true
+    },
+    {
+        id: 'adr-levels',
+        name: 'ADR Levels',
+        shortName: 'ADR',
+        description: 'Average Daily Range over the last N completed days, with the day open and open ±½ADR / ±ADR levels, today\'s range and percent of ADR used.',
+        category: 'pattern',
+        type: 'overlay',
+        i18n: true
+    },
+    {
+        id: 'pivot-points',
+        name: 'Pivot Points',
+        shortName: 'Pivot',
+        description: 'Support and resistance levels from the previous completed period\'s high, low and close (Classic, Fibonacci, Camarilla, Woodie).',
+        category: 'standard',
+        type: 'overlay',
+        i18n: true
+    },
+    {
+        id: 'auto-fib',
+        name: 'Auto Fib',
+        shortName: 'Fib',
+        description: AUTO_FIB_DESCRIPTION,
+        category: 'standard',
+        type: 'overlay',
+        i18n: true
+    },
+    {
+        id: 'candlestick-patterns',
+        name: 'Candlestick Patterns',
+        shortName: 'Candles',
+        description: CANDLESTICK_PATTERNS_DESCRIPTION,
+        category: 'pattern',
+        type: 'overlay',
+        i18n: true
+    },
+    {
+        id: 'divergence',
+        name: 'Divergence',
+        shortName: 'Div',
+        description: 'Marks regular and hidden divergences between price and RSI or the MACD histogram. Confirmed R bars after the pivot; marks are not changed by new bars. Loading older history recalculates the oscillator and may change marks near the start of the loaded data. Descriptive only, not a signal.',
+        category: 'standard',
+        type: 'overlay',
+        i18n: true
+    },
+    {
+        id: 'session-volume-profile',
+        name: 'Session Volume Profile',
+        shortName: 'SVP',
+        description: 'One volume profile per UTC day, week or month, with POC and value area drawn inside each period. Computed from the loaded bars.',
+        category: 'standard',
+        type: 'overlay',
+        i18n: true
+    },
+    {
+        id: 'visible-range-volume-profile',
+        name: 'Visible Range Volume Profile',
+        shortName: 'VRVP',
+        description: 'Volume profile of the bars currently on screen, anchored to the pane edge, with POC and value area. Updates as you scroll or zoom.',
+        category: 'standard',
+        type: 'overlay',
+        i18n: true
+    },
 ];
 
 /** Volume related indicators (everything else with category 'standard' is "technical"). */
-const VOLUME_IDS = new Set(['volume', 'fixed-range-volume-profile']);
+const VOLUME_IDS = new Set(['volume', 'fixed-range-volume-profile', 'liquidations', 'session-volume-profile', 'visible-range-volume-profile', 'funding-rate', 'open-interest', 'long-short-ratio']);
 
 /**
  * Indicators whose values come from the backend: they use RemoteCompute / a host provider
@@ -328,7 +451,8 @@ const REMOTE_IDS = new Set([
     'tdoji', 'thunderbirdx', 'tdoji-sr', 'demark-pivot', 'tdoji-mom', 'zigzag',
     'abcd-pattern', 'harmonic-patterns', 'chart-patterns', 'zigzag-trendline',
     'trendline-breakout', 'smc', 'special-forces', 'bobbin', 'fvg', 'fvg-inversion',
-    'eqhl-v2', 'judas-swing', 'smt-divergence', 'news-overlay', 'liq-heatmap',
+    'eqhl-v2', 'judas-swing', 'smt-divergence', 'news-overlay', 'liq-heatmap', 'liquidations',
+    'funding-rate', 'open-interest', 'long-short-ratio',
 ]);
 
 function sectionOf(ind: IndicatorItem): IndicatorSection {
@@ -384,13 +508,22 @@ export function foldText(s: string): string {
         .replace(/[\u0300-\u036f]/g, '');
 }
 
+/** Displayed name / description (translated only for items flagged `i18n`). */
+export function indicatorLabel(ind: IndicatorItem): string {
+    return ind.i18n ? t(ind.name) : ind.name;
+}
+
+export function indicatorSummary(ind: IndicatorItem): string {
+    return ind.i18n ? t(ind.description) : ind.description;
+}
+
 /** Lower is better; -1 = no match. */
 export function scoreIndicator(ind: IndicatorItem, query: string): number {
     const q = foldText(query.trim());
     if (!q) return 0;
-    const name = foldText(ind.name);
+    const name = foldText(indicatorLabel(ind));
     const short = foldText(ind.shortName);
-    const desc = foldText(ind.description);
+    const desc = foldText(indicatorSummary(ind));
     if (short === q || name === q) return 0;
     if (name.startsWith(q) || short.startsWith(q)) return 1;
     if (name.split(/[\s\-/]+/).some(w => w.startsWith(q))) return 2;

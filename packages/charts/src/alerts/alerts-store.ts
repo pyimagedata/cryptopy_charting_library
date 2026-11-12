@@ -10,7 +10,7 @@ import { getAlertSettings } from './alert-settings';
 import { alertMatchesSymbol, alertTicker, conditionLabel, plainPrice } from './alert-text';
 import { sameGeometry } from './drawing-geometry';
 import {
-    AlertGeometry, AlertsBackend, AlertsError, AlertsEvent, AlertDraft, AlertLogEntry, ChartAlert,
+    AlertGeometry, AlertsBackend, AlertsError, AlertsEvent, AlertDraft, AlertLogEntry, ChartAlert, ScriptFireBody, ScriptFireResult,
 } from './types';
 
 /** Store events: backend events plus 'reset' (list reloaded / backend swapped / cleared). */
@@ -56,6 +56,7 @@ class AlertsStore {
     private _webhookAvailable = false;
     private _presence: ((alert: ChartAlert) => boolean | null) | null = null;
     private _geometryOf: ((alert: ChartAlert) => AlertGeometry | null) | null = null;
+    private _scriptHosted: ((alert: ChartAlert) => boolean) | null = null;
     private readonly _listeners = new Set<AlertsStoreListener>();
     private readonly _seenFired: string[] = [];
     private _gen = 0;
@@ -86,6 +87,21 @@ class AlertsStore {
         try { return this._presence(alert); } catch { return null; }
     }
     notifyPresenceChanged(): void { this._emit({ type: 'reset' }); }
+
+    /** Plugged in by the script alert runner: true = an open chart currently hosts the alert's script on its symbol / timeframe. */
+    setScriptHostResolver(fn: ((alert: ChartAlert) => boolean) | null): void { this._scriptHosted = fn; }
+    /** Script alerts only work while a chart with the script is open: false = idle (no such chart). Unknown = true. */
+    scriptHosted(alert: ChartAlert): boolean {
+        if (!this._scriptHosted) return true;
+        try { return this._scriptHosted(alert); } catch { return true; }
+    }
+
+    /** Reports a fired bar of a script alert to the backend; null when the host cannot (no backend / no fire support). */
+    async fireScript(id: string, body: ScriptFireBody): Promise<ScriptFireResult | null> {
+        const backend = this._backend;
+        if (!backend || !backend.fire) return null;
+        return backend.fire(id, body);
+    }
 
     /** Cached alerts, newest first. The array identity changes whenever the list changes. */
     alerts(): ChartAlert[] { return this._alerts; }

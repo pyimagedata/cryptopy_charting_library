@@ -7,14 +7,16 @@ import { formatLegendValue } from '../../indicators/legend-info';
 import { alertsStore } from '../../alerts/alerts-store';
 import { playAlertSound } from '../../alerts/alert-sound';
 import {
-    ALERT_INTERVALS, ALERT_PLACEHOLDERS, ALERT_SOUND_NAMES, ALERT_TRIGGERS, DEFAULT_ALERT_COLOR, DEFAULT_ALERT_INTERVAL, DEFAULT_MOVE_BARS,
-    INDICATOR_CONDITIONS, SIGNAL_CONDITIONS,
+    ALERT_INTERVALS, ALERT_SOUND_NAMES, ALERT_TRIGGERS, DEFAULT_ALERT_COLOR, DEFAULT_ALERT_INTERVAL, DEFAULT_MOVE_BARS,
+    INDICATOR_CONDITIONS, SCRIPT_PLACEHOLDERS, SCRIPT_TRIGGERS, SIGNAL_CONDITIONS,
     alertErrorText, alertPriceSeed, alertTicker, conditionLabel, conditionsFor, exactPrice, intervalLabel, isAutoAlertMessage, isAutoIndicatorMessage, isChannelCondition,
     isMovingCondition, isPercentCondition, mapChartInterval, movingAutoTails, parseAlertPrice, plainPrice, priceDecimals, serverDrawingMessage, serverIndicatorMessage,
     serverMovingMessage, soundLabel, triggerLabel,
 } from '../../alerts/alert-text';
+import { scriptAlertInterval } from '../../alerts/script-alert-logic';
+import type { ScriptAlertSourceInfo } from '../../alerts/script-alerts';
 import { AlertIndicatorEntry, indicatorRefKey, operandLabel, plotShortLabel, alertableIndicatorDef } from '../../alerts/indicator-plots';
-import { AlertsError, AlertCondition, AlertDraft, AlertEventId, AlertGeometry, AlertInterval, AlertSound, AlertSource, AlertTrigger, ChartAlert, IndicatorRef, Operand } from '../../alerts/types';
+import { AlertsError, AlertCondition, AlertDraft, AlertEventId, AlertGeometry, AlertInterval, AlertSound, AlertSource, AlertTrigger, ChartAlert, IndicatorRef, Operand, ScriptAlertBinding } from '../../alerts/types';
 import { detectUiTheme, showToast, ToastTheme } from '../toast/toast';
 import { FONT_SANS } from '../../helpers/fonts';
 
@@ -30,6 +32,8 @@ export interface AlertDialogChart {
     timeframe?: string;
     /** Alertable, unlocked indicators currently on the chart (indicator alerts); absent = price / drawing alerts only. */
     alertIndicators?(): AlertIndicatorEntry[];
+    /** Evo Scripts on the chart and what each can alert on (script alerts); absent / empty = no script source in the dialog. */
+    alertScripts?(): ScriptAlertSourceInfo[];
 }
 
 export interface AlertDialogOptions {
@@ -42,6 +46,8 @@ export interface AlertDialogOptions {
     drawing?: { id: string; type: string; label: string; geometry: AlertGeometry };
     /** Create an indicator alert preselecting this chart indicator (its first event, else its first plot) or the given plot / event. */
     indicator?: { instanceId: string; plot?: string; event?: AlertEventId };
+    /** Create dialog opens on the script source (only when the chart has an Evo Script). */
+    script?: boolean;
 }
 
 export interface AlertDialogHandle {
@@ -152,11 +158,18 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         try { return mapChartInterval(chart?.timeframe) ?? DEFAULT_ALERT_INTERVAL; } catch { return DEFAULT_ALERT_INTERVAL; }
     })();
 
+    // script alerts: Evo Scripts on the chart (create) or the stored binding (edit)
+    const scripts: ScriptAlertSourceInfo[] = (() => { try { return chart?.alertScripts?.() ?? []; } catch { return []; } })();
+    const editingScript = !!editing && editing.source === 'script' && !!editing.script;
+    const showSourceSelect = !editing && !opts.drawing && !opts.indicator && scripts.length > 0;
+    const startScript = editingScript || (showSourceSelect && opts.script === true);
+
     // ---- state ----
     const st = {
         tab: 'settings' as TabId,
         busy: false,
-        condition: (editing?.condition ?? defaultCondition) as AlertCondition,
+        script: startScript,
+        condition: (editing?.condition ?? (startScript ? 'script' : defaultCondition)) as AlertCondition,
         messageEdited: false,
         leftKey: initialLeftKey,
         /** left = price and the right side is an indicator plot (source = indicator) */
@@ -164,15 +177,15 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     };
     // ---- indicator alert state (left operand picked in the left select; price = classic alert) ----
     const leftOperand = (): Operand => (showLeftSelect ? keyToOperand(st.leftKey) : null) ?? { kind: 'price' };
-    const isInd = (): boolean => !isDrawing && (editingInd || leftOperand().kind !== 'price' || st.pricePlot);
+    const isInd = (): boolean => !isDrawing && !st.script && (editingInd || leftOperand().kind !== 'price' || st.pricePlot);
     const isEventLeft = (): boolean => leftOperand().kind === 'event';
     const isPremiumEventLeft = (): boolean => {
         const l = leftOperand();
         return l.kind === 'event' && !!alertableIndicatorDef(l.indicator.type)?.premium;
     };
-    const curSource = (): AlertSource => (isDrawing ? 'drawing' : isInd() ? 'indicator' : 'price');
+    const curSource = (): AlertSource => (st.script ? 'script' : isDrawing ? 'drawing' : isInd() ? 'indicator' : 'price');
     const allowedConditions = (): readonly AlertCondition[] =>
-        isDrawing ? conditionsFor('drawing', geometryType) : isInd() ? (isEventLeft() ? SIGNAL_CONDITIONS : INDICATOR_CONDITIONS) : conditionsFor('price');
+        st.script ? ['script'] : isDrawing ? conditionsFor('drawing', geometryType) : isInd() ? (isEventLeft() ? SIGNAL_CONDITIONS : INDICATOR_CONDITIONS) : conditionsFor('price');
     /** Operands as currently entered (lenient: an invalid number input counts as "no operand"; used for the auto message). */
     const indOperands = (): { left: Operand; right: Operand | null; right2: Operand | null } => {
         const left = leftOperand();
@@ -198,6 +211,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         return isAutoAlertMessage(message, symbol, cond, price, extra);
     };
     const namePlaceholder = (): string => {
+        if (st.script) { const sm = scriptSummaryText(); return sm ? `${ticker} ${sm}` : ticker; }
         if (!isInd()) return `${ticker} ${conditionLabel(st.condition)}`;
         const o = indOperands();
         return o.left.kind === 'event' ? operandLabel(o.left, ticker) : `${operandLabel(o.left, ticker)} ${conditionLabel(st.condition)}`;
@@ -213,6 +227,12 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     };
 
     // ---- element helpers ----
+    function addOptTo(parent: HTMLElement, key: string, text: string): void {
+        const o = document.createElement('option');
+        o.textContent = text;
+        o.value = key;
+        parent.appendChild(o);
+    }
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, css = '', text?: string): HTMLElementTagNameMap[K] => {
         const e = document.createElement(tag);
         if (css) e.style.cssText = css;
@@ -302,7 +322,80 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
 
     const symbolBox = el('div', `height: 36px; display: flex; align-items: center; font-size: 14px; font-weight: 600;`, ticker);
     symbolBox.className = 'chart-alert-symbol';
-    settings.appendChild(row(t('Symbol'), symbolBox));
+    const symbolRow = row(t('Symbol'), symbolBox);
+    settings.appendChild(symbolRow);
+
+    // script source (create: pick a script on the chart + one of its alerts; edit: the binding, read-only)
+    const srcSelect = el('select', inputCss + 'cursor: pointer;');
+    srcSelect.className = 'chart-alert-source';
+    for (const [v, label] of [['classic', t('Price / indicator')], ['script', t('Evo Script')]] as const) addOptTo(srcSelect, v, label);
+    srcSelect.value = startScript ? 'script' : 'classic';
+    focusRing(srcSelect);
+    const sourceRow = row(t('Source'), srcSelect);
+    settings.appendChild(sourceRow);
+
+    const chipCss = `min-height: 36px; display: flex; align-items: center; font-size: 14px; font-weight: 600; color: ${p.text};`;
+    const scriptSelect = el('select', inputCss + 'cursor: pointer;');
+    scriptSelect.className = 'chart-alert-script';
+    scripts.forEach((sc, i) => addOptTo(scriptSelect, String(i), sc.name));
+    focusRing(scriptSelect);
+    const scriptCondSelect = el('select', inputCss + 'cursor: pointer;');
+    scriptCondSelect.className = 'chart-alert-script-condition';
+    focusRing(scriptCondSelect);
+    const scriptHint = el('div', `margin-top: 4px; font-size: 12px; color: ${p.sub};`);
+    scriptHint.className = 'chart-alert-script-hint';
+    const scriptErr = el('div', `display: none; margin-top: 4px; font-size: 12px; color: ${p.danger};`);
+    scriptErr.className = 'chart-alert-script-error';
+    const scriptCondCell = el('div');
+    if (editingScript) {
+        const b = editing!.script!;
+        scriptCondCell.appendChild(el('div', chipCss, b.mode === 'condition' ? (b.title ?? '') : t('alert() calls')));
+    } else {
+        scriptCondCell.appendChild(scriptCondSelect);
+    }
+    scriptCondCell.appendChild(scriptHint);
+    scriptCondCell.appendChild(scriptErr);
+    const scriptRow = row(t('Script'), editingScript ? el('div', chipCss, editing!.script!.scriptName) : scriptSelect);
+    const scriptCondRow = row(t('Script alert'), scriptCondCell);
+    const scriptNote = el('div', `margin: 0 0 14px; padding: 8px 12px; border-radius: 4px; font-size: 12px; line-height: 1.4; color: ${p.sub}; background: ${p.hover};`);
+    scriptNote.className = 'chart-alert-script-note';
+    scriptNote.appendChild(el('div', `font-weight: 600; color: ${p.text};`, t('Works while the chart is open')));
+    scriptNote.appendChild(el('div', '', t('The script is evaluated in this browser; closing the chart pauses the alert.')));
+    settings.append(scriptRow, scriptCondRow, scriptNote);
+    function rebuildScriptConds(): void {
+        if (editingScript) { scriptHint.textContent = ''; return; }
+        const info = scripts[Number(scriptSelect.value)];
+        scriptCondSelect.textContent = '';
+        if (info?.usesAlert) addOptTo(scriptCondSelect, 'alert', t('alert() calls'));
+        info?.conditions.forEach((c, i) => addOptTo(scriptCondSelect, `c:${i}`, c.title));
+        const none = !info || scriptCondSelect.options.length === 0;
+        if (none) addOptTo(scriptCondSelect, '', t('No alert available'));
+        scriptCondSelect.disabled = none;
+        syncScriptHint();
+    }
+    function syncScriptHint(): void {
+        scriptErr.style.display = 'none';
+        const info = scripts[Number(scriptSelect.value)];
+        const v = scriptCondSelect.value;
+        if (!info || v === '') scriptHint.textContent = t('This script has no alert() call or alertcondition, so it cannot be used for alerts.');
+        else if (v === 'alert') scriptHint.textContent = t('Fires on every alert() call of the script.');
+        else scriptHint.textContent = info.conditions[Number(v.slice(2))]?.message ?? '';
+    }
+    /** Binding as currently picked (create) or stored (edit); null = nothing usable picked or timeframe not supported. */
+    function currentBinding(): ScriptAlertBinding | null {
+        if (editingScript) return editing!.script!;
+        const info = scripts[Number(scriptSelect.value)];
+        const v = scriptCondSelect.value;
+        const tf = scriptAlertInterval(chart?.timeframe);
+        if (!info || v === '' || !tf) return null;
+        if (v === 'alert') return { scriptName: info.name, scriptId: info.id, mode: 'alert', title: null, timeframe: tf };
+        const c = info.conditions[Number(v.slice(2))];
+        return c ? { scriptName: info.name, scriptId: info.id, mode: 'condition', title: c.title, timeframe: tf } : null;
+    }
+    function scriptSummaryText(): string {
+        const b = currentBinding();
+        return b ? `${b.scriptName} \u00B7 ${b.mode === 'condition' ? (b.title ?? '') : t('alert() calls')}` : '';
+    }
 
     const condSelect = el('select', inputCss + 'cursor: pointer; flex: 1 1 auto; min-width: 0; width: auto;');
     condSelect.className = 'chart-alert-condition';
@@ -324,11 +417,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     // left operand: price or any plot / event of the alertable indicators on the chart
     const leftSelect = el('select', inputCss + 'cursor: pointer; flex: 1.2 1 0; min-width: 0; width: auto;');
     leftSelect.className = 'chart-alert-left';
-    const addOpt = (parent: HTMLElement, key: string, text: string): void => {
-        const o = el('option', '', text);
-        o.value = key;
-        parent.appendChild(o);
-    };
+    const addOpt = addOptTo;
     const valText = (v: number | null): string => (v === null ? '' : ` \u00B7 ${formatLegendValue(v)}`);
     const slotGroupLabel = (sl: { ref: IndicatorRef; missing: boolean }): string => (sl.missing ? `${sl.ref.label} ${t('(not on chart)')}` : sl.ref.label);
     if (showLeftSelect) {
@@ -355,7 +444,8 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     const condCell = el('div');
     condCell.appendChild(condWrap);
     condCell.appendChild(condErr);
-    settings.appendChild(row(t('Condition'), condCell));
+    const condRow = row(t('Condition'), condCell);
+    settings.appendChild(condRow);
 
     // value area: price input | drawing chip | moving value + bars
     const priceWrap = el('div', 'display: flex; align-items: center; gap: 8px;');
@@ -555,16 +645,19 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
 
     const triggerSelect = el('select', inputCss + 'cursor: pointer;');
     triggerSelect.className = 'chart-alert-trigger';
-    for (const tr of ALERT_TRIGGERS) {
-        const o = el('option', '', triggerLabel(tr));
-        o.value = tr;
-        triggerSelect.appendChild(o);
-    }
+    for (const tr of startScript ? SCRIPT_TRIGGERS : ALERT_TRIGGERS) addOptTo(triggerSelect, tr, triggerLabel(tr));
     // Premium event alerts fire once per new event: default "once per bar close" (until the user picks a trigger himself)
-    const defaultTrigger = (): AlertTrigger => (!isDrawing && isPremiumEventLeft() ? 'once_per_bar_close' : 'once');
+    const defaultTrigger = (): AlertTrigger => (st.script || (!isDrawing && isPremiumEventLeft()) ? 'once_per_bar_close' : 'once');
     let triggerTouched = false;
     triggerSelect.value = editing?.trigger ?? defaultTrigger();
     triggerSelect.addEventListener('change', () => { triggerTouched = true; });
+    function rebuildTriggers(): void {
+        const cur = triggerSelect.value as AlertTrigger;
+        const list = st.script ? SCRIPT_TRIGGERS : ALERT_TRIGGERS;
+        triggerSelect.textContent = '';
+        for (const tr of list) addOptTo(triggerSelect, tr, triggerLabel(tr));
+        triggerSelect.value = triggerTouched && list.indexOf(cur) >= 0 ? cur : defaultTrigger();
+    }
     focusRing(triggerSelect);
     settings.appendChild(row(t('Trigger'), triggerSelect));
 
@@ -607,9 +700,12 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     msgArea.maxLength = 500;
     focusRing(msgArea);
     msgPane.appendChild(row(t('Message'), msgArea));
+    const msgHint = el('div', `margin-top: 4px; font-size: 12px; color: ${p.sub};`, t('Leave blank to use the script\'s own message.'));
+    msgHint.className = 'chart-alert-script-message-hint';
+    msgArea.after(msgHint);
     const phWrap = el('div', 'display: flex; flex-wrap: wrap; gap: 6px;');
     phWrap.className = 'chart-alert-placeholders';
-    for (const ph of ALERT_PLACEHOLDERS) {
+    for (const ph of SCRIPT_PLACEHOLDERS) {
         const token = `{{${ph}}}`;
         const chip = el('button', `height: 22px; padding: 0 8px; border: 1px solid ${p.inputBorder}; border-radius: 11px; background: transparent; color: ${p.text}; font: 12px ${FONT}; cursor: pointer;`, token);
         chip.type = 'button';
@@ -769,12 +865,21 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         // indicator alerts always run on the chart's interval (read-only)
         intervalSelect.disabled = ind;
         intervalRow.style.display = ind || moving || triggerSelect.value !== 'once' ? 'flex' : 'none';
+        // script alerts: binding rows instead of condition / value / interval (the interval is the chart's timeframe)
+        const scr = st.script;
+        sourceRow.style.display = showSourceSelect ? 'flex' : 'none';
+        for (const r of [scriptRow, scriptCondRow]) r.style.display = scr ? 'flex' : 'none';
+        scriptNote.style.display = scr ? 'block' : 'none';
+        msgHint.style.display = scr ? 'block' : 'none';
+        const msgChip = phWrap.querySelector('[data-placeholder="{{message}}"]') as HTMLElement | null;
+        if (msgChip) msgChip.style.display = scr ? '' : 'none';
+        if (scr) { condRow.style.display = 'none'; valueRow.style.display = 'none'; intervalRow.style.display = 'none'; } else condRow.style.display = 'flex';
     }
 
     function syncAuto(): void {
         syncVisibility();
         nameInput.placeholder = namePlaceholder();
-        if (!st.messageEdited) msgArea.value = autoMessage();
+        if (!st.messageEdited) msgArea.value = st.script ? '' : autoMessage();
     }
     /** left = price + a right side that is no longer a plot (and no channel): back to the classic price alert */
     function maybeRevertClassic(): void {
@@ -811,8 +916,8 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     }
     // an existing alert whose message is still an auto text keeps tracking the price / condition
     st.messageEdited = !!editing && !!editing.message
-        && !isAutoMsg(editing.message, editing.condition, editing.price, [fmt(editing.price), ...autoExtras(editing.condition)]);
-    msgArea.value = st.messageEdited && editing ? editing.message : autoMessage();
+        && (editingScript || !isAutoMsg(editing.message, editing.condition, editing.price, [fmt(editing.price), ...autoExtras(editing.condition)]));
+    msgArea.value = st.messageEdited && editing ? editing.message : st.script ? '' : autoMessage();
     msgArea.addEventListener('input', () => { st.messageEdited = true; });
     condSelect.addEventListener('change', () => { st.condition = condSelect.value as AlertCondition; maybeRevertClassic(); syncAuto(); });
     pSel.addEventListener('change', () => {
@@ -827,7 +932,18 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     moveInput.addEventListener('input', () => { moveErr.style.display = 'none'; syncAuto(); });
     barsInput.addEventListener('input', () => { moveErr.style.display = 'none'; syncAuto(); });
     triggerSelect.addEventListener('change', () => syncVisibility());
+    srcSelect.addEventListener('change', () => {
+        st.script = srcSelect.value === 'script';
+        st.condition = st.script ? 'script' : defaultCondition;
+        rebuildTriggers();
+        rebuildConditions();
+        syncAuto();
+    });
+    scriptSelect.addEventListener('change', () => { rebuildScriptConds(); syncAuto(); });
+    scriptCondSelect.addEventListener('change', () => { syncScriptHint(); syncAuto(); });
+    rebuildScriptConds();
     syncVisibility();
+    nameInput.placeholder = namePlaceholder();
 
     const setBusy = (b: boolean) => {
         st.busy = b;
@@ -860,7 +976,19 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         const failSettings = (focus?: HTMLElement) => { if (ok) { selectTab('settings'); focus?.focus(); } ok = false; };
         let moveValue: number | null = null;
         let moveBars: number | null = null;
-        if (isDrawing) {
+        let scriptBinding: ScriptAlertBinding | null = null;
+        if (st.script) {
+            // the server never evaluates a script alert: no price
+            price = 0;
+            scriptBinding = currentBinding();
+            if (!scriptBinding) {
+                scriptErr.textContent = scriptAlertInterval(chart?.timeframe) === null && !editingScript
+                    ? t('Script alerts are not available on this chart timeframe')
+                    : t('This script has no alert() call or alertcondition, so it cannot be used for alerts.');
+                scriptErr.style.display = 'block';
+                failSettings(scriptSelect);
+            }
+        } else if (isDrawing) {
             // the price of a drawing alert is only informational: the value at creation (or the stored one)
             price = editing ? editing.price : opts.price;
         } else if (ind) {
@@ -944,7 +1072,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             price: (isDrawing || ind) && !(isFinite(price) && price > 0) ? null : price,
             name: nameInput.value.trim(),
             // untouched auto text -> '' so the server rebuilds the default for the saved price / condition
-            message: !st.messageEdited || isAutoMsg(msgArea.value, cond, price, [fmt(price), ...autoExtras(cond)]) ? '' : msgArea.value.trim(),
+            message: st.script ? msgArea.value.trim() : !st.messageEdited || isAutoMsg(msgArea.value, cond, price, [fmt(price), ...autoExtras(cond)]) ? '' : msgArea.value.trim(),
             notifyApp: true,
             notifyToast: nToast.box.checked,
             playSound: nSound.box.checked,
@@ -952,7 +1080,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             notifyTelegram: tgAvailable && nTg.box.checked,
             expiresAt,
             color: editing?.color ?? DEFAULT_ALERT_COLOR,
-            interval: (ind ? editing?.interval ?? chartInterval : intervalSelect.value) as AlertInterval,
+            interval: (ind || st.script ? editing?.interval ?? chartInterval : intervalSelect.value) as AlertInterval,
             trigger,
             source: curSource(),
             drawingId: drawingInfo ? drawingInfo.id : null,
@@ -964,6 +1092,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         };
         if (webhookUrl !== undefined) draft.webhookUrl = webhookUrl;
         if (ind) { draft.left = leftOp; draft.right = rightOp; draft.right2 = right2Op; }
+        if (st.script) draft.script = scriptBinding;
         return draft;
     };
 
@@ -978,7 +1107,9 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
                 // an edit never rewrites the drawing binding / geometry (the drawing side keeps them in sync)
                 const { symbol: _s, source: _so, drawingId: _d, drawingType: _dt, drawingLabel: _dl, geometry: _g, ...patch } = draft;
                 // nor the informational price of a drawing alert
-                if (isDrawing || editingInd) delete (patch as { price?: number | null }).price;
+                if (isDrawing || editingInd || st.script) delete (patch as { price?: number | null }).price;
+                // nor a script alert's binding (script, timeframe) or condition
+                if (st.script) { const pp = patch as { script?: unknown; condition?: unknown; interval?: unknown }; delete pp.script; delete pp.condition; delete pp.interval; }
                 await alertsStore.update(editing.id, patch);
             } else {
                 await alertsStore.create(draft);
@@ -990,7 +1121,11 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
             const text = errorText(e);
             // the dialog was closed while the request was in flight: nowhere to show the error but a toast
             if (closed) { if (text) showToast({ title: text, kind: 'error' }); return; }
-            if (e instanceof AlertsError && (e.field === 'left' || e.field === 'right' || e.field === 'right2' || e.field === 'symbol') && text) {
+            if (st.script && e instanceof AlertsError && (e.field === 'left' || e.field === 'interval') && text) {
+                scriptErr.textContent = text;
+                scriptErr.style.display = 'block';
+                selectTab('settings');
+            } else if (e instanceof AlertsError && (e.field === 'left' || e.field === 'right' || e.field === 'right2' || e.field === 'symbol') && text) {
                 condErr.textContent = text;
                 condErr.style.display = 'block';
                 selectTab('settings');
@@ -1056,7 +1191,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     current = handle;
     setTimeout(() => {
         if (closed) return;
-        const f = isDrawing ? condSelect : isInd() ? (isEventLeft() ? condSelect : rightHi.select.value === 'value' ? rightHi.input : rightHi.select)
+        const f = st.script ? (editingScript ? triggerSelect : scriptSelect) : isDrawing ? condSelect : isInd() ? (isEventLeft() ? condSelect : rightHi.select.value === 'value' ? rightHi.input : rightHi.select)
             : isMovingCondition(st.condition) ? moveInput : priceInput;
         f.focus();
         if (f instanceof HTMLInputElement) f.select();

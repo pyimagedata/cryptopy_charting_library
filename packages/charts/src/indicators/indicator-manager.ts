@@ -40,7 +40,20 @@ import { FvgInversionIndicator } from './fvg-inversion-indicator';
 import { EqHLIndicatorV2 } from './eqhl-v2-indicator';
 import { NewsIndicator } from './news-indicator';
 import { LiqHeatmapIndicator } from './liq-heatmap-indicator';
+import { LiquidationsIndicator } from './liquidations-indicator';
+import { FundingRateIndicator } from './funding-rate-indicator';
+import { OpenInterestIndicator } from './open-interest-indicator';
+import { LongShortRatioIndicator } from './long-short-ratio-indicator';
 import { JudasSwingIndicator } from './judas-swing-indicator';
+import { SessionsIndicator } from './sessions-indicator';
+import { PrevLevelsIndicator } from './prev-levels-indicator';
+import { AdrLevelsIndicator } from './adr-levels-indicator';
+import { PivotPointsIndicator } from './pivot-points-indicator';
+import { AutoFibIndicator } from './auto-fib-indicator';
+import { CandlestickPatternsIndicator } from './candlestick-patterns-indicator';
+import { DivergenceIndicator } from './divergence-indicator';
+import { SessionVolumeProfileIndicator } from './session-volume-profile-indicator';
+import { VisibleRangeVolumeProfileIndicator } from './visible-range-volume-profile-indicator';
 import { EvoScriptOverlayIndicator, EvoScriptPanelIndicator, isEvoScriptIndicator } from './evo-script-indicator';
 import { SMTDivergenceIndicator } from './smt-divergence-indicator';
 import { SpecialForcesIndicator } from './special-forces-indicator';
@@ -378,7 +391,20 @@ export class IndicatorManager {
         else if (indicator instanceof EqHLIndicatorV2) typeId = 'EqHLV2';
         else if (indicator instanceof NewsIndicator) typeId = 'News';
         else if (indicator instanceof LiqHeatmapIndicator) typeId = 'LiqHeatmap';
+        else if (indicator instanceof LiquidationsIndicator) typeId = 'Liquidations';
+        else if (indicator instanceof FundingRateIndicator) typeId = 'FundingRate';
+        else if (indicator instanceof OpenInterestIndicator) typeId = 'OpenInterest';
+        else if (indicator instanceof LongShortRatioIndicator) typeId = 'LongShortRatio';
         else if (indicator instanceof JudasSwingIndicator) typeId = 'JudasSwing';
+        else if (indicator instanceof SessionsIndicator) typeId = 'Sessions';
+        else if (indicator instanceof PrevLevelsIndicator) typeId = 'PrevLevels';
+        else if (indicator instanceof AdrLevelsIndicator) typeId = 'AdrLevels';
+        else if (indicator instanceof PivotPointsIndicator) typeId = 'PivotPoints';
+        else if (indicator instanceof AutoFibIndicator) typeId = 'AutoFib';
+        else if (indicator instanceof CandlestickPatternsIndicator) typeId = 'CandlestickPatterns';
+        else if (indicator instanceof DivergenceIndicator) typeId = 'Divergence';
+        else if (indicator instanceof SessionVolumeProfileIndicator) typeId = 'SessionVolumeProfile';
+        else if (indicator instanceof VisibleRangeVolumeProfileIndicator) typeId = 'VisibleRangeVolumeProfile';
         else if (indicator instanceof SMTDivergenceIndicator) typeId = 'SMTDivergence';
         else if (indicator instanceof SpecialForcesIndicator) typeId = 'SpecialForces';
         else if (isEvoScriptIndicator(indicator)) typeId = 'EvoScript';
@@ -529,8 +555,47 @@ export class IndicatorManager {
             case 'LiqHeatmap':
                 indicator = new LiqHeatmapIndicator(item.options as any);
                 break;
+            case 'Liquidations':
+                indicator = new LiquidationsIndicator(item.options as any);
+                break;
+            case 'FundingRate':
+                indicator = new FundingRateIndicator(item.options as any);
+                break;
+            case 'OpenInterest':
+                indicator = new OpenInterestIndicator(item.options as any);
+                break;
+            case 'LongShortRatio':
+                indicator = new LongShortRatioIndicator(item.options as any);
+                break;
             case 'JudasSwing':
                 indicator = new JudasSwingIndicator(item.options as any);
+                break;
+            case 'Sessions':
+                indicator = new SessionsIndicator(item.options as any);
+                break;
+            case 'PrevLevels':
+                indicator = new PrevLevelsIndicator(item.options as any);
+                break;
+            case 'AdrLevels':
+                indicator = new AdrLevelsIndicator(item.options as any);
+                break;
+            case 'PivotPoints':
+                indicator = new PivotPointsIndicator(item.options as any);
+                break;
+            case 'AutoFib':
+                indicator = new AutoFibIndicator(item.options as any);
+                break;
+            case 'CandlestickPatterns':
+                indicator = new CandlestickPatternsIndicator(item.options as any);
+                break;
+            case 'Divergence':
+                indicator = new DivergenceIndicator(item.options as any);
+                break;
+            case 'SessionVolumeProfile':
+                indicator = new SessionVolumeProfileIndicator(item.options as any);
+                break;
+            case 'VisibleRangeVolumeProfile':
+                indicator = new VisibleRangeVolumeProfileIndicator(item.options as any);
                 break;
             case 'SMTDivergence':
                 indicator = new SMTDivergenceIndicator(item.options as any);

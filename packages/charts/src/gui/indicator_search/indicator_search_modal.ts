@@ -14,6 +14,8 @@ import {
     IndicatorPrefs,
     SECTION_LABELS,
     groupBySection,
+    indicatorLabel,
+    indicatorSummary,
     itemsForCategory,
     searchIndicators,
 } from './indicator_catalog';
@@ -540,7 +542,7 @@ export class IndicatorSearchModal {
             const row = document.createElement('div');
             row.className = 'tv-indicator-row';
             row.dataset.id = ind.id;
-            row.title = ind.description;
+            row.title = indicatorSummary(ind);
             row.style.cssText = `
                 height: ${UI.rowHeight}px; padding: 0 16px 0 20px; box-sizing: border-box;
                 cursor: pointer; display: flex; align-items: center; gap: 8px;
@@ -551,7 +553,7 @@ export class IndicatorSearchModal {
             if (locked) row.dataset.locked = 'true';
 
             const name = document.createElement('span');
-            name.textContent = ind.name;
+            name.textContent = indicatorLabel(ind);
             name.style.cssText = `color: ${locked ? c.muted : c.text}; opacity: ${locked ? 0.6 : 1}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1;`;
             row.appendChild(name);
 
