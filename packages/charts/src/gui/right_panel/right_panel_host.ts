@@ -12,7 +12,7 @@ import { applyRpTokens, ensureRpStyles } from './rp_tokens';
 export const RIGHT_PANEL_WIDTH_KEY = 'chart.rightPanel.width';
 const LEGACY_WIDTH_KEY = 'chart.watchlist.width';
 const MIN_WIDTH = 240;
-const MAX_WIDTH = 640;
+const MAX_WIDTH = 960;
 const MIN_CHART_WIDTH = 320;
 const DEFAULT_WIDTH = 360;
 /** Below this layout width the panel opens as a full-width overlay sheet (with a close button) instead of a side column. */
