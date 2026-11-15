@@ -9,6 +9,7 @@ import { RemoteContext, barTimeMs } from './remote-compute';
 import { IndicatorLegendInfo } from './legend-info';
 import { canvasSans } from '../helpers/fonts';
 import { FONT_SANS } from '../helpers/fonts';
+import { t, getCurrentLanguage } from '../helpers/translations';
 
 export type NewsFilter = 'all' | 'featured' | 'high';
 
@@ -25,7 +26,7 @@ export interface NewsIndicatorOptions {
 }
 
 const defaultNewsOptions: NewsIndicatorOptions = {
-    name: 'Haberler',
+    name: 'News',
     filter: 'all',
     relevant: false,
     breaking: false,
@@ -129,22 +130,22 @@ function rgba(color: string, alpha: number): string {
 function importanceInfo(v: string | number | null | undefined): { label: string; color: string; strong?: boolean } | null {
     if (typeof v !== 'string') return null;
     switch (v.toUpperCase()) {
-        case 'CRITICAL': return { label: 'Kritik', color: '#d50000', strong: true };
-        case 'HIGH': return { label: 'Yüksek', color: '#ef5350' };
-        case 'MEDIUM': return { label: 'Orta', color: '#ff9800' };
-        case 'LOW': return { label: 'Düşük', color: '#9598a1' };
+        case 'CRITICAL': return { label: 'Critical', color: '#d50000', strong: true };
+        case 'HIGH': return { label: 'High', color: '#ef5350' };
+        case 'MEDIUM': return { label: 'Medium', color: '#ff9800' };
+        case 'LOW': return { label: 'Low', color: '#9598a1' };
         default: return null;
     }
 }
 
 const DIR_MAP: Record<string, { label: string; kind: Dir }> = {
-    STRONG_BULLISH: { label: '↑↑ güçlü', kind: 'bull' },
+    STRONG_BULLISH: { label: '↑↑ strong', kind: 'bull' },
     BULLISH: { label: '↑', kind: 'bull' },
-    SLIGHT_BULLISH: { label: '↑ hafif', kind: 'bull' },
-    NEUTRAL: { label: 'Nötr', kind: 'neutral' },
-    SLIGHT_BEARISH: { label: '↓ hafif', kind: 'bear' },
+    SLIGHT_BULLISH: { label: '↑ slight', kind: 'bull' },
+    NEUTRAL: { label: 'Neutral', kind: 'neutral' },
+    SLIGHT_BEARISH: { label: '↓ slight', kind: 'bear' },
     BEARISH: { label: '↓', kind: 'bear' },
-    STRONG_BEARISH: { label: '↓↓ güçlü', kind: 'bear' },
+    STRONG_BEARISH: { label: '↓↓ strong', kind: 'bear' },
 };
 
 function dirLabel(dir: string | null | undefined): { label: string; kind: Dir } | null {
@@ -223,23 +224,23 @@ export class NewsIndicator extends OverlayIndicator {
                 {
                     id: 'inputs', label: 'Inputs', sections: [{ rows: [
                         {
-                            type: 'select', key: 'filter', label: 'Filtre', defaultValue: 'all',
+                            type: 'select', key: 'filter', label: 'Filter', defaultValue: 'all',
                             options: [
-                                { value: 'all', label: 'Tümü' },
-                                { value: 'featured', label: 'Öne Çıkanlar' },
-                                { value: 'high', label: 'Önem ≥ Yüksek' },
+                                { value: 'all', label: 'All' },
+                                { value: 'featured', label: 'Featured' },
+                                { value: 'high', label: 'Importance ≥ High' },
                             ],
                         },
-                        { type: 'checkbox', key: 'relevant', label: 'Sadece bu sembolle ilgili', defaultValue: false },
-                        { type: 'checkbox', key: 'breaking', label: 'Sadece son dakika', defaultValue: false },
-                        { type: 'checkbox', key: 'showVerticalLines', label: 'Dikey çizgi göster', defaultValue: false },
+                        { type: 'checkbox', key: 'relevant', label: 'Only related to this symbol', defaultValue: false },
+                        { type: 'checkbox', key: 'breaking', label: 'Breaking news only', defaultValue: false },
+                        { type: 'checkbox', key: 'showVerticalLines', label: 'Show vertical lines', defaultValue: false },
                     ] }],
                 },
                 {
                     id: 'style', label: 'Style', sections: [{ rows: [
-                        { type: 'color', key: 'bullishColor', label: 'Yükseliş rengi', defaultValue: this._o.bullishColor },
-                        { type: 'color', key: 'bearishColor', label: 'Düşüş rengi', defaultValue: this._o.bearishColor },
-                        { type: 'color', key: 'neutralColor', label: 'Nötr rengi', defaultValue: this._o.neutralColor },
+                        { type: 'color', key: 'bullishColor', label: 'Bullish color', defaultValue: this._o.bullishColor },
+                        { type: 'color', key: 'bearishColor', label: 'Bearish color', defaultValue: this._o.bearishColor },
+                        { type: 'color', key: 'neutralColor', label: 'Neutral color', defaultValue: this._o.neutralColor },
                     ] }],
                 },
             ],
@@ -293,18 +294,18 @@ export class NewsIndicator extends OverlayIndicator {
     }
 
     private _statusText(): string {
-        if (this._denied === 401) return 'giriş gerekli';
-        if (this._denied === 403) return 'premium gerekli';
+        if (this._denied === 401) return t('login required');
+        if (this._denied === 403) return t('premium required');
         const n = this._visibleCount();
-        return `${n} (görünen aralık)${this._truncated ? ' - çok fazla haber — filtreyi daralt' : ''}`;
+        return `${n} (${t('visible range')})${this._truncated ? ' - ' + t('too many news items, narrow the filter') : ''}`;
     }
 
     getDescription(): string {
-        return `Haberler: ${this._statusText()}`;
+        return `${t('News')}: ${this._statusText()}`;
     }
 
     getLegendInfo(): IndicatorLegendInfo {
-        return { title: 'Haberler', params: [this._statusText()], plots: [] };
+        return { title: t('News'), params: [this._statusText()], plots: [] };
     }
 
     private _visibleCount(): number {
@@ -491,7 +492,7 @@ export class NewsIndicator extends OverlayIndicator {
                 this._backoff();
                 if (!this._warned) {
                     this._warned = true;
-                    console.warn('NewsIndicator: haberler alınamadı', error);
+                    console.warn('NewsIndicator: news could not be fetched', error);
                 }
             }
         } finally {
@@ -816,9 +817,9 @@ export class NewsIndicator extends OverlayIndicator {
     private _fmtTime(ms: number): { time: string; day: string } {
         const opts = (extra: Intl.DateTimeFormatOptions): Intl.DateTimeFormat => {
             try {
-                return new Intl.DateTimeFormat('tr-TR', { ...extra, ...(this._tz ? { timeZone: this._tz } : {}) });
+                return new Intl.DateTimeFormat(getCurrentLanguage(), { ...extra, ...(this._tz ? { timeZone: this._tz } : {}) });
             } catch {
-                return new Intl.DateTimeFormat('tr-TR', extra);
+                return new Intl.DateTimeFormat(getCurrentLanguage(), extra);
             }
         };
         const time = opts({ hour: '2-digit', minute: '2-digit', hour12: false }).format(ms);
@@ -852,10 +853,10 @@ export class NewsIndicator extends OverlayIndicator {
             tm.textContent = f.day === today ? f.time : `${f.day.slice(0, 5)} ${f.time}`;
             head.appendChild(tm);
             const imp = importanceInfo(it.importance);
-            if (imp) head.appendChild(this._chip(imp.label, imp.color, imp.strong));
+            if (imp) head.appendChild(this._chip(t(imp.label), imp.color, imp.strong));
             const dl = dirLabel(it.dir);
-            if (dl) head.appendChild(this._chip(dl.label, dl.kind === 'bull' ? this._o.bullishColor : dl.kind === 'bear' ? this._o.bearishColor : this._o.neutralColor));
-            if (it.breaking) head.appendChild(this._chip('Son dakika', BREAKING_COLOR));
+            if (dl) head.appendChild(this._chip(t(dl.label), dl.kind === 'bull' ? this._o.bullishColor : dl.kind === 'bear' ? this._o.bearishColor : this._o.neutralColor));
+            if (it.breaking) head.appendChild(this._chip(t('Breaking'), BREAKING_COLOR));
             row.appendChild(head);
 
             const titleText = it.title || it.title_en || '';
@@ -888,7 +889,7 @@ export class NewsIndicator extends OverlayIndicator {
         if (cluster.items.length > shown.length) {
             const more = document.createElement('div');
             more.style.cssText = `padding-top:4px;color:${muted}`;
-            more.textContent = `+${cluster.items.length - shown.length} daha`;
+            more.textContent = `+${cluster.items.length - shown.length} ${t('more')}`;
             card.appendChild(more);
         }
         return card;

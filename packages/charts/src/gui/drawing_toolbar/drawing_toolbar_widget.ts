@@ -736,13 +736,13 @@ export class DrawingToolbarWidget {
         });
 
         // Utility buttons at the end of the list
-        this._createUtilityButton(DRAWING_ICONS.lock, 'Lock Drawings', () => {
+        this._createUtilityButton(DRAWING_ICONS.lock, t('Lock Drawings'), () => {
             this._isLocked = !this._isLocked;
             this._updateUtilityButtons();
             this._lockToggled.fire(this._isLocked);
         }, false, 'lock');
 
-        this._createUtilityButton(DRAWING_ICONS.visible, 'Hide Drawings', () => {
+        this._createUtilityButton(DRAWING_ICONS.visible, t('Hide Drawings'), () => {
             this._isVisibilityHidden = !this._isVisibilityHidden;
             this._updateUtilityButtons();
             this._visibilityToggled.fire(this._isVisibilityHidden);
@@ -762,7 +762,7 @@ export class DrawingToolbarWidget {
 
         this._createUtilityButton(OBJECT_TREE_ICON, t('Object tree'), () => this._objectTreeToggled.fire(), false, 'objectTree');
 
-        this._createUtilityButton(DRAWING_ICONS.trash, 'Delete All', () => this._deleteAllClicked.fire(), true, 'trash');
+        this._createUtilityButton(DRAWING_ICONS.trash, t('Delete All'), () => this._deleteAllClicked.fire(), true, 'trash');
 
         container.appendChild(this._element);
 

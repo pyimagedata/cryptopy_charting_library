@@ -6,7 +6,7 @@
 
 import { Delegate } from '../../../helpers/delegate';
 import { Drawing } from '../../../drawings';
-import { t, getCurrentLanguage } from '../../../helpers/translations';
+import { t, getCurrentLanguage, onLanguageChange } from '../../../helpers/translations';
 import { FONT_SANS } from '../../../helpers/fonts';
 
 /** Tab configuration */
@@ -31,6 +31,7 @@ export abstract class BaseSettingsModal {
     protected _theme: 'dark' | 'light' = 'dark';
     /** Grafigin mevcut zaman dilimi (gorunurluk sekmesindeki hazir ayarlar icin) */
     protected _timeframe: string = '';
+    private _unsubLang: (() => void) | null = null;
 
     // Events
     readonly closed = new Delegate<void>();
@@ -114,10 +115,26 @@ export abstract class BaseSettingsModal {
         this._activeTabId = this.getInitialTabId();
         this._createElement();
         this._renderActiveTab();
+        this._unsubLang?.();
+        // Language switch while open: rebuild in place (edits are already applied to the drawing)
+        this._unsubLang = onLanguageChange(() => this._rebuildForLanguage());
+    }
+
+    private _rebuildForLanguage(): void {
+        if (!this._overlay || !this._element || !this._currentDrawing) return;
+        this._overlay.remove();
+        this._element.remove();
+        this._overlay = null;
+        this._element = null;
+        this._contentContainer = null;
+        this._createElement();
+        this._renderActiveTab();
     }
 
     /** Hide and destroy the modal */
     hide(): void {
+        this._unsubLang?.();
+        this._unsubLang = null;
         if (this._overlay) {
             this._overlay.remove();
             this._overlay = null;

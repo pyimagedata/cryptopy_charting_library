@@ -2,6 +2,8 @@
  * Context Menu - TradingView-style right-click menu
  */
 
+import { formatPrice, groupThousands } from '../../helpers/format';
+import { t } from '../../helpers/translations';
 import { ATTR_BAR_STYLE, barColors, BarTheme } from '../attribute_bar/components/style';
 
 export interface ContextMenuItem {
@@ -323,12 +325,13 @@ export class ContextMenu {
         this._renderItems();
     }
 
-    setCurrentPrice(price: number): void {
+    /** `text`: price already formatted with the price axis precision; falls back to 2 decimals. */
+    setCurrentPrice(price: number, text?: string): void {
         this._currentPrice = price;
         // Update copy price label dynamically
         const copyItem = this._items.find(i => i.id === 'copy-price');
         if (copyItem) {
-            copyItem.label = `Copy price ${price.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
+            copyItem.label = `${t('Copy price')} ${text !== undefined ? groupThousands(text) : formatPrice(price, 2)}`;
             this._renderItems();
         }
     }

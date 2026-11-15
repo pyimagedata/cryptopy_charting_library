@@ -33,6 +33,8 @@ export interface IndicatorSettingsProvider {
     supportsPrecision?(): boolean;
     /** Short name for the dialog title (e.g. "RSI") */
     getLegendInfo?(index?: number | null): { title: string };
+    /** Script defaults for keys a freshly constructed indicator cannot know (Evo Script style rows); used by "Reset settings" */
+    getFactorySetting?(key: string): any;
     /** Recompute from the current source data (used when a live change needs it) */
     recalculate?(): void;
     /** Calculated data; reference changes when the indicator recalculated itself */

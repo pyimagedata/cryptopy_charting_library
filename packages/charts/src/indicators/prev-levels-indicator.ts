@@ -115,7 +115,7 @@ export class PrevLevelsIndicator extends OverlayIndicator {
 
     getSettingsConfig(): IndicatorSettingsConfig {
         return {
-            name: this.name,
+            name: t(this.name),
             tabs: [
                 createInputsTab([{
                     rows: [

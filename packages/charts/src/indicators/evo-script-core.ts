@@ -9,6 +9,7 @@
 
 import { BarData } from '../model/data';
 import { Delegate } from '../helpers/delegate';
+import { EvoStyleMap, sanitizeEvoStyles, pruneEvoStyles, evoStyleItems, setEvoOverride } from './evo-script-style';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -56,6 +57,8 @@ export interface EvoScriptSettings {
     overlay: boolean;
     /** Phase 4: user overrides of strategy() arguments (Strategy Tester "Properties"); persisted with the indicator */
     strategyOverrides?: Record<string, unknown>;
+    /** Style tab overrides by row id (see evo-script-style.ts); render-only, persisted with the indicator */
+    styles?: EvoStyleMap;
 }
 
 export type EvoScriptStatus = 'idle' | 'running' | 'ok' | 'error';
@@ -117,7 +120,7 @@ export interface EvoShape {
     showLast?: number;
     forceOverlay?: boolean;
 }
-export interface EvoBgBand { from: number; to: number; color: string; offset: number }
+export interface EvoBgBand { from: number; to: number; color: string; offset: number; title?: string; display?: string }
 export interface EvoLabel {
     bar: number; price: number; text: string; style: string; color: string; textcolor: string; size: string;
     yloc: string; textalign: string; tooltip?: string; fontFamily?: string; textFormatting?: string; forceOverlay?: boolean;
@@ -236,6 +239,8 @@ export interface EvoOutput {
     /** Per-bar candle colour overrides (index into colorTable, 0xFFFF = none), applied to the main series */
     barColors?: Uint16Array;
     barColorOffset: number;
+    /** barcolor() display option ('none' = script hides it; the Style tab can switch it on) */
+    barColorDisplay?: string;
     candles: EvoCandles[];
     arrows: EvoArrow[];
     logs: EvoLogEntry[];
@@ -244,6 +249,8 @@ export interface EvoOutput {
     alertFlags: Record<string, Uint8Array>;
     /** alertcondition() messages by title */
     alertMessages: Record<string, string>;
+    /** alertcondition() titles in declaration order (alertFlags keys would put integer-like titles first) */
+    alertOrder: string[];
     warnings: Array<{ message: string; line?: number; column?: number }>;
 }
 
@@ -389,6 +396,16 @@ function safeMap(m: unknown): Record<string, any> {
         }
     }
     return o;
+}
+/** Keys of `map` in declaration order: the engine's order list when given (unknown keys skipped), then any key it did not list */
+function orderedKeys(map: Record<string, any>, order: unknown): string[] {
+    const keys = Object.keys(map);
+    if (!Array.isArray(order)) return keys;
+    const seen = new Set<string>();
+    const res: string[] = [];
+    for (const k of order) if (typeof k === 'string' && k in map && !seen.has(k)) { seen.add(k); res.push(k); }
+    for (const k of keys) if (!seen.has(k)) res.push(k);
+    return res;
 }
 /** force_overlay flag of a raw object (plain key, snake_case or inside opts) */
 const fo = (o: any): boolean | undefined => (opt(o, 'forceOverlay', 'force_overlay') === true ? true : undefined);
@@ -562,19 +579,20 @@ export function normalizeEvoOutput(raw0: any): EvoOutput {
         })) : [],
         plots: [], hlines: [], fills: [], shapes: [], bgcolors: [], labels: [], boxes: [], lines: [], polylines: [], linefills: [],
         tables: [], barColors: undefined, barColorOffset: 0, candles: [], arrows: [], logs: [], alertEvents: [],
-        alertFlags: Object.create(null), alertMessages: Object.create(null),
+        alertFlags: Object.create(null), alertMessages: Object.create(null), alertOrder: [],
         warnings: Array.isArray(raw?.warnings) ? raw.warnings : [],
     };
 
     const v2 = (out.meta.contract ?? 0) >= 2; // offset is applied by the renderer only for contract >= 2
     const offOf = (o: any): number => (v2 ? Math.max(-500, Math.min(500, Math.round(optNum(o, 'offset') ?? 0))) : 0);
     let pi = 0;
-    for (const [title, vals] of Object.entries<any>(raw?.plots ?? {})) {
+    for (const title of orderedKeys(raw.plots, raw0?.plotOrder)) {
+        const vals = raw.plots[title];
         const po = raw?.plotOpts?.[title] ?? {};
         out.plots.push({
             title, values: asNumArray(vals),
             color: optStr(po, DEFAULT_PLOT_COLORS[pi % DEFAULT_PLOT_COLORS.length], 'color'),
-            linewidth: num(opt(po, 'linewidth', 'lineWidth'), 2),
+            linewidth: num(opt(po, 'linewidth', 'lineWidth'), 1), // Pine varsayilani 1
             style: optStr(po, 'line', 'style').replace(/^style_/, ''),
             display: optStr(po, 'all', 'display'),
             histbase: num(opt(po, 'histbase'), 0),
@@ -608,7 +626,8 @@ export function normalizeEvoOutput(raw0: any): EvoOutput {
             display: optStr(f, 'all', 'display'),
         });
     }
-    for (const [title, vals] of Object.entries<any>(raw?.shapes ?? {})) {
+    for (const title of orderedKeys(raw.shapes, raw0?.shapeOrder)) {
+        const vals = raw.shapes[title];
         const so = raw?.shapeOpts?.[title] ?? {};
         out.shapes.push({
             title, values: asNumArray(vals),
@@ -626,10 +645,11 @@ export function normalizeEvoOutput(raw0: any): EvoOutput {
     }
     for (const b of raw?.bgcolors ?? []) {
         const boff = offOf(b);
+        const bdisp = optStr(b, 'all', 'display');
         if (Array.isArray(b?.runs)) {
-            for (const r of b.runs) if (typeof r?.color === 'string') out.bgcolors.push({ from: num(r.from, 0), to: num(r.to, 0), color: r.color, offset: boff });
+            for (const r of b.runs) if (typeof r?.color === 'string') out.bgcolors.push({ from: num(r.from, 0), to: num(r.to, 0), color: r.color, offset: boff, title: str(b.title), display: bdisp });
         } else if (typeof b?.color === 'string') {
-            out.bgcolors.push({ from: num(b.from, 0), to: num(b.to, num(b.from, 0)), color: b.color, offset: boff });
+            out.bgcolors.push({ from: num(b.from, 0), to: num(b.to, num(b.from, 0)), color: b.color, offset: boff, title: str(b.title), display: bdisp });
         }
     }
     for (const l of raw?.labels ?? []) {
@@ -731,8 +751,9 @@ export function normalizeEvoOutput(raw0: any): EvoOutput {
         const bc = asColorIdx(raw.barColors);
         const bo = raw.barColorOpts;
         const disp = typeof bo?.display === 'string' ? bo.display : 'all';
-        if (bc && disp !== 'none') {
+        if (bc) {
             out.barColors = bc;
+            out.barColorDisplay = disp;
             out.barColorOffset = v2 ? Math.max(-500, Math.min(500, Math.round(num(bo?.offset, 0)))) : 0;
         }
     }
@@ -762,8 +783,10 @@ export function normalizeEvoOutput(raw0: any): EvoOutput {
         out.alertEvents.push({ bar: Math.round(num(a?.bar, -1)), message: str(a?.message), freq: str(a?.freq, 'all') });
     }
     let nFlags = 0;
-    for (const [title, v] of Object.entries<any>(raw.alerts)) {
+    for (const title of orderedKeys(raw.alerts, raw0?.alertOrder)) {
+        const v = raw.alerts[title];
         if (nFlags++ >= 32 || !v || typeof v !== 'object' || typeof v.length !== 'number') continue;
+        out.alertOrder.push(title);
         Object.defineProperty(out.alertFlags, title, { value: v instanceof Uint8Array ? v : Uint8Array.from(v as ArrayLike<number>, (x) => (x ? 1 : 0)), enumerable: true, writable: true, configurable: true });
         const msg = raw.alertMessages[title];
         if (typeof msg === 'string') Object.defineProperty(out.alertMessages, title, { value: msg, enumerable: true, writable: true, configurable: true });
@@ -871,6 +894,7 @@ export class EvoScriptCore {
     private _pendingRunner = false;
     private _notReadyTries = 0;
     private _destroyed = false;
+    private _pruneStyles = false;
     private _firstTime = NaN;
     private _ctxChanged = false;
     private _ctx: { symbol: string; timeframe: string; exchange?: string } | null = null;
@@ -893,6 +917,7 @@ export class EvoScriptCore {
             name: settings.name ?? '',
             overlay: settings.overlay === true,
             strategyOverrides: sanitizeStrategyOverrides(settings.strategyOverrides),
+            styles: sanitizeEvoStyles(settings.styles),
         };
         _cores.add(this);
     }
@@ -1063,6 +1088,8 @@ export class EvoScriptCore {
         if (patch.inputs !== undefined) s.inputs = patch.replaceInputs ? { ...patch.inputs } : { ...s.inputs, ...patch.inputs };
         if (patch.overlay !== undefined) s.overlay = !!patch.overlay;
         if (patch.strategyOverrides !== undefined) s.strategyOverrides = sanitizeStrategyOverrides(patch.strategyOverrides);
+        if (patch.styles !== undefined) s.styles = sanitizeEvoStyles(patch.styles);
+        if (patch.source !== undefined) this._pruneStyles = true; // stale rows are dropped after the next successful run
         this.onSettings?.();
         this.onPersist?.();
         this.schedule(delayMs);
@@ -1084,6 +1111,20 @@ export class EvoScriptCore {
         this.onSettings?.();
         this.onPersist?.();
         this.schedule(SETTINGS_DEBOUNCE_MS);
+    }
+
+    /** Style tab: set (or clear, when equal to the script defaults) the override of one row. Render-only: no re-run. */
+    setStyle(id: string, value: unknown): void {
+        const items = evoStyleItems(this.output);
+        const item = items.find((i) => i.id === id);
+        if (!item) return;
+        const cur = this.settings.styles ?? {};
+        const next = setEvoOverride(pruneEvoStyles(cur, items), item, value);
+        if (JSON.stringify(next) === JSON.stringify(cur)) return;
+        this.settings.styles = next;
+        this.onSettings?.();
+        this.onPersist?.();
+        this._emit();
     }
 
     setName(name: string): void {
@@ -1202,6 +1243,12 @@ export class EvoScriptCore {
             return;
         }
         this._outKey = key;
+        if (this._pruneStyles) {
+            this._pruneStyles = false;
+            const cur = this.settings.styles ?? {};
+            const kept = pruneEvoStyles(cur, evoStyleItems(this.output));
+            if (Object.keys(kept).length !== Object.keys(cur).length) { this.settings.styles = kept; this.onSettings?.(); this.onPersist?.(); }
+        }
         this.status = 'ok';
         this.error = null;
         this.lastTitle = this.output.meta.shortTitle || this.output.meta.title;

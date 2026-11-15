@@ -1,4 +1,5 @@
 import { TimeScale } from '../model/time-scale';
+import { monthShort } from '../helpers/format';
 import { TimeParts } from '../model/time-marks';
 import { getCurrentLanguage } from '../helpers/translations';
 import { resolveFontFamily, FONT_SANS } from '../helpers/fonts';
@@ -255,9 +256,7 @@ export class TimeAxisWidget implements Disposable {
     }
 
     private _getMonthShort(month: number): string {
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return months[month];
+        return monthShort(month);
     }
 
     private _formatCrosshairTime(timestamp: number): string {

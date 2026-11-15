@@ -85,10 +85,16 @@ export function filterDefaultValues(values: SettingsValues): SettingsValues {
     return out;
 }
 
+/** Evo Script style rows ('st:' keys) belong to one script's plot list: never part of the per-type saved defaults */
+function dropScriptStyles(values: SettingsValues): SettingsValues {
+    for (const k of Object.keys(values)) if (k.startsWith('st:')) delete values[k];
+    return values;
+}
+
 export function saveDefaults(storage: SettingsStorage | null, typeId: string, values: SettingsValues): boolean {
     if (!storage || !typeId) return false;
     try {
-        storage.setItem(defaultsStorageKey(typeId), JSON.stringify(filterDefaultValues(values)));
+        storage.setItem(defaultsStorageKey(typeId), JSON.stringify(dropScriptStyles(filterDefaultValues(values))));
         return true;
     } catch { return false; }
 }
@@ -99,7 +105,7 @@ export function loadDefaults(storage: SettingsStorage | null, typeId: string): S
         const raw = storage.getItem(defaultsStorageKey(typeId));
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === 'object' ? filterDefaultValues(parsed) : null;
+        return parsed && typeof parsed === 'object' ? dropScriptStyles(filterDefaultValues(parsed)) : null;
     } catch { return null; }
 }
 

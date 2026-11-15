@@ -5,6 +5,7 @@ import { OverlayIndicator } from './indicator';
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, barIndexAtTime, drawAccessNotice } from './remote-compute';
 import { canvasSans } from '../helpers/fonts';
+import { t } from '../helpers/translations';
 
 export interface EqHLIndicatorV2Options {
     name: string;
@@ -282,11 +283,11 @@ export class EqHLIndicatorV2 extends OverlayIndicator {
             }
 
             if (this._eOptions.showLabels) {
-                let suffix = lvl.swept ? ' (supuruldu)' : '';
+                let suffix = lvl.swept ? ` (${t('swept')})` : '';
                 if (showConf && lvl.swept) {
-                    if (lvl.confirmStatus === 'confirmed') suffix = ' (süpürüldü ✓)';
-                    else if (lvl.confirmStatus === 'failed') suffix = ' (kırıldı)';
-                    else if (lvl.confirmStatus === 'pending') suffix = ' (bekliyor)';
+                    if (lvl.confirmStatus === 'confirmed') suffix = ` (${t('swept')} ✓)`;
+                    else if (lvl.confirmStatus === 'failed') suffix = ` (${t('broken')})`;
+                    else if (lvl.confirmStatus === 'pending') suffix = ` (${t('pending')})`;
                 }
                 const label = `${lvl.type === 'high' ? 'EQH' : 'EQL'}${lvl.touches > 2 ? ' x' + lvl.touches : ''}${suffix}`;
                 ctx.font = `${10 * hpr}px ${canvasSans()}`;

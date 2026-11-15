@@ -3,6 +3,8 @@
  * sutun gorunurlugu, siralama (bolum ici gorunum) ve logo/renk turetme. Node'da test edilebilir.
  */
 
+import { t } from '../../helpers/translations';
+import { formatPrice, formatNumber, formatPercent, formatDate, localeOf } from '../../helpers/format';
 import type { WatchlistItem } from './watchlist_model';
 
 export type ColId = 'spark' | 'last' | 'chgPct' | 'vol';
@@ -172,7 +174,7 @@ export class DecimalsTracker {
 }
 
 export function formatNum(v: number, decimals: number): string {
-    return v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    return formatPrice(v, decimals);
 }
 
 export function formatSigned(v: number, decimals: number): string {
@@ -182,28 +184,28 @@ export function formatSigned(v: number, decimals: number): string {
 }
 
 export function formatPct(v: number): string {
-    const s = Math.abs(v).toFixed(2);
-    if (Number(s) === 0) return `${s}%`;
-    return `${v > 0 ? '+' : '-'}${s}%`;
+    const s = formatPercent(Math.abs(v), 2);
+    if (Number(Math.abs(v).toFixed(2)) === 0) return s;
+    return `${v > 0 ? '+' : '-'}${s}`;
 }
 
 export function formatVolume(v: number): string {
     if (!v || v <= 0) return '—';
-    const trim = (x: number) => String(Number(x.toFixed(2)));
+    const trim = (x: number) => formatNumber(x, { maxDecimals: 2 });
     if (v >= 1e9) return trim(v / 1e9) + 'B';
     if (v >= 1e6) return trim(v / 1e6) + 'M';
     if (v >= 1e3) return trim(v / 1e3) + 'K';
-    return v.toFixed(0);
+    return formatNumber(v, { maxDecimals: 0 });
 }
 
 /** Dar alanlar icin kompakt fiyat: 108302.54 -> 108.3K (yeterince buyukse), aksi halde 3 anlamli hane. */
 export function compactAbbrev(v: number): string {
     const a = Math.abs(v);
-    const trim = (x: number) => String(Number(x.toFixed(2)));
+    const trim = (x: number) => formatNumber(x, { maxDecimals: 2 });
     if (a >= 1e9) return trim(v / 1e9) + 'B';
     if (a >= 1e6) return trim(v / 1e6) + 'M';
     if (a >= 1e3) return trim(v / 1e3) + 'K';
-    return String(Number(v.toPrecision(3)));
+    return formatNumber(Number(v.toPrecision(3)), { maxDecimals: 8 });
 }
 
 /** Mutlak degisim: host verdiyse o, yoksa fiyat ve yuzdeden turetilir; ikisi de yoksa null. */
@@ -265,14 +267,14 @@ export function logoInfo(code: string, assetClass?: string): LogoInfo {
 
 // ---- Zaman ----
 
-/** "x sn once" / "x dk once" / yerel saat; ayrisamazsa null. */
+/** "x sec ago" / "x min ago" / local time; null when unparsable. */
 export function relativeTime(updatedAt: string | undefined, nowMs: number): string | null {
     if (!updatedAt) return null;
-    const t = Date.parse(updatedAt);
-    if (!Number.isFinite(t)) return null;
-    const s = Math.max(0, Math.round((nowMs - t) / 1000));
-    if (s < 60) return `${s} sn önce`;
-    if (s < 3600) return `${Math.floor(s / 60)} dk önce`;
-    const d = new Date(t);
-    return nowMs - t < 86400000 ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+    const ts = Date.parse(updatedAt);
+    if (!Number.isFinite(ts)) return null;
+    const s = Math.max(0, Math.round((nowMs - ts) / 1000));
+    if (s < 60) return t('{n} sec ago').replace('{n}', String(s));
+    if (s < 3600) return t('{n} min ago').replace('{n}', String(Math.floor(s / 60)));
+    const d = new Date(ts);
+    return nowMs - ts < 86400000 ? d.toLocaleTimeString(localeOf(), { hour: '2-digit', minute: '2-digit' }) : formatDate(d, { time: true });
 }

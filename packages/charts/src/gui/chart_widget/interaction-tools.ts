@@ -7,7 +7,7 @@
  */
 
 import { formatDurationMs, resolvePipSize } from '../../drawings/line-tool-common';
-import { fmt, fmtSigned } from '../../drawings/position-common';
+import { fmt, fmtSigned, fmtPriceSigned } from '../../drawings/position-common';
 import { t } from '../../helpers/translations';
 import { canvasSans } from '../../helpers/fonts';
 
@@ -81,7 +81,7 @@ export function computeMeasure(
 /** Label lines for the chip: price/%/ticks, then bars/duration. */
 export function measureLabelLines(r: MeasureResult, precision: number): string[] {
     return [
-        `${fmtSigned(r.priceDiff, precision)} (${fmtSigned(r.pct, 2)}%) ${fmtSigned(r.ticks, 0)} ${t('ticks')}`,
+        `${fmtPriceSigned(r.priceDiff, precision)} (${fmtSigned(r.pct, 2)}%) ${fmtSigned(r.ticks, 0)} ${t('ticks')}`,
         `${fmt(r.bars, 0)} ${t('bars')}, ${formatDurationMs(r.durationMs)}`,
     ];
 }

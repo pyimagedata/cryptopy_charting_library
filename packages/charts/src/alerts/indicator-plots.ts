@@ -4,7 +4,7 @@
  *
  * Param keys are the library option keys; the server (Python port) uses exactly the same keys.
  */
-import { getCurrentLanguage, t } from '../helpers/translations';
+import { t } from '../helpers/translations';
 import { PREMIUM_EVENT_DEFS } from './premium-events';
 import { formatLegendParam } from '../indicators/legend-info';
 import { TYPE_ID_TO_CATALOG_ID, getIndicatorAccess, isIndicatorAllowed } from '../gui/indicator_search/indicator_access';
@@ -131,7 +131,7 @@ export const PREMIUM_ALERT_INDICATORS: readonly AlertableIndicatorDef[] = PREMIU
     type: d.type, title: d.title, plots: [], paramKeys: d.paramKeys.slice(), defaults: {}, labelKeys: [], premium: true,
     events: d.events.map((x) => ({
         id: x.id,
-        get label() { return getCurrentLanguage() === 'tr' ? x.tr : x.en; },
+        get label() { return t(x.en); },
         labelEn: x.en,
     })),
 }));

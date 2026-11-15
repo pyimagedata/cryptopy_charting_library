@@ -8,11 +8,12 @@
  * listeleri (watchlist_model.ts) ve panelin acik/kapali durumu sadece bu tarayicida (localStorage).
  */
 
+import { bindLangAttr } from '../../helpers/lang-attr';
 import { Delegate } from '../../helpers/delegate';
 import { displaySymbol, displayExchange } from '../../helpers/display-aliases';
-import { t, getCurrentLanguage } from '../../helpers/translations';
+import { t, getCurrentLanguage, onLanguageChange } from '../../helpers/translations';
 import { ContextMenu, ContextMenuItem } from '../context_menu/context_menu';
-import { WatchlistModel, WatchlistItem, itemId, FLAG_COLORS, flagHex, FLAGGED_PREFIX, DETAILS_MIN, DEFAULT_LIST_NAME } from './watchlist_model';
+import { WatchlistModel, WatchlistItem, itemId, FLAG_COLORS, flagHex, FLAGGED_PREFIX, DETAILS_MIN, displayListName } from './watchlist_model';
 import { WL_COLORS, WlColors, WL_METRICS, WL_FLASH_MS } from './watchlist_theme';
 import { applyRpTokens, ensureRpStyles, rpEmptyState, RP_MENU_SKIN, RP_FONT, RP_FONT_MONO } from '../right_panel/rp_tokens';
 import { promptDialog, confirmDialog, rethemeOpenDialogs } from './watchlist_dialogs';
@@ -126,7 +127,7 @@ const CAT_ICONS: Record<Category | 'section', string> = {
 function catIcon(c: Category | 'section'): string {
     return `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${CAT_ICONS[c]}</svg>`;
 }
-const SORTED_DRAG_HINT = 'Sıralama açıkken sürükleyerek yeniden sıralanamaz. Elle sıraya dönmek için sütun başlığına tekrar tıkla.';
+const SORTED_DRAG_HINT = 'Drag reordering is unavailable while sorting. Click the column header again to return to manual order.';
 
 function key(row: { code: string; exchange: string }): string {
     return `${row.code}|${row.exchange}`;
@@ -298,6 +299,7 @@ export class WatchlistPanel {
     private _detailsSig = '';
     private _dRefs: DetailRefs | null = null;
     private _gaugeMarkup = '';
+    private _unLang: (() => void) | null = null;
     private _fitMeta: (() => void) | null = null;
     private _countdownEnd = 0;
 
@@ -322,6 +324,8 @@ export class WatchlistPanel {
         parent.appendChild(this._el);
         this._createResizeHandle();
         this._el.addEventListener('keydown', (e) => this._onKeyDown(e));
+        bindLangAttr(this._el);
+        this._unLang = onLanguageChange(() => this._render());
         this._render();
     }
 
@@ -460,7 +464,7 @@ export class WatchlistPanel {
     private _createResizeHandle(): void {
         const handle = document.createElement('div');
         handle.className = 'wl-resize-handle';
-        handle.title = 'Genişliği ayarla';
+        handle.title = t('Resize width');
         handle.style.cssText = 'position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:45;touch-action:none;';
         let startX = 0;
         let startW = 0;
@@ -498,7 +502,7 @@ export class WatchlistPanel {
     private async _refresh(): Promise<void> {
         const provider = WatchlistPanel.defaultProvider;
         if (!provider) {
-            this._setStatus('Veri kaynağı tanımlı değil');
+            this._setStatus(t('No data source configured'));
             return;
         }
         const token = ++this._loadToken;
@@ -513,7 +517,7 @@ export class WatchlistPanel {
             this._renderList();
             if (first) this._search?.refresh();
         } catch {
-            if (token === this._loadToken) this._setStatus('Fiyatlar alınamadı, tekrar denenecek…');
+            if (token === this._loadToken) this._setStatus(t('Could not load prices, retrying…'));
         }
     }
 
@@ -562,10 +566,10 @@ export class WatchlistPanel {
     private _listActionItems(): ContextMenuItem[] {
         const ro = this._model.readOnly;
         return [
-            { id: 'rename', label: 'Yeniden adlandır', disabled: ro, action: () => void this._renameList() },
-            { id: 'copy', label: 'Kopya oluştur', disabled: ro, action: () => this._copyList() },
-            { id: 'clear', label: 'Listeyi temizle', disabled: ro, action: () => void this._clearList() },
-            { id: 'delete', label: 'Listeyi sil', disabled: ro, action: () => void this._deleteList() },
+            { id: 'rename', label: t('Rename'), disabled: ro, action: () => void this._renameList() },
+            { id: 'copy', label: t('Make a copy'), disabled: ro, action: () => this._copyList() },
+            { id: 'clear', label: t('Clear list'), disabled: ro, action: () => void this._clearList() },
+            { id: 'delete', label: t('Delete list'), disabled: ro, action: () => void this._deleteList() },
         ];
     }
 
@@ -573,20 +577,20 @@ export class WatchlistPanel {
         const m = this._model;
         const items: ContextMenuItem[] = m.lists.map((l) => ({
             id: `list:${l.id}`,
-            label: l.name,
+            label: displayListName(l.name),
             icon: l.id === m.activeId ? CHECK_SVG : '',
             action: () => this._switchList(l.id),
         }));
         items.push({ id: 's1', label: '', separator: true });
-        items.push({ id: 'new', label: 'Yeni liste oluştur…', action: () => void this._createList() });
+        items.push({ id: 'new', label: t('Create new list…'), action: () => void this._createList() });
         items.push(...this._listActionItems());
         const flagged = FLAG_COLORS.filter((f) => m.flaggedCount(f.id) > 0);
         if (flagged.length) {
             items.push({ id: 's2', label: '', separator: true });
-            items.push({ id: 'flagged-head', label: 'Bayraklı listeler', disabled: true });
+            items.push({ id: 'flagged-head', label: t('Flagged lists'), disabled: true });
             for (const f of flagged) {
                 const id = FLAGGED_PREFIX + f.id;
-                items.push({ id, label: `${f.label} (${m.flaggedCount(f.id)})`, icon: flagSvg(f.hex), action: () => this._switchList(id) });
+                items.push({ id, label: `${t(f.label)} (${m.flaggedCount(f.id)})`, icon: flagSvg(f.hex), action: () => this._switchList(id) });
             }
         }
         this._openMenuAnchored(items, anchor);
@@ -644,7 +648,7 @@ export class WatchlistPanel {
             { id: 'h-sort', label: t('Sort'), disabled: true },
             ...this._sortItems(),
             { id: 's2', label: '', separator: true },
-            { id: 'add-section', label: 'Bölüm ekle', disabled: ro, action: () => this._addSection() },
+            { id: 'add-section', label: t('Add section'), disabled: ro, action: () => this._addSection() },
         ];
         this._openMenuAnchored(items, anchor);
     }
@@ -665,29 +669,29 @@ export class WatchlistPanel {
         const single = ids.length === 1;
         const items: ContextMenuItem[] = [];
         if (ro) {
-            items.push({ id: 'remove', label: 'Bayrağı kaldır', action: () => this._unflag(keys) });
+            items.push({ id: 'remove', label: t('Remove flag'), action: () => this._unflag(keys) });
         } else {
-            items.push({ id: 'remove', label: ids.length > 1 ? `Listeden çıkar (${ids.length})` : 'Listeden çıkar', shortcut: 'Del', action: () => this._removeIds(ids) });
-            items.push({ id: 'section-above', label: 'Üstüne bölüm ekle', disabled: !single, action: () => this._addSection(m.indexOfItem(ids[0])) });
+            items.push({ id: 'remove', label: ids.length > 1 ? `${t('Remove from list')} (${ids.length})` : t('Remove from list'), shortcut: 'Del', action: () => this._removeIds(ids) });
+            items.push({ id: 'section-above', label: t('Add section above'), disabled: !single, action: () => this._addSection(m.indexOfItem(ids[0])) });
             items.push({ id: 's1', label: '', separator: true });
             if (ids.some((i) => i.startsWith('c:')) && single) {
-                items.push({ id: 'rename-section', label: 'Bölümü yeniden adlandır', action: () => this._startEdit(ids[0].slice(2), false) });
+                items.push({ id: 'rename-section', label: t('Rename section'), action: () => this._startEdit(ids[0].slice(2), false) });
             }
-            items.push({ id: 'top', label: 'En üste taşı', disabled: !!m.sort, action: () => this._moveIds(ids, 'top') });
-            items.push({ id: 'bottom', label: 'En alta taşı', disabled: !!m.sort, action: () => this._moveIds(ids, 'bottom') });
+            items.push({ id: 'top', label: t('Move to top'), disabled: !!m.sort, action: () => this._moveIds(ids, 'top') });
+            items.push({ id: 'bottom', label: t('Move to bottom'), disabled: !!m.sort, action: () => this._moveIds(ids, 'bottom') });
         }
         if (keys.length) {
             items.push({ id: 's2', label: '', separator: true });
             items.push({
                 id: 'flag',
-                label: 'Bayrak',
+                label: t('Flag'),
                 submenu: true,
                 children: [
-                    ...FLAG_COLORS.map((f) => ({ id: `flag-${f.id}`, label: f.label, icon: flagSvg(f.hex), action: () => this._setFlags(keys, f.id) })),
-                    { id: 'unflag', label: 'Bayrağı kaldır', action: () => this._unflag(keys) },
+                    ...FLAG_COLORS.map((f) => ({ id: `flag-${f.id}`, label: t(f.label), icon: flagSvg(f.hex), action: () => this._setFlags(keys, f.id) })),
+                    { id: 'unflag', label: t('Remove flag'), action: () => this._unflag(keys) },
                 ],
             });
-            items.push({ id: 'copy-symbol', label: 'Sembolü kopyala', action: () => this._copySymbol(keys[0]) });
+            items.push({ id: 'copy-symbol', label: t('Copy symbol'), action: () => this._copySymbol(keys[0]) });
         }
         this._openMenuAt(items, e.clientX, e.clientY);
     }
@@ -708,7 +712,7 @@ export class WatchlistPanel {
     }
 
     private async _createList(): Promise<void> {
-        const name = await promptDialog(this._parent, this._theme, 'Yeni liste', '', 'Oluştur');
+        const name = await promptDialog(this._parent, this._theme, t('New list'), '', t('Create'));
         if (name === null) return;
         this._model.createList(name);
         this._resetSelection();
@@ -717,7 +721,7 @@ export class WatchlistPanel {
 
     private async _renameList(): Promise<void> {
         if (this._model.readOnly) return;
-        const name = await promptDialog(this._parent, this._theme, 'Listeyi yeniden adlandır', this._model.activeName);
+        const name = await promptDialog(this._parent, this._theme, t('Rename list'), displayListName(this._model.activeName), t('Rename'));
         if (name === null) return;
         this._model.renameList(this._model.activeId, name);
         this._render();
@@ -732,7 +736,7 @@ export class WatchlistPanel {
 
     private async _clearList(): Promise<void> {
         if (this._model.readOnly) return;
-        const ok = await confirmDialog(this._parent, this._theme, 'Listeyi temizle', `"${this._model.activeName}" listesindeki tüm semboller çıkarılsın mı?`, 'Temizle');
+        const ok = await confirmDialog(this._parent, this._theme, t('Clear list'), t('All symbols in "{name}" will be removed. Continue?').replace('{name}', this._model.activeName), t('Clear'));
         if (!ok) return;
         this._model.clearList(this._model.activeId);
         this._resetSelection();
@@ -741,7 +745,7 @@ export class WatchlistPanel {
 
     private async _deleteList(): Promise<void> {
         if (this._model.readOnly) return;
-        const ok = await confirmDialog(this._parent, this._theme, 'Listeyi sil', `"${this._model.activeName}" listesi silinsin mi?`, 'Sil');
+        const ok = await confirmDialog(this._parent, this._theme, t('Delete list'), t('Delete "{name}"?').replace('{name}', this._model.activeName), t('Delete'));
         if (!ok) return;
         this._model.deleteList(this._model.activeId);
         this._resetSelection();
@@ -766,7 +770,7 @@ export class WatchlistPanel {
 
     private _addSection(index?: number): void {
         if (this._model.readOnly) return;
-        const id = this._model.addSection('Yeni bölüm', index);
+        const id = this._model.addSection(t('New section'), index);
         this._startEdit(id, true);
     }
 
@@ -927,7 +931,7 @@ export class WatchlistPanel {
             input.addEventListener('keyup', (e) => e.stopPropagation());
             this._searchInput = input;
         }
-        this._searchInput.placeholder = t('Search symbol or name');
+        this._searchInput.placeholder = t('Search');
         return this._searchInput;
     }
 
@@ -955,7 +959,7 @@ export class WatchlistPanel {
         const header = h('div', 'display:flex;align-items:center;justify-content:space-between;gap:8px;height:60px;padding:0 10px 0 16px;flex-shrink:0;box-sizing:border-box;', undefined, 'wl-head');
         const nameBtn = h('button', `display:flex;align-items:center;gap:6px;min-width:0;height:38px;padding:0 8px 0 6px;margin-left:-6px;border:0;background:transparent;color:${c.text};font:inherit;font-size:18px;font-weight:600;letter-spacing:-0.01em;border-radius:10px;cursor:pointer;transition:background .12s;`, undefined, 'wl-list-btn');
         nameBtn.title = t('Lists');
-        const listName = this._model.activeName === DEFAULT_LIST_NAME ? t('Watchlist') : this._model.activeName;
+        const listName = displayListName(this._model.activeName);
         const nameText = h('span', 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', listName, 'wl-list-name');
         const caret = h('span', `display:flex;flex-shrink:0;color:${c.muted};`);
         caret.innerHTML = CHEVRON_SVG;
@@ -1080,7 +1084,7 @@ export class WatchlistPanel {
 
         const label = (col: ColId | 'chg'): string => {
             switch (col) {
-                case 'spark': return getCurrentLanguage() === 'tr' ? '1A' : '1M';
+                case 'spark': return t('1M');
                 case 'last': return t('Last');
                 case 'chgPct': return t('Day %');
                 case 'vol': return t('Volume');
@@ -1324,8 +1328,8 @@ export class WatchlistPanel {
                 const loading = !this._model.readOnly && !this._rows.length;
                 this._list.appendChild(rpEmptyState(
                     LIST_SVG,
-                    filtering && this._rows.length ? t('No matching symbols') : this._model.readOnly ? 'Bu bayrakla işaretli sembol yok' : loading ? 'Yükleniyor…' : 'Liste boş',
-                    filtering || this._model.readOnly || loading ? undefined : 'Sembol eklemek için + düğmesini kullan.',
+                    filtering && this._rows.length ? t('No matching symbols') : this._model.readOnly ? t('No symbols with this flag') : loading ? t('Loading…') : t('List is empty'),
+                    filtering || this._model.readOnly || loading ? undefined : t('Use the + button to add a symbol.'),
                     'wl-empty',
                 ));
             }
@@ -1471,7 +1475,7 @@ export class WatchlistPanel {
         const collapsed = !this._query.trim() && this._model.isGroupCollapsed(cat);
         const { el, chev, slot } = this._groupHeader('wl-group', catIcon(cat), collapsed, count, c);
         el.dataset.cat = cat;
-        el.title = this._query.trim() ? '' : collapsed ? 'Genişlet' : 'Daralt';
+        el.title = this._query.trim() ? '' : collapsed ? t('Expand') : t('Collapse');
         slot.appendChild(h('span', 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', categoryLabel(cat), 'wl-group-title'));
         if (this._query.trim()) this._muteChevron(chev);
         el.addEventListener('click', () => {
@@ -1490,7 +1494,7 @@ export class WatchlistPanel {
         el.dataset.wlId = id;
         if (this._selected.has(id)) el.style.background = c.selected;
         chev.className = 'wl-section-chevron';
-        chev.title = item.collapsed ? 'Genişlet' : 'Daralt';
+        chev.title = item.collapsed ? t('Expand') : t('Collapse');
         if (this._query.trim()) {
             this._muteChevron(chev);
             chev.title = '';
@@ -1530,7 +1534,7 @@ export class WatchlistPanel {
         const del = document.createElement('button');
         del.className = 'wl-section-remove';
         del.textContent = '×';
-        del.title = 'Bölümü sil';
+        del.title = t('Delete section');
         del.style.cssText = `display:none;align-items:center;justify-content:center;flex-shrink:0;width:20px;height:20px;padding:0;border:none;border-radius:6px;background:transparent;color:${c.muted};cursor:pointer;line-height:1;font-size:16px;`;
         del.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1583,7 +1587,7 @@ export class WatchlistPanel {
 
         // Sembol hucresi: logo + kod (kalin) + aciklama/borsa (soluk)
         const symCell = h('span', 'display:flex;align-items:center;gap:10px;min-width:0;');
-        if (this._model.sort && !this._model.readOnly) symCell.title = SORTED_DRAG_HINT;
+        if (this._model.sort && !this._model.readOnly) symCell.title = t(SORTED_DRAG_HINT);
         const text = h('span', 'display:flex;flex-direction:column;gap:1px;min-width:0;');
         text.append(
             h('span', 'font-size:14.5px;line-height:19px;font-weight:600;letter-spacing:-0.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;', displaySymbol(row.code), 'wl-code'),
@@ -1645,7 +1649,7 @@ export class WatchlistPanel {
         const strip = document.createElement('div');
         strip.className = 'wl-flag-strip';
         strip.setAttribute('data-wl-flag', flag ?? '');
-        strip.title = flag ? 'Bayrağı kaldır' : 'Bayrakla';
+        strip.title = flag ? t('Remove flag') : t('Set flag');
         strip.style.cssText = 'position:absolute;left:3px;top:0;bottom:0;width:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
         if (flag) strip.innerHTML = flagSvg(flagHex(flag));
         else {
@@ -1661,7 +1665,7 @@ export class WatchlistPanel {
 
         const remove = document.createElement('button');
         remove.textContent = '×';
-        remove.title = 'Listeden çıkar';
+        remove.title = t('Remove from list');
         remove.className = 'wl-remove';
         remove.style.cssText = `position:absolute;right:${WL_METRICS.padRight - 4}px;top:50%;transform:translateY(-50%);display:none;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:none;border-radius:6px;background:transparent;color:${c.muted};cursor:pointer;line-height:1;font-size:16px;`;
         remove.addEventListener('click', (e) => {
@@ -1742,7 +1746,7 @@ export class WatchlistPanel {
         }
 
         const divider = h('div', `height:${M.dividerH}px;flex-shrink:0;cursor:row-resize;position:relative;touch-action:none;background:${c.bg};`, undefined, 'wl-details-divider');
-        divider.title = 'Yüksekliği ayarla';
+        divider.title = t('Resize height');
         divider.appendChild(h('div', `position:absolute;left:0;right:0;top:${Math.floor(M.dividerH / 2)}px;height:1px;background:${c.border};`));
         divider.appendChild(h('div', `position:absolute;left:50%;top:${Math.floor(M.dividerH / 2) - 2}px;width:40px;height:4px;margin-left:-20px;border-radius:2px;background:${c.border};transition:background .12s;`, undefined, 'wl-pill'));
         this._bindDividerDrag(divider);
@@ -1962,6 +1966,7 @@ export class WatchlistPanel {
     }
 
     destroy(): void {
+        this._unLang?.();
         if (this._timer) clearInterval(this._timer);
         if (this._tick) clearInterval(this._tick);
         if (this._searchTimer) clearTimeout(this._searchTimer);

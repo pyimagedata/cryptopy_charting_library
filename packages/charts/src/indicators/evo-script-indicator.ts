@@ -11,7 +11,7 @@ import { TimeScale } from '../model/time-scale';
 import { PriceScale } from '../model/price-scale';
 import { IndicatorLegendInfo, LegendPlot, legendBarIndex, adaptivePrecision } from './legend-info';
 import { createVisibilityTab, IndicatorSettingsConfig } from '../gui/indicator_settings';
-import type { SettingRow } from '../drawings/drawing-settings-config';
+import type { SettingRow, SettingsTab } from '../drawings/drawing-settings-config';
 import {
     EvoScriptCore, EvoScriptSettings, EvoScriptState, EvoInputDef,
 } from './evo-script-core';
@@ -20,7 +20,15 @@ import {
     drawEvoOutput, evoVisibleRange, isPlotDrawn, isPlotInLegend, evoColorAt, evoLastValueLabels, evoScaleFormatter,
     formatEvoPlotValue, formatEvoNumber, candleOk, evoViews, EvoHit, EvoValueLabel,
 } from './evo-script-render';
-import type { EvoTable } from './evo-script-core';
+import type { EvoTable, EvoOutput } from './evo-script-core';
+import { evoStyleItems, applyEvoStyles, resolveEvoStyle, EvoStyleItem, EVO_PLOT_STYLES, EVO_LINE_STYLES } from './evo-script-style';
+import { t } from '../helpers/translations';
+
+/** Localized label (compile / runtime) followed by the technical engine detail, which stays in English. */
+export function localizedEvoError(e: { message: string; kind?: string }): string {
+    const compile = /syntax|parse|compile|lex/i.test(e.kind ?? '') || /^\s*(syntax|parse|compile)/i.test(e.message);
+    return `${t(compile ? 'Compile error' : 'Runtime error')}: ${e.message}`;
+}
 
 const COMMON_TIMEFRAMES: Array<{ value: string; label: string }> = [
     { value: '', label: 'Chart' },
@@ -41,10 +49,13 @@ export interface EvoScriptIndicatorOptions extends IndicatorOptions {
     overlay: boolean;
     /** strategy() overrides of the Strategy Tester (persisted with the indicator) */
     strategyOverrides?: Record<string, unknown>;
+    /** Style tab overrides (persisted with the indicator) */
+    styles?: Record<string, unknown>;
 }
 
 const SOURCES = ['close', 'open', 'high', 'low', 'hl2', 'hlc3', 'ohlc4', 'hlcc4', 'volume'];
 const INPUT_PREFIX = 'in:';
+const STYLE_PREFIX = 'st:';
 
 function newId(): string {
     return `EvoScript_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
@@ -59,7 +70,7 @@ function buildCore(options: Partial<EvoScriptIndicatorOptions> & { name?: string
         id,
         core: new EvoScriptCore(id, {
             source: options.source, lang: options.lang, inputs: options.inputs, name, overlay: options.overlay === true,
-            strategyOverrides: options.strategyOverrides,
+            strategyOverrides: options.strategyOverrides, styles: options.styles as any,
         }),
     };
 }
@@ -74,6 +85,23 @@ class EvoImpl {
 
     private get opts(): any { return this.host._options; }
 
+    private _sOut: EvoOutput | null = null;
+    private _sStyles: unknown = null;
+    private _sRes: EvoOutput | null = null;
+    private _sItems: EvoStyleItem[] = [];
+
+    /** Run output with the Style tab overrides applied (what is drawn / listed in the legend); cached per output + overrides */
+    output(): EvoOutput | null {
+        const out = this.core.output;
+        const st = this.core.settings.styles;
+        if (out !== this._sOut || st !== this._sStyles) {
+            this._sOut = out; this._sStyles = st;
+            this._sItems = evoStyleItems(out);
+            this._sRes = out ? applyEvoStyles(out, st ?? {}, this._sItems) : null;
+        }
+        return this._sRes;
+    }
+
     displayName(): string {
         const s = this.core.settings;
         const m = this.core.output?.meta;
@@ -85,6 +113,7 @@ class EvoImpl {
         Object.assign(this.opts, {
             source: s.source, lang: s.lang, inputs: { ...s.inputs }, evoName: s.name, overlay: s.overlay,
             strategyOverrides: { ...(s.strategyOverrides ?? {}) },
+            styles: JSON.parse(JSON.stringify(s.styles ?? {})),
             name: this.displayName(),
         });
         if (fire) this.host._dataChanged.fire();
@@ -104,7 +133,7 @@ class EvoImpl {
 
     rebuildData(): void {
         const bars: readonly BarData[] = this.host._sourceData;
-        const out = this.core.output;
+        const out = this.output();
         const first = out?.plots.find(isPlotDrawn);
         const data: IndicatorDataPoint[] = new Array(bars.length);
         for (let i = 0; i < bars.length; i++) {
@@ -115,7 +144,7 @@ class EvoImpl {
     }
 
     range(vr?: { from: number; to: number } | null, own = false): IndicatorRange {
-        const raw = this.core.output;
+        const raw = this.output();
         if (!raw) return { min: 0, max: 100 };
         const out = own ? evoViews(raw).own : raw; // own pane: force_overlay items and strategy markers do not count
         const from = vr ? vr.from : 0;
@@ -128,7 +157,7 @@ class EvoImpl {
 
     /** Main price scale autoscale contribution (overlay): plots, hlines and room for markers above / below bars */
     autoscaleExtra(from: number, to: number): AutoscaleExtra | null {
-        const out = this.core.output;
+        const out = this.output();
         if (!out) return null;
         const r = evoVisibleRange(out, from, to, (this.host._sourceData as readonly unknown[]).length);
         return r ? { min: r.min, max: r.max, padTopPx: r.padTopPx, padBottomPx: r.padBottomPx } : null;
@@ -136,7 +165,7 @@ class EvoImpl {
 
     /** Panel flavour: autoscale contribution of the main-pane content (force_overlay items, strategy markers) */
     forcedAutoscaleExtra(from: number, to: number): AutoscaleExtra | null {
-        const out = this.core.output;
+        const out = this.output();
         const f = out ? evoViews(out).forced : null;
         if (!f || !this.host.shown) return null;
         const r = evoVisibleRange(f, from, to, (this.host._sourceData as readonly unknown[]).length);
@@ -145,7 +174,7 @@ class EvoImpl {
 
     /** Panel flavour: draws the main-pane content onto the main pane's canvas */
     drawForced(ctx: CanvasRenderingContext2D, ts: TimeScale, ps: PriceScale, hpr: number, vpr: number, width: number, height: number, topInset: number): void {
-        const out = this.core.output;
+        const out = this.output();
         const f = out ? evoViews(out).forced : null;
         if (!out || !f || !this.host.shown) return;
         try {
@@ -157,12 +186,12 @@ class EvoImpl {
 
     /** Last-value tags of every plot that shows on the price scale (own colour, own precision / format) */
     lastValueLabels(): EvoValueLabel[] {
-        const out = this.core.output;
+        const out = this.output();
         return out ? evoLastValueLabels(out) : [];
     }
 
     scaleFormatter(): ((v: number) => string) | null {
-        return evoScaleFormatter(this.core.output);
+        return evoScaleFormatter(this.output());
     }
 
     hits: EvoHit[] = [];
@@ -174,7 +203,7 @@ class EvoImpl {
 
     /** barcolor() override of the main series, or null (hidden / not set) */
     barColors(): { colors: Uint16Array; table: string[]; offset: number } | null {
-        const out = this.core.output;
+        const out = this.output();
         if (!out || !out.barColors || !this.host.shown) return null;
         return { colors: out.barColors, table: out.colorTable, offset: out.barColorOffset };
     }
@@ -189,7 +218,7 @@ class EvoImpl {
     }
 
     legend(index?: number | null): IndicatorLegendInfo {
-        const out = this.core.output;
+        const out = this.output();
         const params: string[] = [];
         if (out) {
             for (const def of out.inputs) {
@@ -230,7 +259,7 @@ class EvoImpl {
         const info: IndicatorLegendInfo = {
             title: this.displayName(), params, plots, precision: out?.meta.precision,
         };
-        if (this.core.status === 'error' && this.core.error) info.error = this.core.error.message;
+        if (this.core.status === 'error' && this.core.error) info.error = localizedEvoError(this.core.error);
         else if (this.core.busy && this.core.runCount > 0) info.busy = true;
         const alerts = this.core.lastBarAlerts;
         if (alerts.length > 0) info.alert = alerts.slice(0, 5).join('\n');
@@ -239,7 +268,7 @@ class EvoImpl {
 
     description(): string {
         const e = this.core.error;
-        return e ? `${this.displayName()}: ${e.message}` : this.displayName();
+        return e ? `${this.displayName()}: ${localizedEvoError(e)}` : this.displayName();
     }
 
     // --- settings dialog (dynamic from the last run's input definitions) ---
@@ -268,7 +297,41 @@ class EvoImpl {
         }
         // Rename field: kept (it is the only way to retitle a script) but last, so the script's own inputs come first
         sections.push({ rows: [{ type: 'text', key: 'name', label: 'Name', placeholder: this.core.output?.meta.title ?? '' }] });
-        return { name: this.displayName(), tabs: [{ id: 'inputs', label: 'Inputs', sections }, createVisibilityTab()] };
+        const tabs: SettingsTab[] = [{ id: 'inputs', label: 'Inputs', sections }];
+        const styleRows = this.styleRows();
+        if (styleRows.length > 0) tabs.push({ id: 'style', label: 'Style', sections: [{ rows: styleRows }] });
+        tabs.push(createVisibilityTab());
+        return { name: this.displayName(), tabs };
+    }
+
+    /** One 'plotStyle' row per visual output of the last run (defaults come from the script's own output) */
+    private styleRows(): SettingRow[] {
+        const items = evoStyleItems(this.core.output, t);
+        return items.map((it): SettingRow => {
+            const d = it.defaults;
+            let styleOptions: Array<{ value: string; label: string }> | undefined;
+            if (it.kind === 'plot') {
+                styleOptions = EVO_PLOT_STYLES.slice();
+                if (d.style && !styleOptions.some((o) => o.value === d.style)) styleOptions.push({ value: d.style, label: d.style });
+            }
+            return {
+                type: 'plotStyle', key: STYLE_PREFIX + it.id, label: it.label, raw: true,
+                hasColor: d.color !== undefined, hasWidth: d.width !== undefined,
+                styleOptions, lineStyles: it.kind === 'hline' ? EVO_LINE_STYLES.slice() : undefined,
+            } as unknown as SettingRow;
+        });
+    }
+
+    private styleItem(key: string): EvoStyleItem | undefined {
+        const id = key.slice(STYLE_PREFIX.length);
+        return evoStyleItems(this.core.output).find((i) => i.id === id);
+    }
+
+    /** Script defaults of a Style row (used by "Reset settings": a fresh indicator has no output to ask) */
+    getFactorySetting(key: string): unknown {
+        if (!key.startsWith(STYLE_PREFIX)) return undefined;
+        const it = this.styleItem(key);
+        return it ? resolveEvoStyle(it, undefined) : undefined;
     }
 
     private rowFor(def: EvoInputDef): SettingRow {
@@ -307,6 +370,10 @@ class EvoImpl {
 
     getSetting(key: string): unknown {
         if (key === 'name') return this.core.settings.name;
+        if (key.startsWith(STYLE_PREFIX)) {
+            const it = this.styleItem(key);
+            return it ? resolveEvoStyle(it, this.core.settings.styles?.[it.id]) : undefined;
+        }
         if (key.startsWith(INPUT_PREFIX)) {
             const id = key.slice(INPUT_PREFIX.length);
             const def = this.core.output?.inputs.find((d) => d.id === id);
@@ -318,6 +385,7 @@ class EvoImpl {
     /** @returns true when the key was handled */
     setSetting(key: string, value: unknown): boolean {
         if (key === 'name') { this.core.setName(String(value ?? '')); return true; }
+        if (key.startsWith(STYLE_PREFIX)) { this.core.setStyle(key.slice(STYLE_PREFIX.length), value); return true; }
         if (key.startsWith(INPUT_PREFIX)) {
             const id = key.slice(INPUT_PREFIX.length);
             const def = this.core.output?.inputs.find((d) => d.id === id);
@@ -333,7 +401,7 @@ class EvoImpl {
     }
 
     draw(ctx: CanvasRenderingContext2D, ts: TimeScale, ps: PriceScale, hpr: number, vpr: number, width: number, height: number, pane = false, topInset = 0): void {
-        const out = this.core.output;
+        const out = this.output();
         if (!out) return;
         try {
             const hits: EvoHit[] = [];
@@ -387,6 +455,7 @@ export class EvoScriptOverlayIndicator extends OverlayIndicator {
     getSettingValue(key: string): any { return this._impl.getSetting(key) ?? super.getSettingValue(key); }
     setSettingValue(key: string, value: any): boolean { return this._impl.setSetting(key, value) ? false : super.setSettingValue(key, value); }
     getEvoState(): EvoScriptState { return this._impl.state(); }
+    getFactorySetting(key: string): unknown { return this._impl.getFactorySetting(key); }
 
     drawOverlay(ctx: CanvasRenderingContext2D, timeScale: TimeScale, priceScale: PriceScale, hpr: number, vpr: number, _vr?: unknown, scope?: any, topInset = 0): void {
         const w = scope?.mediaSize?.width ?? ctx.canvas.width / hpr;
@@ -430,6 +499,7 @@ export class EvoScriptPanelIndicator extends PanelIndicator {
     getSettingValue(key: string): any { return this._impl.getSetting(key) ?? super.getSettingValue(key); }
     setSettingValue(key: string, value: any): boolean { return this._impl.setSetting(key, value) ? false : super.setSettingValue(key, value); }
     getEvoState(): EvoScriptState { return this._impl.state(); }
+    getFactorySetting(key: string): unknown { return this._impl.getFactorySetting(key); }
     /** hline price tags for the pane axis */
     getLastValueLabels(): EvoValueLabel[] { return this._impl.lastValueLabels(); }
     /** Label formatter of the pane's price scale (plot precision / format) */
@@ -438,13 +508,13 @@ export class EvoScriptPanelIndicator extends PanelIndicator {
     getEvoTables(): EvoTable[] { return this._impl.tables(); }
     getBarColorOverride(): { colors: Uint16Array; table: string[]; offset: number } | null { return this._impl.barColors(); }
     getAxisLabels(): Array<{ price: number; color: string }> {
-        const out = this.core.output;
+        const out = this._impl.output();
         if (!out) return [];
         return out.hlines.filter((h) => isPlotDrawn(h) && Number.isFinite(h.price)).slice(0, 8).map((h) => ({ price: h.price, color: h.color.length === 9 ? h.color.slice(0, 7) : h.color }));
     }
     /** Colour of the last-value tag on the pane axis */
     getLineColors(): string[] {
-        const out = this.core.output;
+        const out = this._impl.output();
         const p = out?.plots.find(isPlotDrawn);
         return [p?.color ?? this._options.color];
     }

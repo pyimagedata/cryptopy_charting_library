@@ -3,6 +3,7 @@
  * Handlers for context menu (right-click) operations
  */
 
+import { groupThousands } from '../../helpers/format';
 import { ChartModel } from '../../model/chart-model';
 import { PaneWidget } from '../pane-widget';
 import { PriceAxisWidget } from '../price-axis-widget';
@@ -32,10 +33,7 @@ export function handleContextCopyPrice(model: ChartModel): void {
         price = (priceRange.min + priceRange.max) / 2;
     }
 
-    const formattedPrice = price.toLocaleString('en-US', {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 2
-    });
+    const formattedPrice = groupThousands(priceScale.formatPrice(price)) // same precision as the price axis;
 
     navigator.clipboard.writeText(formattedPrice).then(() => {
         console.log(`📋 Copied price: ${formattedPrice}`);

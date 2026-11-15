@@ -37,7 +37,7 @@ import {
     buildIntervalsPreset, normalizeIntervalsVisibilities, isDefaultIntervalsVisibilities, parseTimeframe,
 } from '../../../drawings/intervals-visibility';
 import { legendTitleFromName } from '../../../indicators/legend-info';
-import { t, getCurrentLanguage } from '../../../helpers/translations';
+import { t, getCurrentLanguage, onLanguageChange } from '../../../helpers/translations';
 
 const UNIT_LABELS: Record<IntervalUnit, string> = {
     seconds: 'Seconds', minutes: 'Minutes', hours: 'Hours', days: 'Days', weeks: 'Weeks', months: 'Months',
@@ -72,6 +72,7 @@ export class IndicatorSettingsModal {
     private _dragCleanup: (() => void) | null = null;
     private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
     private _menuCleanup: (() => void) | null = null;
+    private _unsubLang: (() => void) | null = null;
 
     private readonly _settingsChanged = new Delegate<IndicatorSettings>();
     private readonly _liveChanged = new Delegate<void>();
@@ -80,6 +81,16 @@ export class IndicatorSettingsModal {
     constructor(private _container: HTMLElement) {
         ensureSettingsStyles();
         this._createElement();
+        // Language switch while open: re-render in place (values are read live from the indicator)
+        this._unsubLang = onLanguageChange(() => this._rebuildForLanguage());
+    }
+
+    private _rebuildForLanguage(): void {
+        if (!this._open || !this._overlay || !this._rawProvider) return;
+        this._menuCleanup?.();
+        this._config = this._rawProvider.getSettingsConfig();
+        this._overlay.lang = getCurrentLanguage();
+        this._renderContent();
     }
 
     /** Fired on Ok */
@@ -529,6 +540,11 @@ export class IndicatorSettingsModal {
                 if (v !== undefined) out[k] = v;
             });
             fresh.destroy?.();
+            // keys a fresh instance cannot know (Evo Script style rows): ask the live indicator for the script defaults
+            const hook = (this._rawProvider as any).getFactorySetting;
+            if (typeof hook === 'function') {
+                this._keys.forEach(k => { if (out[k] === undefined) { const v = hook.call(this._rawProvider, k); if (v !== undefined) out[k] = v; } });
+            }
         } catch {
             // Constructor needs arguments: fall back to the values the dialog opened with
             Object.entries(this._original).forEach(([k, v]) => { if (v !== undefined) out[k] = v; });
@@ -537,6 +553,8 @@ export class IndicatorSettingsModal {
     }
 
     dispose(): void {
+        this._unsubLang?.();
+        this._unsubLang = null;
         this._dragCleanup?.();
         this._removeKeyHandler();
         this._menuCleanup?.();

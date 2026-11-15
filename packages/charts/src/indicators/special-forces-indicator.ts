@@ -391,7 +391,7 @@ export class SpecialForcesIndicator extends OverlayIndicator {
             if (status === 401 || status === 403) {
                 this._deniedStatus = status;
             } else {
-                console.warn('SpecialForcesIndicator: backend verisi alınamadı', error);
+                console.warn('SpecialForcesIndicator: backend data could not be fetched', error);
             }
             return null;
         }

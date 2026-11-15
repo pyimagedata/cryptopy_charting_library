@@ -1,5 +1,6 @@
 import { Delegate } from '../helpers/delegate';
-import { t } from '../helpers/translations';
+import { bindLangAttr } from '../helpers/lang-attr';
+import { t, setLanguage, getCurrentLanguage } from '../helpers/translations';
 import { ChartModelOptions } from '../model/chart-model';
 import { ChartWidget } from './chart-widget';
 import { SymbolInfo } from './symbol_search';
@@ -102,7 +103,10 @@ export interface MultiChartLayoutOptions {
     sync?: Partial<MultiChartSync>;
     activeIndex?: number;
     gap?: number;
+    /** UI language ('tr' | 'en'). Applied (setLanguage) before any toolbar is built; the language is global. */
     locale?: string;
+    /** Fired only when the USER picks a language in the toolbar switcher (not for `setLocale`). */
+    onLocaleChange?: (locale: string) => void;
     /** Initial theme; a persisted choice ('tv-chart-theme') wins over it. */
     theme?: 'dark' | 'light';
     /** LEGACY initial `{columns, rows}` ratios, applied to `layout` only. */
@@ -340,6 +344,8 @@ export class MultiChartLayout {
         }
 
         this._options = { ...options };
+        // The language is a global in translations.ts: set it BEFORE any toolbar / slot is built so the first render is localized
+        if (options.locale) setLanguage(options.locale as any);
         this._maxCharts = options.maxCharts ?? null;
         this._planLimits = options.planLimits;
         this._sync = MultiChartLayout.loadSync({
@@ -383,6 +389,7 @@ export class MultiChartLayout {
 
         ensureSoftTheme(this._theme);
         this._element = document.createElement('div');
+        bindLangAttr(this._element);
         this._element.className = 'tv-multi-chart-layout-shell';
         this._element.style.cssText = `
             width: 100%;
@@ -877,7 +884,7 @@ export class MultiChartLayout {
             symbol: activeChart?.symbol || defaultSlotOptions.symbol,
             timeframe: activeChart?.timeframe || defaultSlotOptions.timeframe,
             chartType: activeChart?.chartType || 'candles',
-            locale: this._options.locale || 'en',
+            locale: getCurrentLanguage(),
             priceScaleMode: activeChart?.priceScaleMode || 'normal',
             ...(activeChart ? { timezone: activeChart.getTimezone() } : {}),
             ...(this._options.rightToolbar ? { hideRightPanelButtons: true } : {}),
@@ -932,16 +939,8 @@ export class MultiChartLayout {
         });
 
         this._toolbarWidget.languageChanged.subscribe((locale) => {
-            this._options = { ...this._options, locale };
-            for (const chart of this._charts) {
-                chart.setLanguage(locale);
-            }
-            this._createToolbar();
-            this._createDrawingToolbar();
-            this._retitleRightToolbar();
-            this._syncRightState();
-            this._syncToolbarStateFromActiveChart();
-            this._refreshMaxButtons();
+            this.setLocale(locale);
+            this._options.onLocaleChange?.(getCurrentLanguage());
         });
 
         this._toolbarWidget.domToggled.subscribe((enabled) => {
@@ -1131,6 +1130,21 @@ export class MultiChartLayout {
             });
         }
         bar.setActive(this.activeRightPanel);
+    }
+
+    /** Programmatic language switch (no `onLocaleChange` callback): re-localizes every chart, toolbar and panel title. */
+    setLocale(locale: string): void {
+        this._options = { ...this._options, locale };
+        setLanguage(locale as any);
+        for (const chart of this._charts) {
+            chart.setLanguage(locale);
+        }
+        this._createToolbar();
+        this._createDrawingToolbar();
+        this._retitleRightToolbar();
+        this._syncRightState();
+        this._syncToolbarStateFromActiveChart();
+        this._refreshMaxButtons();
     }
 
     private _retitleRightToolbar(): void {
@@ -1326,7 +1340,7 @@ export class MultiChartLayout {
 
         const options = {
             ...defaultSlotOptions,
-            locale: this._options.locale || 'en',
+            locale: getCurrentLanguage(),
             ...slotOptions,
             showToolbar: false,
             showDrawingToolbar: false,

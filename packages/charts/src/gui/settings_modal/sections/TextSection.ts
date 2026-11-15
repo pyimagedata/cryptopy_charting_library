@@ -12,15 +12,15 @@ import { t } from '../../../helpers/translations';
 const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
 
 const H_ALIGN_OPTIONS = [
-    { value: 'left', label: 'Sol' },
-    { value: 'center', label: 'Orta' },
-    { value: 'right', label: 'Sağ' },
+    { value: 'left', label: 'Left' },
+    { value: 'center', label: 'Center' },
+    { value: 'right', label: 'Right' },
 ];
 
 const V_ALIGN_OPTIONS = [
-    { value: 'top', label: 'Üst' },
-    { value: 'middle', label: 'Orta' },
-    { value: 'bottom', label: 'Alt' },
+    { value: 'top', label: 'Top' },
+    { value: 'middle', label: 'Center' },
+    { value: 'bottom', label: 'Bottom' },
 ];
 
 /**
@@ -177,7 +177,7 @@ export function createTextSection(
 
         // Horizontal alignment
         const hAlignSelect = createSelect(
-            H_ALIGN_OPTIONS,
+            H_ALIGN_OPTIONS.map(o => ({ ...o, label: t(o.label) })),
             drawing.style.textHAlign || 'center',
             (value: string) => {
                 drawing.style.textHAlign = value as 'left' | 'center' | 'right';

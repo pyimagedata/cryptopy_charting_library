@@ -25,6 +25,7 @@
  *   leverage    = yalnizca saklanir (marj gosterilmez).
  */
 
+import { formatNumber, formatPrice } from '../helpers/format';
 import {
     Drawing,
     DrawingPoint,
@@ -287,12 +288,24 @@ export interface PositionBlocks { tp: string[]; center: string[]; sl: string[]; 
 
 const DASH = '—';
 
+/** Text number (percent, ticks, bars, qty, R:R) in the UI language. */
 export function fmt(v: number, minDec: number, maxDec: number = minDec): string {
-    return v.toLocaleString('en-US', { minimumFractionDigits: minDec, maximumFractionDigits: maxDec });
+    return formatNumber(v, { minDecimals: minDec, maxDecimals: maxDec });
 }
 
 export function fmtSigned(v: number, dec: number): string {
     const s = fmt(Math.abs(v), dec);
+    if (Number(Math.abs(v).toFixed(dec)) === 0) return s;
+    return (v > 0 ? '+' : '-') + s;
+}
+
+/** Price / money amount: always "." decimal (like the price axis). */
+export function fmtPrice(v: number, dec: number): string {
+    return formatPrice(v, dec);
+}
+
+export function fmtPriceSigned(v: number, dec: number): string {
+    const s = fmtPrice(Math.abs(v), dec);
     if (Number(Math.abs(v).toFixed(dec)) === 0) return s;
     return (v > 0 ? '+' : '-') + s;
 }
@@ -304,9 +317,9 @@ export function formatQty(qty: number, precision: QtyPrecision): string {
 /** TP / merkez / SL bloklarinin satirlari; bilgi bloklari ve compact moduna gore. */
 export function buildPositionBlocks(p: PositionProps, c: PositionCalc, f: PositionFormat): PositionBlocks {
     const cur = p.currency && p.currency !== 'NONE' ? ` ${p.currency}` : '';
-    const money = (v: number) => `${fmt(v, 2)}${cur}`;
-    const sgnMoney = (v: number) => `${fmtSigned(v, 2)}${cur}`;
-    const price = (v: number) => fmt(v, f.pricePrecision);
+    const money = (v: number) => `${fmtPrice(v, 2)}${cur}`;
+    const sgnMoney = (v: number) => `${fmtPriceSigned(v, 2)}${cur}`;
+    const price = (v: number) => fmtPrice(v, f.pricePrecision);
     const ib = p.infoBlocks;
     const compact = p.compact;
 

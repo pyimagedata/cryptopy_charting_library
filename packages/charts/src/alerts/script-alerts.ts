@@ -57,7 +57,7 @@ export interface ScriptAlertSourceInfo {
 /** Offer for the alert dialog: what the script can alert on. */
 export function describeScriptCore(core: EvoScriptCore): ScriptAlertSourceInfo {
     const out = core.output;
-    const conditions = out ? Object.keys(out.alertFlags).map((title) => ({ title, message: out.alertMessages[title] ?? '' })) : [];
+    const conditions = out ? out.alertOrder.map((title) => ({ title, message: out.alertMessages[title] ?? '' })) : [];
     return {
         id: core.id, name: coreDisplayName(core),
         usesAlert: (out?.alertEvents.length ?? 0) > 0 || sourceUsesAlertCall(core.settings.source),

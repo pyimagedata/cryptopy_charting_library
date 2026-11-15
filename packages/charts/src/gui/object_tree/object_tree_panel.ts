@@ -9,7 +9,7 @@
  */
 
 import { Delegate } from '../../helpers/delegate';
-import { t } from '../../helpers/translations';
+import { t, onLanguageChange } from '../../helpers/translations';
 import type { DrawingManager } from '../../drawings/drawing-manager';
 import type { Drawing } from '../../drawings/drawing';
 import type { Indicator } from '../../indicators/indicator';
@@ -81,6 +81,7 @@ export class ObjectTreePanel {
     private _confirmDelete = false;
     private _raf = 0;
     private _signature = '';
+    private _unsubLang: (() => void) | null = null;
     private _lastSelectedId: string | null = null;
     private _dragId: string | null = null;
     private _drawingById = new Map<string, Drawing>();
@@ -154,6 +155,11 @@ export class ObjectTreePanel {
         ensureRpStyles();
         this._applyTheme();
         this._applyStaticTexts();
+        this._unsubLang = onLanguageChange(() => {
+            this._applyStaticTexts();
+            this._signature = '';
+            this.refresh();
+        });
     }
 
     /**
@@ -277,6 +283,8 @@ export class ObjectTreePanel {
     }
 
     destroy(): void {
+        this._unsubLang?.();
+        this._unsubLang = null;
         this._detach();
         this._el.removeEventListener('click', this._onClick);
         this._el.removeEventListener('dblclick', this._onDblClick);

@@ -39,7 +39,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'EMA',
         description: 'Trend-following indicator that gives more weight to recent prices',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'rsi',
@@ -47,7 +48,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'RSI',
         description: 'Momentum oscillator measuring speed and change of price movements',
         category: 'standard',
-        type: 'panel'
+        type: 'panel',
+        i18n: true
     },
     {
         id: 'sma',
@@ -55,7 +57,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'SMA',
         description: 'Average price over a specified period',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'bb',
@@ -63,7 +66,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'BB',
         description: 'Volatility bands placed above and below a moving average',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'macd',
@@ -71,7 +75,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'MACD',
         description: 'Trend-following momentum indicator showing relationship between two EMAs',
         category: 'standard',
-        type: 'panel'
+        type: 'panel',
+        i18n: true
     },
     {
         id: 'stoch',
@@ -79,7 +84,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'STOCH',
         description: 'Momentum indicator comparing closing price to price range',
         category: 'standard',
-        type: 'panel'
+        type: 'panel',
+        i18n: true
     },
     {
         id: 'sar',
@@ -87,7 +93,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'SAR',
         description: 'Stop and Reverse indicator that identifies potential trend reversals',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'halftrend',
@@ -95,23 +102,26 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'HT',
         description: 'Trend reversal overlay with ATR channels and buy/sell signals',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'supertrend',
-        name: 'SuperTrend',
+        name: 'Supertrend',
         shortName: 'ST',
-        description: 'ATR tabanli trend takip overlay indikatori',
+        description: 'ATR-based trend-following overlay',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'alphatrend',
         name: 'AlphaTrend',
         shortName: 'AT',
-        description: 'ATR ve RSI/MFI tabanli trend overlay indikatori',
+        description: 'Trend overlay based on ATR and RSI/MFI',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'ichimoku',
@@ -119,15 +129,17 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'ICHI',
         description: 'Conversion, base, lagging spans and kumo cloud overlay',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'fixed-range-volume-profile',
         name: 'Fixed Range Volume Profile',
         shortName: 'FRVP',
-        description: 'Seçilen sabit bar aralığı için fiyat seviyelerine göre hacim dağılımı gösterir',
+        description: 'Shows the volume distribution by price level for the selected fixed range of bars',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'volume',
@@ -135,7 +147,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'Vol',
         description: 'Measures the number of shares or contracts traded in a security or market during a given period',
         category: 'standard',
-        type: 'panel'
+        type: 'panel',
+        i18n: true
     },
     {
         id: 'hma',
@@ -143,7 +156,8 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'HMA',
         description: 'Modified moving average with reduced lag and increased smoothness',
         category: 'standard',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'stochrsi',
@@ -151,15 +165,17 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'StochRSI',
         description: 'Combines Stochastic oscillator with RSI to identify overbought/oversold levels of the RSI',
         category: 'standard',
-        type: 'panel'
+        type: 'panel',
+        i18n: true
     },
     {
         id: 'tdoji',
-        name: 'Tdoji Oscilator',
+        name: 'Tdoji Oscillator',
         shortName: 'TDOJI',
         description: 'Linear regression slope oscillator with EMA smoothing, SMA signal, and zero-line context',
         category: 'custom',
-        type: 'panel'
+        type: 'panel',
+        i18n: true
     },
     {
         id: 'thunderbirdx',
@@ -167,159 +183,179 @@ const BASE_INDICATORS: BaseIndicator[] = [
         shortName: 'TBX',
         description: 'Sinc momentum, MA and convergence-divergence histogram oscillator',
         category: 'custom',
-        type: 'panel'
+        type: 'panel',
+        i18n: true
     },
     {
         id: 'tdoji-sr',
         name: 'TDOJI-SR',
         shortName: 'SR',
-        description: 'Prev close based support and resistance ladder with labels and level notes',
+        description: 'Support and resistance ladder based on the previous close, with labels and level notes',
         category: 'custom',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'demark-pivot',
         name: 'GainMetrics',
         shortName: 'GM',
-        description: 'Günlük, haftalık veya aylık DeMark destek direnç pivotları, EMA ve OBV çizgileri',
+        description: 'Daily, weekly or monthly DeMark support/resistance pivots, with EMA and OBV lines',
         category: 'custom',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'tdoji-mom',
         name: 'TDOJI MOM',
         shortName: 'MOM',
-        description: 'EMA(60) tabanli close farkini kolon histogram olarak gosterir',
+        description: 'Shows the close difference based on EMA(60) as a column histogram',
         category: 'custom',
-        type: 'panel'
+        type: 'panel',
+        i18n: true
     },
     {
         id: 'zigzag',
         name: 'ZigZag',
         shortName: 'ZZ',
-        description: 'Pivot high ve low noktalarini deviation filtresi ile birlestiren formasyon indikatori',
+        description: 'Pattern indicator that connects pivot highs and lows using a deviation filter',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'abcd-pattern',
         name: 'ABCD Pattern',
         shortName: 'ABCD',
-        description: 'ZigZag pivotlarindan bullish veya bearish ABCD harmonic formasyonu tespit eder',
+        description: 'Detects bullish or bearish ABCD harmonic patterns from ZigZag pivots',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'harmonic-patterns',
         name: 'Harmonic Patterns',
         shortName: 'HARM',
-        description: 'ABCD ve Gartley patternlerini ortak zigzag pivotlariyla tespit eder',
+        description: 'Detects ABCD and Gartley patterns using shared ZigZag pivots',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'chart-patterns',
         name: 'Chart Patterns',
         shortName: 'CHART',
-        description: 'Cifte tepe, cifte dip, flama ve bayrak gibi klasik grafik formasyonlarini tespit eder',
+        description: 'Detects classic chart patterns such as double top, double bottom, pennants and flags',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'zigzag-trendline',
         name: 'Trendline',
         shortName: 'TL',
-        description: 'ZigZag pivotlarindan otomatik trendline cizer',
+        description: 'Draws automatic trendlines from ZigZag pivots',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'trendline-breakout',
         name: 'Trendline Breakout',
         shortName: 'TL BO',
-        description: 'Alcalan veya yukselen zigzag trendline kirilimlarini tespit eder',
+        description: 'Detects breakouts of falling or rising ZigZag trendlines',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'smc',
         name: 'Smart Money Concepts',
         shortName: 'SMC',
-        description: 'BOS (Break of Structure) ve MSB (Market Structure Break) yapısal kırılımlarını ve minor/macro zigzag kanallarını gösterir',
+        description: 'Shows BOS (Break of Structure) and MSB (Market Structure Break) structural breaks and minor/macro zigzag channels',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'special-forces',
         name: 'Special Forces',
         shortName: 'SF',
-        description: 'Üst timeframe Heikin Ashi pivotlarından otomatik destek/direnç kutuları çizer',
+        description: 'Draws automatic support/resistance boxes from higher-timeframe Heikin Ashi pivots',
         category: 'custom',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'bobbin',
         name: 'Bobbin',
         shortName: 'Bobbin',
-        description: 'Ardışık gövde-renk dizilerindeki tekdüze/dar bantlı "bobin" bölgelerini istatistiksel bir skor modeliyle tespit eder',
+        description: 'Detects uniform, narrow-band "bobbin" zones in consecutive body-colour runs with a statistical scoring model',
         category: 'custom',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'fvg',
         name: 'Fair Value Gap',
         shortName: 'FVG',
-        description: '3 mumluk dengesizlik (imbalance) bölgelerini ATR/displacement filtreleriyle çizer, Londra seansı ve 1:2 hedef çizgisi vurgulu',
+        description: 'Draws 3-candle imbalance zones with ATR/displacement filters, with the London session and a 1:2 target line highlighted',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'fvg-inversion',
         name: 'FVG Inversion',
         shortName: 'IFVG',
-        description: 'Kendi yönünün tersine gövde-kapanışla kırılan Fair Value Gap bölgelerini (IFVG) tespit eder',
+        description: 'Detects Fair Value Gap zones (IFVG) broken by a body close against their own direction',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'eqhl-v2',
         name: 'Equal Highs/Lows V2',
         shortName: 'EQH/EQL',
-        description: 'ATR veya akademik gama toleransıyla eşit tepe/dip likidite seviyelerini kümeleyip süpürülmeyi işaretler',
+        description: 'Clusters equal high/low liquidity levels using an ATR or academic gamma tolerance and marks sweeps',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'judas-swing',
         name: 'Judas Swing',
         shortName: 'Judas',
-        description: 'ICT Judas Swing: referans aralık dışına sahte kırılım, MSS, FVG onayı ve retest ile giriş sinyali',
+        description: 'ICT Judas Swing: false break outside the reference range, MSS, FVG confirmation and retest entry signal',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'smt-divergence',
         name: 'SMT Divergence',
         shortName: 'SMT',
-        description: 'ICT SMT Divergence: korele varlıkla (ör. altın/gümüş) tepe/dip uyumsuzluğunu çizgilerle gösterir',
+        description: 'ICT SMT Divergence: shows high/low divergence against a correlated asset (e.g. gold/silver) with lines',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'news-overlay',
-        name: 'Haberler',
+        name: 'News',
         shortName: 'News',
-        description: 'Haber akışını grafiğin altındaki olay şeridinde mumlara hizalı işaretlerle gösterir; üzerine gelince haber kartı açılır',
+        description: 'Shows the news feed as markers aligned to candles in an event strip below the chart; hovering opens a news card',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'liq-heatmap',
-        name: 'Likidasyon Haritası',
+        name: 'Liquidation Heatmap',
         shortName: 'Liq Map',
-        description: 'CoinGlass tarzı likidasyon ısı haritası: tahmini likidasyon yoğunluğunu mumların arkasında renkli bantlarla gösterir (Binance BTCUSDT/ETHUSDT)',
+        description: 'CoinGlass-style liquidation heatmap: shows estimated liquidation density as coloured bands behind the candles (Binance BTCUSDT/ETHUSDT)',
         category: 'pattern',
-        type: 'overlay'
+        type: 'overlay',
+        i18n: true
     },
     {
         id: 'liquidations',

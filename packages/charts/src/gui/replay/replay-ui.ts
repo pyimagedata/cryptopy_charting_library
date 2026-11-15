@@ -5,7 +5,7 @@
  * (`setEnabled`), the other charts just follow the cursor.
  */
 
-import { t } from '../../helpers/translations';
+import { t, onLanguageChange } from '../../helpers/translations';
 import type { BarData } from '../../model/data';
 import { REPLAY_NOTICE_INTRABAR_UNAVAILABLE, REPLAY_NOTICE_NO_DATA_AT_CURSOR } from '../../replay/replay-controller';
 import type { ReplayController, ReplayState } from '../../replay/replay-controller';
@@ -137,6 +137,7 @@ export class ReplayUI {
     private _dragCleanup: (() => void) | null = null;
 
     private readonly _stateListener = (s: ReplayState) => this._onState(s);
+    private _unsubLang: (() => void) | null = null;
 
     constructor(deps: ReplayUIDeps) {
         this._d = deps;
@@ -156,6 +157,7 @@ export class ReplayUI {
             this._resizeObs.observe(r);
         }
         this._onState(this._state);
+        this._unsubLang = onLanguageChange(() => this._rebuild());
     }
 
     // ------------------------------------------------------------------ public
@@ -163,6 +165,12 @@ export class ReplayUI {
     setTheme(theme: Theme): void {
         if (this._theme === theme) return;
         this._theme = theme;
+        this._rebuild();
+    }
+
+    /** Re-create the control bar / selection overlay (theme or language change). */
+    private _rebuild(): void {
+        if (this._disposed) return;
         this._closeMenu();
         if (this._bar) {
             this._bar.remove();
@@ -187,6 +195,8 @@ export class ReplayUI {
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
+        this._unsubLang?.();
+        this._unsubLang = null;
         const r = this._d.root;
         this._d.controller.onStateChange.unsubscribe(this._stateListener);
         r.removeEventListener('mousemove', this._onMouseMove, true);

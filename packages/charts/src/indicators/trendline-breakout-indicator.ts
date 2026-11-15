@@ -126,7 +126,7 @@ export class TrendlineBreakoutIndicator extends OverlayIndicator {
                     checkboxRow('useLength15', 'Length 15', this._optionsEx.useLength15),
                     checkboxRow('useLength30', 'Length 30', this._optionsEx.useLength30),
                     numberRow('volumeSpikeMultiplier', 'Volume Spike', 0.1, 10, 0.1),
-                    checkboxRow('showHistory', 'Gecmisi Goster', this._optionsEx.showHistory),
+                    checkboxRow('showHistory', 'Show History', this._optionsEx.showHistory),
                     checkboxRow('showBullBreakout', 'Bull Trendline Breakout', this._optionsEx.showBullBreakout),
                     checkboxRow('showBearBreakdown', 'Bear Trendline Breakdown', this._optionsEx.showBearBreakdown),
                 ] }]),

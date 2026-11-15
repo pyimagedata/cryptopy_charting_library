@@ -1,5 +1,6 @@
 /** Izleme listesi icin kucuk modal diyaloglar: ad girisi ve onay. */
 
+import { t } from '../../helpers/translations';
 import { WL_COLORS, WatchlistTheme } from './watchlist_theme';
 import { applyRpTokens, ensureRpStyles, RP_FONT } from '../right_panel/rp_tokens';
 
@@ -45,7 +46,7 @@ function button(theme: WatchlistTheme, label: string, primary: boolean): HTMLBut
 }
 
 /** Metin giris diyalogu; iptalde null doner. */
-export function promptDialog(host: HTMLElement, theme: WatchlistTheme, title: string, value: string, okLabel = 'Tamam'): Promise<string | null> {
+export function promptDialog(host: HTMLElement, theme: WatchlistTheme, title: string, value: string, okLabel = t('OK')): Promise<string | null> {
     return new Promise((resolve) => {
         const c = WL_COLORS[theme];
         const bd = backdrop(host, theme);
@@ -56,7 +57,7 @@ export function promptDialog(host: HTMLElement, theme: WatchlistTheme, title: st
         input.style.cssText = `width:100%;box-sizing:border-box;height:36px;padding:0 12px;border-radius:12px;border:1px solid ${c.border};background:${c.bg};color:${c.text};font:inherit;font-size:13px;font-weight:400;outline:none;`;
         const row = document.createElement('div');
         row.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:14px;';
-        const cancel = button(theme, 'İptal', false);
+        const cancel = button(theme, t('Cancel'), false);
         const ok = button(theme, okLabel, true);
         ok.className = 'wl-dialog-ok';
         row.append(cancel, ok);
@@ -83,7 +84,7 @@ export function promptDialog(host: HTMLElement, theme: WatchlistTheme, title: st
 }
 
 /** Onay diyalogu; onaylanirsa true. */
-export function confirmDialog(host: HTMLElement, theme: WatchlistTheme, title: string, message: string, okLabel = 'Sil'): Promise<boolean> {
+export function confirmDialog(host: HTMLElement, theme: WatchlistTheme, title: string, message: string, okLabel = t('Delete')): Promise<boolean> {
     return new Promise((resolve) => {
         const c = WL_COLORS[theme];
         const bd = backdrop(host, theme);
@@ -93,7 +94,7 @@ export function confirmDialog(host: HTMLElement, theme: WatchlistTheme, title: s
         msg.style.cssText = `color:${c.muted};line-height:1.4;`;
         const row = document.createElement('div');
         row.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:14px;';
-        const cancel = button(theme, 'İptal', false);
+        const cancel = button(theme, t('Cancel'), false);
         const ok = button(theme, okLabel, true);
         ok.className = 'wl-dialog-ok';
         row.append(cancel, ok);

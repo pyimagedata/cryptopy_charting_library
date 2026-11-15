@@ -7,7 +7,7 @@
 
 import type { Indicator, IndicatorLegendInfo } from '../../indicators/indicator';
 import { legendPlotText } from '../../indicators/legend-info';
-import { t } from '../../helpers/translations';
+import { t, getCurrentLanguage } from '../../helpers/translations';
 import { LEGEND_STYLE, LegendTheme, legendColors } from './legend-constants';
 import { LEGEND_ICONS } from './legend-icons';
 import {
@@ -55,8 +55,8 @@ function ensureStyles(): void {
         .tvl-values { display: inline-flex; align-items: center; gap: ${m.gap}px; }
         .tvl-hidden .tvl-title { opacity: ${m.dimmedOpacity}; }
         .tvl-hidden .tvl-values { display: none; }
-        .tvl-btns { display: inline-flex; visibility: hidden; align-items: center; flex: none; margin-right: -2px; }
-        .tvl-row:hover .tvl-btns, .tvl-row.tvl-menu-open .tvl-btns { visibility: visible; }
+        .tvl-btns { display: none; align-items: center; flex: none; margin-right: -2px; }
+        .tvl-row:hover .tvl-btns, .tvl-row:focus-within .tvl-btns, .tvl-row.tvl-menu-open .tvl-btns { display: inline-flex; }
         .tvl-btn { width: ${m.buttonSize}px; height: ${m.buttonSize}px; padding: 0; border: 0; border-radius: ${m.radius}px; background: none; color: var(--tvl-muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
         .tvl-btn:hover { background: var(--tvl-hover); color: var(--tvl-text); }
         .tvl-toggle { color: var(--tvl-muted); }
@@ -127,7 +127,7 @@ export class IndicatorLegendList {
         const collapsed = this._options.collapsible && isLegendCollapsed(indicators.length, this._collapsedStored);
 
         const signature = [
-            theme, collapsed ? 'c' : 'e', toggleShown ? 't' : '-',
+            theme, getCurrentLanguage(), collapsed ? 'c' : 'e', toggleShown ? 't' : '-',
             ...indicators.map((ind, i) => `${ind.id}|${ind.visible ? 1 : 0}|${ind.hiddenByInterval ? 1 : 0}|${infos[i].title}|${infos[i].params.join(' ')}|${infos[i].error ?? ''}|${infos[i].busy ? 1 : 0}|${infos[i].alert ?? ''}`),
         ].join('\n');
 
@@ -272,7 +272,7 @@ export class IndicatorLegendList {
             values.appendChild(v);
         }
         // Buttons come BEFORE the values: the values text changes width with the crosshair bar, and the
-        // buttons (space always reserved, only visibility toggles) must never move under the pointer.
+        // buttons are anchored to the title end and appear only while the row is hovered (they push the values right).
 
         const btns = document.createElement('span');
         btns.className = 'tvl-btns';

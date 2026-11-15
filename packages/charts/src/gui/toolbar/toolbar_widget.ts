@@ -497,7 +497,11 @@ export class ToolbarWidget {
             n = Number(m[1]);
             unit = { m: 'minute', h: 'hour', d: 'day', w: 'week' }[m[2]]!;
         }
-        return `${n} ${t(n === 1 ? unit : unit + 's')}`;
+        const names: Record<string, [string, string]> = {
+            minute: [t('minute'), t('minutes')], hour: [t('hour'), t('hours')], day: [t('day'), t('days')],
+            week: [t('week'), t('weeks')], month: [t('month'), t('months')],
+        };
+        return `${n} ${names[unit][n === 1 ? 0 : 1]}`;
     }
 
     private _createTimeframeButtons(): void {
@@ -997,7 +1001,7 @@ export class ToolbarWidget {
     private _createWatchlistButton(): void {
         const btn = document.createElement('button');
         btn.className = 'toolbar-watchlist';
-        btn.title = 'İzleme listesi';
+        btn.title = t('Watchlist');
         btn.style.cssText = `
             display: flex; align-items: center; gap: 6px; padding: 6px 10px;
             border: none; border-radius: 4px; font-size: 13px; cursor: pointer;
@@ -1008,7 +1012,7 @@ export class ToolbarWidget {
         icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 8h18M5 14h18M5 20h11"/><path d="m21 17 1.1 2.2 2.4.35-1.75 1.7.42 2.4L21 22.5l-2.17 1.15.42-2.4-1.75-1.7 2.4-.35L21 17Z" fill="currentColor" stroke="none"/></svg>`;
         btn.appendChild(icon);
         const label = document.createElement('span');
-        label.textContent = 'Liste';
+        label.textContent = t('List');
         btn.appendChild(label);
         this._watchlistBtn = btn;
         this._styleWatchlistButton(false);
@@ -1092,8 +1096,8 @@ export class ToolbarWidget {
         btn.style.display = label ? 'flex' : 'none';
         if (label) {
             btn.title = active
-                ? `Fiyat ekseni ${label} gösteriyor (vadeli fiyata dönmek için tıkla)`
-                : `Fiyat eksenini ${label} karşılığına çevir`;
+                ? t('Price axis shows {label} (click to return to the futures price)').replace('{label}', label)
+                : t('Switch the price axis to its {label} equivalent').replace('{label}', label);
         }
         this._spotActive = active;
         this._styleSpotButton(false);
@@ -1210,7 +1214,9 @@ export class ToolbarWidget {
         TIMEZONE_OPTIONS.forEach(o => {
             const opt = document.createElement('option');
             opt.value = o.val;
-            opt.textContent = o.label;
+            // flag/emoji prefix stays, the city name is translated
+            const sp = o.label.indexOf(' ');
+            opt.textContent = o.label.slice(0, sp + 1) + t(o.label.slice(sp + 1));
             select.appendChild(opt);
         });
 
@@ -1260,7 +1266,7 @@ export class ToolbarWidget {
             select.appendChild(opt);
         });
 
-        select.value = this._options.locale || 'en';
+        select.value = getCurrentLanguage();
 
         select.addEventListener('change', () => {
             this._languageChanged.fire(select.value);
@@ -1273,7 +1279,7 @@ export class ToolbarWidget {
     private _createThemeToggle(): void {
         const btn = document.createElement('button');
         btn.className = 'toolbar-theme-toggle';
-        btn.title = 'Switch Theme';
+        btn.title = t('Switch Theme');
         btn.style.cssText = `
             background: transparent;
             border: none;

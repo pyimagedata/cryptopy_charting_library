@@ -5,6 +5,7 @@
  * Modern glassmorphism design with gradient backgrounds.
  */
 
+import { bindLangAttr } from '../helpers/lang-attr';
 import { TechnicalRating, getRatingLabel, fetchTechnicalRating } from '../services/technical-rating-service';
 import { t } from '../helpers/translations';
 import { FONT_SANS } from '../helpers/fonts';
@@ -37,6 +38,7 @@ export class TechnicalRatingBadge {
     private _createElement(): HTMLElement {
         const el = document.createElement('div');
         el.id = 'tv-technical-rating-badge';
+        bindLangAttr(el);
         el.style.cssText = `
             position: absolute;
             top: 12px;

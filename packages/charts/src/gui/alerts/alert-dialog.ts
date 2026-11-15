@@ -19,6 +19,7 @@ import { AlertIndicatorEntry, indicatorRefKey, operandLabel, plotShortLabel, ale
 import { AlertsError, AlertCondition, AlertDraft, AlertEventId, AlertGeometry, AlertInterval, AlertSound, AlertSource, AlertTrigger, ChartAlert, IndicatorRef, Operand, ScriptAlertBinding } from '../../alerts/types';
 import { detectUiTheme, showToast, ToastTheme } from '../toast/toast';
 import { FONT_SANS } from '../../helpers/fonts';
+import { TV_PALETTES, TV_SIZES, SettingsPalette } from '../indicator_settings/base/constants';
 
 /** What the dialog needs to know about the chart it was opened from (all optional behaviour). */
 export interface AlertDialogChart {
@@ -56,18 +57,17 @@ export interface AlertDialogHandle {
 
 type TabId = 'settings' | 'message' | 'notifications';
 
+/** Shares the indicator settings dialog's tokens (neutral palette, sizes); only the alert-specific danger/disabled colours live here. */
+const alertPalette = (sp: SettingsPalette, scheme: 'dark' | 'light', extra: { danger: string; dangerBg: string; disabled: string }) => ({
+    bg: sp.bg, border: sp.border, text: sp.text, sub: sp.muted, inputBg: sp.inputBg, inputBorder: sp.inputBorder,
+    hover: sp.hover, accent: sp.accent, accentHover: sp.accentHover, accentText: sp.accentText, focus: sp.focus,
+    checkboxBorder: sp.checkboxBorder, backdrop: sp.overlay, shadow: sp.shadow, scheme, ...extra,
+});
 const PALETTE = {
-    dark: {
-        bg: '#1e222d', border: '#363a45', text: '#d1d4dc', sub: '#868993', inputBg: '#131722', inputBorder: '#434651',
-        hover: '#2a2e39', accent: '#2962ff', accentText: '#ffffff', danger: '#f23645', dangerBg: 'rgba(242,54,69,.14)',
-        backdrop: 'rgba(0,0,0,.6)', shadow: '0 12px 40px rgba(0,0,0,.6)', disabled: '#50535e', scheme: 'dark',
-    },
-    light: {
-        bg: '#ffffff', border: '#e0e3eb', text: '#131722', sub: '#6a6d78', inputBg: '#ffffff', inputBorder: '#c3c6d0',
-        hover: '#f0f3fa', accent: '#2962ff', accentText: '#ffffff', danger: '#f23645', dangerBg: 'rgba(242,54,69,.08)',
-        backdrop: 'rgba(19,23,34,.45)', shadow: '0 12px 40px rgba(0,0,0,.25)', disabled: '#b2b5be', scheme: 'light',
-    },
+    dark: alertPalette(TV_PALETTES.dark, 'dark', { danger: '#f23645', dangerBg: 'rgba(242,54,69,.14)', disabled: '#50535e' }),
+    light: alertPalette(TV_PALETTES.light, 'light', { danger: '#f23645', dangerBg: 'rgba(242,54,69,.08)', disabled: '#b2b5be' }),
 };
+const S = TV_SIZES;
 const FONT = FONT_SANS;
 
 let current: { close(): void } | null = null;
@@ -239,29 +239,38 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         if (text !== undefined) e.textContent = text;
         return e;
     };
-    const inputCss = `box-sizing: border-box; width: 100%; height: 36px; padding: 0 10px; font: 14px ${FONT}; color: ${p.text};
-        background: ${p.inputBg}; border: 1px solid ${p.inputBorder}; border-radius: 4px; outline: none; color-scheme: ${p.scheme};`;
+    const inputCss = `box-sizing: border-box; width: 100%; height: ${S.controlHeight}px; padding: 0 12px; font: ${S.fontSize}px ${FONT}; color: ${p.text};
+        background: ${p.inputBg}; border: 1px solid ${p.inputBorder}; border-radius: ${S.controlRadius}px; outline: none; color-scheme: ${p.scheme};`;
+    const checkSvg = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2.5 6.2 5 8.6 9.5 3.6' stroke='${p.accentText}' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>`)}`;
+    const chevronSvg = `data:image/svg+xml;utf8,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 3.5 5 6.5 8 3.5' stroke='#787B86' stroke-width='1.4' fill='none'/></svg>")}`;
     const optCss = document.createElement('style');
-    optCss.textContent = `.chart-alert-dialog select option{background:${p.inputBg};color:${p.text}}.chart-alert-dialog input::-webkit-calendar-picker-indicator{opacity:.75;cursor:pointer}.chart-alert-dialog input::-webkit-calendar-picker-indicator:hover{opacity:1}`;
+    optCss.textContent = `.chart-alert-dialog select option{background:${p.inputBg};color:${p.text}}.chart-alert-dialog input::-webkit-calendar-picker-indicator{opacity:.75;cursor:pointer}.chart-alert-dialog input::-webkit-calendar-picker-indicator:hover{opacity:1}`
+        + `.chart-alert-dialog input[type=checkbox]{appearance:none;-webkit-appearance:none;width:${S.checkbox}px;height:${S.checkbox}px;flex:0 0 ${S.checkbox}px;margin:0;border:1px solid ${p.checkboxBorder};border-radius:5px;background:transparent;cursor:pointer;transition:background .1s,border-color .1s}`
+        + `.chart-alert-dialog input[type=checkbox]:hover{border-color:${p.sub}}`
+        + `.chart-alert-dialog input[type=checkbox]:checked{background:${p.accent} url("${checkSvg}") center/12px 12px no-repeat;border-color:${p.accent}}`
+        + `.chart-alert-dialog input[type=checkbox]:focus-visible{outline:2px solid ${p.focus};outline-offset:1px}`
+        + `.chart-alert-dialog select{appearance:none;-webkit-appearance:none;padding-right:28px;background-image:url("${chevronSvg}");background-repeat:no-repeat;background-position:right 9px center}`
+        + `.chart-alert-dialog input:hover:not([type=checkbox]),.chart-alert-dialog select:hover,.chart-alert-dialog textarea:hover{border-color:${p.sub}}`
+        + `.chart-alert-dialog button:focus-visible{outline:2px solid ${p.focus};outline-offset:1px}`;
     const focusRing = (e: HTMLElement) => {
-        e.addEventListener('focus', () => { e.style.borderColor = p.accent; });
-        e.addEventListener('blur', () => { e.style.borderColor = p.inputBorder; });
+        e.addEventListener('focus', () => { e.style.borderColor = p.focus; e.style.boxShadow = `0 0 0 3px color-mix(in srgb, ${p.focus} 22%, transparent)`; });
+        e.addEventListener('blur', () => { e.style.borderColor = p.inputBorder; e.style.boxShadow = 'none'; });
     };
     const row = (label: string, control: HTMLElement, hint?: string): HTMLElement => {
-        const r = el('div', 'display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px;');
-        r.appendChild(el('div', `flex: 0 0 120px; padding-top: 9px; font-size: 14px; color: ${p.sub};`, label));
-        const c = el('div', 'flex: 1 1 auto; min-width: 0;');
+        const r = el('div', `display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: start; gap: 16px; margin-bottom: ${S.rowGap - 4}px;`);
+        r.appendChild(el('div', `min-width: 0; padding-top: 9px; font-size: ${S.fontSize}px; color: ${p.text};`, label));
+        const c = el('div', 'min-width: 0;');
         c.appendChild(control);
-        if (hint) c.appendChild(el('div', `margin-top: 4px; font-size: 12px; color: ${p.sub};`, hint));
+        if (hint) c.appendChild(el('div', `margin-top: 4px; font-size: ${S.smallFontSize}px; color: ${p.sub};`, hint));
         r.appendChild(c);
         return r;
     };
     const checkbox = (label: string, checked: boolean): { wrap: HTMLLabelElement; box: HTMLInputElement } => {
-        const wrap = el('label', `display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: ${p.text}; cursor: pointer; user-select: none;`);
+        const wrap = el('label', `display: inline-flex; align-items: center; gap: 10px; font-size: ${S.fontSize}px; color: ${p.text}; cursor: pointer; user-select: none;`);
         const box = el('input');
         box.type = 'checkbox';
         box.checked = checked;
-        box.style.cssText = `width: 16px; height: 16px; margin: 0; accent-color: ${p.accent}; cursor: pointer;`;
+        box.style.cssText = `color-scheme: ${p.scheme};`;
         wrap.appendChild(box);
         wrap.appendChild(el('span', '', label));
         return { wrap, box };
@@ -273,7 +282,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     overlay.dataset.theme = theme;
     overlay.style.colorScheme = p.scheme;
     const panel = el('div', `box-sizing: border-box; width: ${showLeftSelect ? 540 : 480}px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); display: flex; flex-direction: column;
-        background: ${p.bg}; color: ${p.text}; border: 1px solid ${p.border}; border-radius: 8px; box-shadow: ${p.shadow};`);
+        background: ${p.bg}; color: ${p.text}; border: 1px solid ${p.border}; border-radius: ${S.radius}px; box-shadow: ${p.shadow};`);
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-modal', 'true');
     panel.className = 'chart-alert-dialog';
@@ -281,19 +290,19 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     overlay.appendChild(optCss);
 
     // header
-    const header = el('div', `display: flex; align-items: center; justify-content: space-between; padding: 14px 12px 4px 20px;`);
+    const header = el('div', `display: flex; align-items: center; justify-content: space-between; padding: 18px 16px 0 24px;`);
     const titleText = (editing ? t('Edit alert on {symbol}') : t('Create alert on {symbol}')).replace('{symbol}', ticker);
-    header.appendChild(el('div', 'font-size: 18px; font-weight: 600;', titleText));
-    const closeBtn = el('button', `width: 32px; height: 32px; border: none; border-radius: 4px; background: transparent; color: ${p.sub}; font-size: 22px; line-height: 1; cursor: pointer;`, '×');
+    header.appendChild(el('div', `font-size: ${S.titleFontSize}px; font-weight: 600;`, titleText));
+    const closeBtn = el('button', `width: 32px; height: 32px; border: none; border-radius: ${S.controlRadius}px; background: transparent; color: ${p.sub}; font-size: 22px; line-height: 1; cursor: pointer;`, '×');
     closeBtn.type = 'button';
     closeBtn.setAttribute('aria-label', t('Close'));
-    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = p.hover; });
-    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'transparent'; });
+    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = p.hover; closeBtn.style.color = p.text; });
+    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'transparent'; closeBtn.style.color = p.sub; });
     header.appendChild(closeBtn);
     panel.appendChild(header);
 
     // tabs
-    const tabsBar = el('div', `display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid ${p.border};`);
+    const tabsBar = el('div', `display: flex; gap: 0; padding: 0 24px; border-bottom: 1px solid ${p.border};`);
     const tabDefs: { id: TabId; label: string }[] = [
         { id: 'settings', label: t('Settings') },
         { id: 'message', label: t('Message') },
@@ -302,7 +311,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     const tabBtns = new Map<TabId, HTMLButtonElement>();
     const panes = new Map<TabId, HTMLElement>();
     for (const d of tabDefs) {
-        const b = el('button', 'border: none; background: transparent; padding: 10px 12px; font: 14px ' + FONT + '; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;', d.label);
+        const b = el('button', `border: none; background: transparent; padding: 10px 0 11px; margin: 0 24px -1px 0; font: 600 ${S.fontSize}px ${FONT}; cursor: pointer; border-bottom: 2px solid transparent;`, d.label);
         b.type = 'button';
         b.dataset.tab = d.id;
         b.addEventListener('click', () => selectTab(d.id));
@@ -312,12 +321,12 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     panel.appendChild(tabsBar);
 
     // banner (any tab)
-    const banner = el('div', `display: none; margin: 12px 20px 0; padding: 8px 12px; border-radius: 4px; font-size: 13px; color: ${p.danger}; background: ${p.dangerBg}; border: 1px solid ${p.danger};`);
+    const banner = el('div', `display: none; margin: 12px 24px 0; padding: 8px 12px; border-radius: ${S.controlRadius}px; font-size: ${S.smallFontSize}px; color: ${p.danger}; background: ${p.dangerBg}; border: 1px solid ${p.danger};`);
     banner.className = 'chart-alert-dialog-banner';
     banner.setAttribute('role', 'alert');
     panel.appendChild(banner);
 
-    const body = el('div', 'padding: 18px 20px 6px; overflow-y: auto; min-height: 330px;');
+    const body = el('div', 'padding: 20px 24px 8px; overflow-y: auto; min-height: 330px;');
     panel.appendChild(body);
 
     // ---- Settings pane ----
@@ -361,7 +370,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     scriptCondCell.appendChild(scriptErr);
     const scriptRow = row(t('Script'), editingScript ? el('div', chipCss, editing!.script!.scriptName) : scriptSelect);
     const scriptCondRow = row(t('Script alert'), scriptCondCell);
-    const scriptNote = el('div', `margin: 0 0 14px; padding: 8px 12px; border-radius: 4px; font-size: 12px; line-height: 1.4; color: ${p.sub}; background: ${p.hover};`);
+    const scriptNote = el('div', `margin: 0 0 14px; padding: 8px 12px; border-radius: ${S.controlRadius}px; font-size: 12px; line-height: 1.4; color: ${p.sub}; background: ${p.hover};`);
     scriptNote.className = 'chart-alert-script-note';
     scriptNote.appendChild(el('div', `font-weight: 600; color: ${p.text};`, t('Works while the chart is open')));
     scriptNote.appendChild(el('div', '', t('The script is evaluated in this browser; closing the chart pauses the alert.')));
@@ -476,7 +485,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     priceInput.inputMode = 'decimal';
     priceInput.autocomplete = 'off';
     priceInput.spellcheck = false;
-    priceInput.style.paddingRight = '26px';
+    priceInput.style.paddingRight = '34px';
     priceInput.value = initialPriceText;
     focusRing(priceInput);
     // typed price may use "," or "."; stepping keeps a dot, no grouping (same text as the price axis)
@@ -490,9 +499,11 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         priceErr.style.display = 'none';
         syncAuto();
     };
-    const spin = el('div', 'position: absolute; right: 2px; top: 3px; bottom: 3px; width: 20px; display: flex; flex-direction: column;');
+    const spin = el('div', `position: absolute; right: 0; top: 0; bottom: 0; width: 24px; display: flex; flex-direction: column; border-left: 1px solid ${p.inputBorder};`);
     for (const dir of [1, -1] as const) {
         const b = el('button', `flex: 1 1 0; min-height: 0; padding: 0; border: none; background: transparent; color: ${p.sub}; font-size: 8px; line-height: 1; cursor: pointer;`, dir === 1 ? '\u25B2' : '\u25BC');
+        b.addEventListener('mouseenter', () => { b.style.background = p.hover; b.style.color = p.text; });
+        b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; b.style.color = p.sub; });
         b.type = 'button';
         b.tabIndex = -1;
         b.addEventListener('mousedown', (e) => e.preventDefault());
@@ -667,7 +678,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
 
     const expWrap = el('div');
     const forever = checkbox(t('Open-ended'), editing ? editing.expiresAt === null : true);
-    forever.wrap.style.height = '36px';
+    forever.wrap.style.height = `${S.controlHeight}px`;
     const expInput = el('input', inputCss + 'margin-top: 2px;');
     expInput.className = 'chart-alert-expiry';
     expInput.type = 'datetime-local';
@@ -739,7 +750,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     const nSound = checkbox(t('Play sound'), editing ? editing.playSound : true);
     nToast.box.className = 'chart-alert-notify-toast';
     nSound.box.className = 'chart-alert-play-sound';
-    const soundRow = el('div', 'display: flex; align-items: center; gap: 8px; margin-top: 8px; margin-left: 24px;');
+    const soundRow = el('div', 'display: flex; align-items: center; gap: 8px; margin-top: 8px; margin-left: 28px;');
     const soundSelect = el('select', inputCss + 'width: 160px; cursor: pointer;');
     soundSelect.className = 'chart-alert-sound';
     for (const s of ALERT_SOUND_NAMES) {
@@ -749,7 +760,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     }
     soundSelect.value = editing?.sound ?? 'chime';
     focusRing(soundSelect);
-    const preview = el('button', `width: 36px; height: 36px; border: 1px solid ${p.inputBorder}; border-radius: 4px; background: transparent; color: ${p.text}; cursor: pointer; font-size: 12px;`, '▶');
+    const preview = el('button', `width: 36px; height: 36px; border: 1px solid ${p.inputBorder}; border-radius: ${S.controlRadius}px; background: transparent; color: ${p.text}; cursor: pointer; font-size: 12px;`, '▶');
     preview.type = 'button';
     preview.title = t('Preview sound');
     preview.addEventListener('click', () => playAlertSound(soundSelect.value as AlertSound));
@@ -776,7 +787,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         nTg.box.disabled = true;
         nTg.wrap.style.cursor = 'default';
         nTg.wrap.style.color = p.disabled;
-        tgBlock.appendChild(el('div', `margin: 4px 0 0 24px; font-size: 12px; color: ${p.sub};`, t('Link your Telegram account from your profile')));
+        tgBlock.appendChild(el('div', `margin: 4px 0 0 28px; font-size: 12px; color: ${p.sub};`, t('Link your Telegram account from your profile')));
     }
     noteList.appendChild(nToast.wrap);
     noteList.appendChild(soundBlock);
@@ -811,7 +822,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         nHook.box.disabled = true;
         nHook.wrap.style.cursor = 'default';
         nHook.wrap.style.color = p.disabled;
-        hookBlock.appendChild(el('div', `margin: 4px 0 0 24px; font-size: 12px; color: ${p.sub};`, t('Webhook is available on the PRO plan')));
+        hookBlock.appendChild(el('div', `margin: 4px 0 0 28px; font-size: 12px; color: ${p.sub};`, t('Webhook is available on the PRO plan')));
     }
     nHook.box.addEventListener('change', () => { syncHook(); if (nHook.box.checked) hookInput.focus(); });
     syncHook();
@@ -821,11 +832,15 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     for (const pane of panes.values()) body.appendChild(pane);
 
     // ---- footer ----
-    const footer = el('div', `display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px 18px; border-top: 1px solid ${p.border}; margin-top: 8px;`);
-    const cancelBtn = el('button', `height: 36px; padding: 0 18px; border: 1px solid ${p.inputBorder}; border-radius: 4px; background: transparent; color: ${p.text}; font: 14px ${FONT}; cursor: pointer;`, t('Cancel'));
+    const footer = el('div', `display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid ${p.border}; margin-top: 8px;`);
+    const cancelBtn = el('button', `height: ${S.controlHeight}px; padding: 0 20px; border: 1px solid ${p.inputBorder}; border-radius: ${S.controlRadius}px; background: transparent; color: ${p.text}; font: 500 ${S.fontSize}px ${FONT}; cursor: pointer;`, t('Cancel'));
+    cancelBtn.addEventListener('mouseenter', () => { cancelBtn.style.background = p.hover; });
+    cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.background = 'transparent'; });
     cancelBtn.type = 'button';
     cancelBtn.className = 'chart-alert-cancel';
-    const okBtn = el('button', `height: 36px; padding: 0 22px; border: none; border-radius: 4px; background: ${p.accent}; color: ${p.accentText}; font: 600 14px ${FONT}; cursor: pointer;`, editing ? t('Save') : t('Create'));
+    const okBtn = el('button', `height: ${S.controlHeight}px; padding: 0 20px; border: 1px solid ${p.accent}; border-radius: ${S.controlRadius}px; background: ${p.accent}; color: ${p.accentText}; font: 500 ${S.fontSize}px ${FONT}; cursor: pointer;`, editing ? t('Save') : t('Create'));
+    okBtn.addEventListener('mouseenter', () => { okBtn.style.background = p.accentHover; okBtn.style.borderColor = p.accentHover; });
+    okBtn.addEventListener('mouseleave', () => { okBtn.style.background = p.accent; okBtn.style.borderColor = p.accent; });
     okBtn.type = 'button';
     okBtn.className = 'chart-alert-submit';
     footer.appendChild(cancelBtn);
@@ -838,8 +853,7 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
         for (const [k, b] of tabBtns) {
             const on = k === id;
             b.style.color = on ? p.text : p.sub;
-            b.style.fontWeight = on ? '600' : '400';
-            b.style.borderBottomColor = on ? p.accent : 'transparent';
+                        b.style.borderBottomColor = on ? p.text : 'transparent';
         }
         for (const [k, pane] of panes) pane.style.display = k === id ? 'block' : 'none';
     }

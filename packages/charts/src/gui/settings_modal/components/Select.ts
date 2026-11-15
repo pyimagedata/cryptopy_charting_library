@@ -3,6 +3,8 @@
  * Styled select with options
  */
 
+import { t } from '../../../helpers/translations';
+
 export interface SelectOption {
     value: string;
     label: string;
@@ -31,7 +33,7 @@ export function createSelect(
     options.forEach(opt => {
         const option = document.createElement('option');
         option.value = opt.value;
-        option.textContent = opt.label;
+        option.textContent = t(opt.label);
         if (opt.value === currentValue) option.selected = true;
         select.appendChild(option);
     });

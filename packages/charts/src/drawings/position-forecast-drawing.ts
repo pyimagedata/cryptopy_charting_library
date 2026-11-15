@@ -28,7 +28,7 @@ import {
 import { VolumeToolBase } from './volume-drawings';
 import { VolumeBar } from './volume-tools-common';
 import { resolvePipSize, formatDurationMs } from './line-tool-common';
-import { fmt, fmtSigned } from './position-common';
+import { fmt, fmtSigned, fmtPriceSigned } from './position-common';
 import { t } from '../helpers/translations';
 
 const BLUE = '#2962FF';
@@ -111,7 +111,7 @@ export function forecastStats(
 /** Etiket satirlari; durum ✓/✕ ilk satirin basina eklenir. */
 export function forecastLines(s: ForecastStats, precision: number, status: ForecastStatus): string[] {
     const glyph = status === 'success' ? '✓ ' : status === 'failure' ? '✕ ' : '';
-    const line1 = `${glyph}${fmtSigned(s.priceChange, precision)} (${fmtSigned(s.percent, 2)}%) ${fmtSigned(s.ticks, 0)} ${t('ticks')}`;
+    const line1 = `${glyph}${fmtPriceSigned(s.priceChange, precision)} (${fmtSigned(s.percent, 2)}%) ${fmtSigned(s.ticks, 0)} ${t('ticks')}`;
     const line2 = `${fmt(s.bars, 0)} ${t('bars')}, ${formatDurationMs(s.durationMs)}`;
     return [line1, line2];
 }

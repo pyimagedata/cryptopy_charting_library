@@ -1,4 +1,5 @@
 import { toEpochMs } from '../helpers/time';
+import { bindLangAttr } from '../helpers/lang-attr';
 import { ensureSoftTheme } from './soft_theme';
 import { ChartModel, ChartModelOptions, GridOptions, InvalidateReason } from '../model/chart-model';
 import { Delegate } from '../helpers/delegate';
@@ -49,6 +50,7 @@ import { FloatingAttributeBar } from './attribute_bar';
 import { getPopoverHost } from './settings_modal/components/popover';
 import { TextEditorOverlay } from './text-editor-overlay';
 import { createSettingsModal, BaseSettingsModal } from './settings_modal';
+import { setPointsPriceFormatter } from './settings_modal/sections/PointsSection';
 import { ChartSettingsModal } from './chart-settings-modal';
 import { ChartStateManager } from '../state';
 import {
@@ -1836,6 +1838,7 @@ export class ChartWidget implements Disposable {
         // Main container
         this._element = document.createElement('div');
         this._element.className = 'tv-chart-container';
+        bindLangAttr(this._element);
         this._element.style.cssText = `
             position: relative;
             display: flex;
@@ -2070,7 +2073,7 @@ export class ChartWidget implements Disposable {
             color: rgba(255, 255, 255, 0.7);
             font-size: 14px;
         `;
-        loadingText.textContent = 'Loading data...';
+        loadingText.textContent = t('Loading data...');
 
         this._loadingOverlay.appendChild(spinner);
         this._loadingOverlay.appendChild(loadingText);
@@ -2248,6 +2251,7 @@ export class ChartWidget implements Disposable {
                     this._commitSettingsHistory(selectedDrawing);
                     this._scheduleDraw();
                 });
+                setPointsPriceFormatter((v) => this._model.rightPriceScale.formatPrice(v));
                 this._drawingSettingsModal.show(selectedDrawing);
             }
         });
@@ -4375,7 +4379,7 @@ export class ChartWidget implements Disposable {
             return;
         }
 
-        this._chartSettingsModal.showUnsupported('Bu ayar su anda sadece mum ve Heiken Ashi grafiklerinde kullanilabilir.');
+        this._chartSettingsModal.showUnsupported('This setting is currently available only for candlestick and Heiken Ashi charts.');
     }
 
     private _onContextCopyPrice(): void {
@@ -5232,7 +5236,7 @@ export class ChartWidget implements Disposable {
         this._drawingContextMenu?.hide();
         this._drawingManager.setActivePaneId(null);
         this._contextMenu?.setItems(this._buildChartMenuItems(price));
-        this._contextMenu?.setCurrentPrice(price);
+        this._contextMenu?.setCurrentPrice(price, this._model.rightPriceScale.formatPrice(price));
         this._contextMenu?.show(clientX, clientY);
     }
 
@@ -5419,6 +5423,9 @@ export class ChartWidget implements Disposable {
 
         // Re-apply current theme to ensure new widgets match the theme
         this.setTheme(this._currentTheme);
+
+        // Legend / indicator pane titles are rendered from the model: force a repaint so they pick up the language
+        this._model?.fullUpdate();
     }
 
     private _createTopToolbar(): void {

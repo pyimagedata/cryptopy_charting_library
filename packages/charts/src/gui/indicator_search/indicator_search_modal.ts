@@ -5,7 +5,7 @@
  */
 
 import { Delegate } from '../../helpers/delegate';
-import { t, getCurrentLanguage } from '../../helpers/translations';
+import { t, getCurrentLanguage, onLanguageChange } from '../../helpers/translations';
 import {
     CATEGORY_LABELS,
     CATEGORY_ORDER,
@@ -117,7 +117,10 @@ export class IndicatorSearchModal {
         try { storage = window.localStorage; } catch (e) { storage = null; }
         this._prefs = new IndicatorPrefs(storage);
         this._createElement();
+        this._unsubLang = onLanguageChange(() => this._rebuildElement());
     }
+
+    private _unsubLang: (() => void) | null = null;
 
     get indicatorSelected(): Delegate<string> {
         return this._indicatorSelected;
@@ -130,6 +133,11 @@ export class IndicatorSearchModal {
     setTheme(theme: ModalTheme): void {
         if (theme === this._theme) return;
         this._theme = theme;
+        this._rebuildElement();
+    }
+
+    /** Re-create the DOM (theme or language change) keeping the query and visibility */
+    private _rebuildElement(): void {
         const query = this._searchInput?.value ?? '';
         this._destroyElement();
         this._createElement();
@@ -568,7 +576,7 @@ export class IndicatorSearchModal {
 
             if (ind.remote) {
                 const tag = document.createElement('span');
-                tag.textContent = 'Premium';
+                tag.textContent = t('Premium');
                 tag.style.cssText = `color: ${c.muted}; font-size: 11px; border: 1px solid ${c.border}; border-radius: 3px; padding: 0 5px; line-height: 16px; flex-shrink: 0;`;
                 row.appendChild(tag);
             }
@@ -645,6 +653,8 @@ export class IndicatorSearchModal {
     }
 
     dispose(): void {
+        this._unsubLang?.();
+        this._unsubLang = null;
         document.removeEventListener('keydown', this._onKeyDown, true);
         window.removeEventListener('resize', this._onResize);
         this._flashTimers.forEach(tm => clearTimeout(tm));

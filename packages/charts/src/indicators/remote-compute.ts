@@ -160,7 +160,7 @@ export class RemoteCompute<T> {
         } catch (error) {
             const status = (error as { status?: number } | null)?.status;
             if (status === 401 || status === 403) denied = status;
-            else console.warn(`RemoteCompute(${this._indicatorId}): backend verisi alınamadı`, error);
+            else console.warn(`RemoteCompute(${this._indicatorId}): backend data could not be fetched`, error);
         } finally {
             if (token === this._token) this._inFlightKey = null;
         }

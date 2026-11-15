@@ -2,6 +2,7 @@ import { OverlayIndicator, IndicatorOptions, IndicatorRange, IndicatorStyle } fr
 import { BarData } from '../model/data';
 import { RemoteCompute, RemoteContext, accessNoticeText, drawAccessNotice } from './remote-compute';
 import { canvasSans } from '../helpers/fonts';
+import { t } from '../helpers/translations';
 
 // TDOJI-SR: seviyeler (önceki haftalık kapanışa göre) backend'de hesaplanır (bkz.
 // remote-compute.ts). Burada yalnızca çizilir; etiket metni ve fiyat biçimlendirme yereldir.
@@ -352,18 +353,18 @@ export class TdojiSRIndicator extends OverlayIndicator {
     }
 
     private _noteResistance(index: number): string {
-        if (index === 2) return 'GÜÇLÜ TARAFA GEÇİŞ';
-        if (index === 3) return 'ALIŞLAR GÜÇLENEBİLİR';
-        if (index === 6) return 'GÜÇLÜ DEVAM';
-        if (index === 8 || index === 9) return 'GÜN İÇİ KAR SATIŞI OLASI';
+        if (index === 2) return t('SWITCH TO STRONG SIDE');
+        if (index === 3) return t('BUYING MAY STRENGTHEN');
+        if (index === 6) return t('STRONG CONTINUATION');
+        if (index === 8 || index === 9) return t('INTRADAY PROFIT TAKING LIKELY');
         return '';
     }
 
     private _noteSupport(index: number): string {
-        if (index === 2) return 'ZAYIF TARAFA GEÇİŞ';
-        if (index === 3) return 'SATIŞLAR ARTABİLİR';
-        if (index === 6) return 'ZAYIF UZAK DUR';
-        if (index === 8 || index === 9) return 'GÜN İÇİ TEPKİ OLASILIĞI';
+        if (index === 2) return t('SWITCH TO WEAK SIDE');
+        if (index === 3) return t('SELLING MAY INCREASE');
+        if (index === 6) return t('WEAK, STAY AWAY');
+        if (index === 8 || index === 9) return t('INTRADAY BOUNCE POSSIBLE');
         return '';
     }
 

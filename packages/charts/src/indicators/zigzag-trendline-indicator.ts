@@ -106,7 +106,7 @@ export class ZigZagTrendlineIndicator extends OverlayIndicator {
                     rows: [
                         numberRow('period', 'ZigZag Period', 2, 100, 1),
                         numberRow('pivotCount', 'Pivot Count', 2, 10, 1),
-                        checkboxRow('showHistory', 'Gecmisi Goster', this._trendlineOptions.showHistory),
+                        checkboxRow('showHistory', 'Show History', this._trendlineOptions.showHistory),
                     ],
                 }]),
                 createStyleTab([{

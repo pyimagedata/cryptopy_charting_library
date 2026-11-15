@@ -26,7 +26,7 @@ export interface TdojiOscillatorOptions extends IndicatorOptions {
 }
 
 const defaultTdojiOscillatorOptions: Partial<TdojiOscillatorOptions> = {
-    name: 'Tdoji Oscilator',
+    name: 'Tdoji Oscillator',
     curveLength: 144,
     slopeLength: 5,
     signalLength: 21,
@@ -196,7 +196,7 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
     }
 
     getDescription(index?: number): string {
-        const denied = accessNoticeText(this._remote, 'Tdoji Oscilator');
+        const denied = accessNoticeText(this._remote, 'Tdoji Oscillator');
         if (denied !== null) return denied;
 
         const point = this._data[legendIndex(this._data, index)];
@@ -206,7 +206,7 @@ export class TdojiOscillatorIndicator extends PanelIndicator {
         const slopeLabel = slope === undefined || isNaN(slope) ? '-' : slope.toFixed(4);
         const signalLabel = signal === undefined || isNaN(signal) ? '-' : signal.toFixed(4);
 
-        return `Tdoji Oscilator: ${slopeLabel} ${signalLabel}`;
+        return `Tdoji Oscillator: ${slopeLabel} ${signalLabel}`;
     }
 
     getLevelLines(): Array<{ y: number; color: string }> {

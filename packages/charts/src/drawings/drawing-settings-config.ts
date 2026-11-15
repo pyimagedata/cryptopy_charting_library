@@ -122,7 +122,24 @@ export type SettingRow =
     | DatetimeSettingRow
     | SessionSettingRow
     | ToggleColorSettingRow
+    | PlotStyleSettingRow
     | GroupSettingRow;
+
+/**
+ * Evo Script Style tab row: visibility checkbox + label, then colour / width / plot style (or hline
+ * line style) controls where the output has them. Value: { visible, color?, width?, style? }.
+ */
+export interface PlotStyleSettingRow {
+    type: 'plotStyle';
+    key: string;
+    label: string;
+    hasColor?: boolean;
+    hasWidth?: boolean;
+    /** Plot style choices (select) */
+    styleOptions?: { value: string; label: string }[];
+    /** hline line styles (line button menu) */
+    lineStyles?: Array<'solid' | 'dashed' | 'dotted'>;
+}
 
 export interface TextareaSettingRow {
     type: 'textarea';

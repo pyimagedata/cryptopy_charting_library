@@ -15,6 +15,7 @@ import {
     createSliderInput,
     createSelectInput
 } from '../components';
+import { createLineButton, LineButtonStyle } from '../../settings_modal/components/LineButton';
 import { t, getCurrentLanguage } from '../../../helpers/translations';
 
 export interface SectionContext {
@@ -325,6 +326,32 @@ function renderRow(row: AnyRow, context: SectionContext): HTMLElement {
         case 'color': {
             rowEl.appendChild(labelEl(row.label as string, row.raw === true));
             rowEl.appendChild(controls(colorControl(row, context)));
+            break;
+        }
+
+        case 'plotStyle': {
+            // Evo Script Style tab: [x] Title      [colour] [width] [plot style]
+            rowEl.classList.add('tvs-row-style');
+            const cur = (): Record<string, any> => ({ ...(context.getValue(row.key) as Record<string, any> ?? {}) });
+            const put = (patch: Record<string, any>) => context.setValue(row.key, { ...cur(), ...patch });
+            const v = cur();
+            rowEl.appendChild(createCheckbox(String(row.label ?? ''), v.visible !== false, (on) => put({ visible: on })));
+            const parts: HTMLElement[] = [];
+            if (row.hasColor) parts.push(createColorInput(String(v.color || '#2962ff'), (c) => put({ color: c })));
+            const lineStyles = (row.lineStyles as LineButtonStyle[] | undefined) ?? [];
+            if (row.hasWidth && lineStyles.length > 0) {
+                const st = (['solid', 'dashed', 'dotted'] as const).includes(v.style) ? v.style as LineButtonStyle : 'solid';
+                parts.push(createLineButton(Math.max(1, Math.min(4, Math.round(Number(v.width) || 1))), st, (w) => put({ width: w }), (s) => put({ style: s }), context.host ?? null, [1, 2, 3, 4], lineStyles));
+            } else if (row.hasWidth) {
+                parts.push(createLineWidthSelect(Number(v.width) || 1, { min: 1, max: 4 }, (w) => put({ width: w }), context.rerender, context.host ?? null));
+            }
+            const opts = (row.styleOptions as { value: string; label: string }[] | undefined) ?? [];
+            if (opts.length > 0) {
+                const sel = createSelectInput(String(v.style ?? 'line'), opts, (x) => put({ style: x }));
+                sel.classList.add('tvs-plotstyle');
+                parts.push(sel);
+            }
+            rowEl.appendChild(controls(...parts));
             break;
         }
 

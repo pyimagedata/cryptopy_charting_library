@@ -13,6 +13,7 @@ import { RemoteContext, barTimeMs } from './remote-compute';
 import { IndicatorLegendInfo } from './legend-info';
 import { parseTimeframe } from '../drawings/intervals-visibility';
 import { computeLiqHeatmapLocal } from './liq-heatmap-binance';
+import { t, getCurrentLanguage } from '../helpers/translations';
 
 export type LiqHeatmapPeriod = '12h' | '24h' | '3d' | '1w' | '2w' | '1m' | '3m';
 /** Setting value: a real period or 'auto' (follows the chart timeframe). */
@@ -35,7 +36,7 @@ export interface LiqHeatmapOptions {
 }
 
 const defaultLiqHeatmapOptions: LiqHeatmapOptions = {
-    name: 'Likidasyon Haritası',
+    name: 'Liquidation Heatmap',
     period: 'auto',
     sideSplit: 'equal',
     threshold: 0.85,
@@ -82,7 +83,7 @@ export type LiqHeatmapProvider = (query: LiqHeatmapQuery, opts?: { signal?: Abor
 
 const PERIODS: LiqHeatmapPeriod[] = ['12h', '24h', '3d', '1w', '2w', '1m', '3m'];
 const PERIOD_LABELS: Record<LiqHeatmapPeriod, string> = {
-    '12h': '12 saat', '24h': '24 saat', '3d': '3 gün', '1w': '1 hafta', '2w': '2 hafta', '1m': '1 ay', '3m': '3 ay',
+    '12h': '12 hours', '24h': '24 hours', '3d': '3 days', '1w': '1 week', '2w': '2 weeks', '1m': '1 month', '3m': '3 months',
 };
 const PERIOD_MINUTES: Record<LiqHeatmapPeriod, number> = {
     '12h': 720, '24h': 1440, '3d': 4320, '1w': 10080, '2w': 20160, '1m': 43200, '3m': 129600,
@@ -275,20 +276,20 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
                 {
                     id: 'inputs', label: 'Inputs', sections: [{ rows: [
                         {
-                            type: 'select', key: 'period', label: 'Periyot', defaultValue: this._o.period,
-                            options: [{ value: 'auto', label: 'Otomatik' }, ...PERIODS.map(p => ({ value: p, label: PERIOD_LABELS[p] }))],
+                            type: 'select', key: 'period', label: 'Period', defaultValue: this._o.period,
+                            options: [{ value: 'auto', label: 'Auto' }, ...PERIODS.map(p => ({ value: p, label: PERIOD_LABELS[p] }))],
                         },
                         {
-                            type: 'select', key: 'sideSplit', label: 'Long/Short ayrımı', defaultValue: this._o.sideSplit,
-                            options: [{ value: 'taker', label: 'Taker akışı' }, { value: 'equal', label: 'Eşit (50/50)' }],
+                            type: 'select', key: 'sideSplit', label: 'Long/Short split', defaultValue: this._o.sideSplit,
+                            options: [{ value: 'taker', label: 'Taker flow' }, { value: 'equal', label: 'Equal (50/50)' }],
                         },
-                        { type: 'slider', key: 'threshold', label: 'Likidite Eşiği', min: 0, max: 1, step: 0.01, defaultValue: this._o.threshold },
+                        { type: 'slider', key: 'threshold', label: 'Liquidity threshold', min: 0, max: 1, step: 0.01, defaultValue: this._o.threshold },
                     ] }],
                 },
                 {
                     id: 'style', label: 'Style', sections: [{ rows: [
                         {
-                            type: 'select', key: 'palette', label: 'Palet', defaultValue: this._o.palette,
+                            type: 'select', key: 'palette', label: 'Palette', defaultValue: this._o.palette,
                             options: [
                                 { value: 'viridis', label: 'Viridis' },
                                 { value: 'magma', label: 'Magma' },
@@ -296,8 +297,8 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
                                 { value: 'cividis', label: 'Cividis' },
                             ],
                         },
-                        { type: 'slider', key: 'opacity', label: 'Opaklık', min: 0.1, max: 1, step: 0.05, defaultValue: this._o.opacity },
-                        { type: 'checkbox', key: 'fillBackground', label: 'Arka planı doldur', defaultValue: this._o.fillBackground },
+                        { type: 'slider', key: 'opacity', label: 'Opacity', min: 0.1, max: 1, step: 0.05, defaultValue: this._o.opacity },
+                        { type: 'checkbox', key: 'fillBackground', label: 'Fill background', defaultValue: this._o.fillBackground },
                     ] }],
                 },
             ],
@@ -388,20 +389,20 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     }
 
     private _statusText(): string {
-        if (this._denied === 401) return 'giriş gerekli';
-        if (this._denied === 403) return 'premium gerekli';
-        if (this._unsupportedMap || this._unsupportedSrv) return 'desteklenmeyen sembol (yalnız Binance vadeli)';
-        if (this._periodUnavailable) return 'bu periyot bu sembolde yok (en fazla ~1 ay geçmiş)';
+        if (this._denied === 401) return t('login required');
+        if (this._denied === 403) return t('premium required');
+        if (this._unsupportedMap || this._unsupportedSrv) return t('unsupported symbol (Binance futures only)');
+        if (this._periodUnavailable) return t('this period is not available for this symbol (up to ~1 month of history)');
         const parts: string[] = [
-            this._o.period === 'auto' ? `Otomatik (${PERIOD_LABELS[this._period()]})` : this._o.period,
+            this._o.period === 'auto' ? `${t('Auto')} (${t(PERIOD_LABELS[this._period()])})` : this._o.period,
             'Binance',
         ];
         if (this._cells) {
             const ts = this._updatedAt;
             if (ts > 0) parts.push(this._fmtTime(ts));
-        } else if (this._noData) parts.push('veri yok');
-        else if (this._failed) parts.push('veri alınamadı');
-        else parts.push('yükleniyor…');
+        } else if (this._noData) parts.push(t('no data'));
+        else if (this._failed) parts.push(t('data could not be loaded'));
+        else parts.push(t('loading…'));
         return parts.join(' · ');
     }
 
@@ -409,17 +410,17 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
     private _fmtTime(ms: number): string {
         const o: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
         if (this._tz) {
-            try { return new Intl.DateTimeFormat('tr-TR', { ...o, timeZone: this._tz }).format(ms); } catch { /* fall through */ }
+            try { return new Intl.DateTimeFormat(getCurrentLanguage(), { ...o, timeZone: this._tz }).format(ms); } catch { /* fall through */ }
         }
-        return new Intl.DateTimeFormat('tr-TR', { ...o, timeZone: 'UTC' }).format(ms) + ' UTC';
+        return new Intl.DateTimeFormat(getCurrentLanguage(), { ...o, timeZone: 'UTC' }).format(ms) + ' UTC';
     }
 
     getDescription(): string {
-        return `Likidasyon Haritası: ${this._statusText()}`;
+        return `${t('Liquidation Heatmap')}: ${this._statusText()}`;
     }
 
     getLegendInfo(): IndicatorLegendInfo {
-        return { title: 'Likidasyon Haritası', params: [this._statusText()], plots: [] };
+        return { title: t('Liquidation Heatmap'), params: [this._statusText()], plots: [] };
     }
 
     // --- Data ---------------------------------------------------------------
@@ -573,7 +574,7 @@ export class LiqHeatmapIndicator extends OverlayIndicator {
                 this._backoff();
                 if (!this._warned) {
                     this._warned = true;
-                    console.warn('LiqHeatmapIndicator: veri alınamadı', error);
+                    console.warn('LiqHeatmapIndicator: data could not be fetched', error);
                 }
             }
         } finally {

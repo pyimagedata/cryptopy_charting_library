@@ -3,6 +3,7 @@
  * Reusable section for displaying drawing point coordinates
  */
 
+import { formatDate, formatPrice, groupThousands } from '../../../helpers/format';
 import { Drawing, DrawingPoint } from '../../../drawings';
 import { createSection } from '../base/SettingsComponents';
 import { t } from '../../../helpers/translations';
@@ -10,6 +11,13 @@ import { t } from '../../../helpers/translations';
 /**
  * Creates a points section showing coordinates of drawing points
  */
+let pointsPriceFormatter: ((v: number) => string) | null = null;
+
+/** Host sets the active chart's price formatter (price axis precision) before the settings modal opens. */
+export function setPointsPriceFormatter(fn: ((v: number) => string) | null): void {
+    pointsPriceFormatter = fn;
+}
+
 export function createPointsSection(
     drawing: Drawing
 ): HTMLElement {
@@ -30,7 +38,7 @@ export function createPointsSection(
 
             const values = document.createElement('span');
             const date = new Date(point.time);
-            values.textContent = `${date.toLocaleDateString()} | ${point.price.toFixed(2)}`;
+            values.textContent = `${formatDate(date)} | ${(pointsPriceFormatter ? groupThousands(pointsPriceFormatter(point.price)) : formatPrice(point.price, 2))}`;
             values.style.cssText = 'font-size: 13px; color: var(--text-primary);';
 
             pointRow.appendChild(label);

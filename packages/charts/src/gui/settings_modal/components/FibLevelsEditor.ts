@@ -1,3 +1,4 @@
+import { t } from '../../../helpers/translations';
 import { createColorSelect } from './ColorSelect';
 import { createCheckbox } from './Checkbox';
 
@@ -169,7 +170,7 @@ function createLevelRow(
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.textContent = '×';
-    remove.title = 'Remove level';
+    remove.title = t('Remove level');
     remove.style.cssText = styles.removeButton;
     remove.onclick = () => {
         levels.splice(index, 1);

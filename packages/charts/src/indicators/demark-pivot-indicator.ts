@@ -8,6 +8,7 @@ import {
 } from '../gui/indicator_settings/base/helpers';
 import { IndicatorSettingsConfig } from '../gui/indicator_settings/base/types';
 import { RemoteCompute, RemoteContext, accessNoticeText, drawAccessNotice, timeIndexMap } from './remote-compute';
+import { t } from '../helpers/translations';
 
 // Pivot seviyeleri ve OBV backend'de hesaplanır (bkz. remote-compute.ts); burada yalnızca çizilir.
 interface PivotLevels {
@@ -149,9 +150,9 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
                 createInputsTab([
                     {
                         rows: [
-                            checkboxRow('showDailyPivots', 'Günlük', this._pivotOptions.showDailyPivots),
-                            checkboxRow('showWeeklyPivots', 'Haftalık', this._pivotOptions.showWeeklyPivots),
-                            checkboxRow('showMonthlyPivots', 'Aylık', this._pivotOptions.showMonthlyPivots),
+                            checkboxRow('showDailyPivots', 'Daily', this._pivotOptions.showDailyPivots),
+                            checkboxRow('showWeeklyPivots', 'Weekly', this._pivotOptions.showWeeklyPivots),
+                            checkboxRow('showMonthlyPivots', 'Monthly', this._pivotOptions.showMonthlyPivots),
                         ],
                     },
                 ]),
@@ -336,7 +337,7 @@ export class DeMarkPivotIndicator extends OverlayIndicator {
         const timeframe = this.pivotTimeframes[0];
         const value = timeframe ? this._data[dataIndex]?.values?.[this._pivotValueIndex(timeframe, 3)] ?? NaN : NaN;
         const labels = this.pivotTimeframes.map(getTimeframeLabel).join('/');
-        return `GainMetrics ${labels || 'Kapalı'} ${Number.isFinite(value) ? value.toFixed(2) : '-'}`;
+        return `GainMetrics ${labels || t('Off')} ${Number.isFinite(value) ? value.toFixed(2) : '-'}`;
     }
 
     getPivotSummaryRows(): DeMarkPivotSummaryRow[] {
@@ -586,7 +587,7 @@ function getIndicatorName(): string {
 }
 
 function getTimeframeLabel(timeframe: PivotTimeframe): string {
-    return timeframe === 'D' ? 'Günlük' : timeframe === 'W' ? 'Haftalık' : 'Aylık';
+    return timeframe === 'D' ? t('Daily') : timeframe === 'W' ? t('Weekly') : t('Monthly');
 }
 
 function getPeriodKey(time: number, timeframe: PivotTimeframe): string {

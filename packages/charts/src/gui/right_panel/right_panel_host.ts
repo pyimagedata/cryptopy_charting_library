@@ -7,6 +7,7 @@
  * The host only owns geometry + the view switch; what a view shows is up to its owner (clean root element per view).
  */
 
+import { bindLangAttr } from '../../helpers/lang-attr';
 import { applyRpTokens, ensureRpStyles } from './rp_tokens';
 
 export const RIGHT_PANEL_WIDTH_KEY = 'chart.rightPanel.width';
@@ -64,6 +65,7 @@ export class RightPanelHost {
         ensureRpStyles();
         const el = document.createElement('div');
         el.className = 'tv-right-panel-container rp-root';
+        bindLangAttr(el);
         el.dataset.closed = '1';
         el.style.cssText = 'position:absolute;top:0;right:0;bottom:0;display:flex;flex-direction:column;'
             + 'z-index:30;box-sizing:border-box;visibility:hidden;pointer-events:none;';

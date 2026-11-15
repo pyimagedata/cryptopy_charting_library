@@ -1,4 +1,5 @@
 import type { PriceMark } from '../model/price-scale';
+import { formatPrice } from '../helpers/format';
 import { PriceScaleMode } from '../model/price-scale';
 import type { TimeScale as ETimeScale } from '../model/time-scale';
 import type { PriceScale as EPriceScale } from '../model/price-scale';
@@ -1188,7 +1189,7 @@ export class PaneWidget implements Disposable {
 
             if (bar && 'open' in bar) {
                 const legendDecimals = this._model.rightPriceScale.precision() ?? 2;
-                const format = (v: number) => v.toLocaleString(undefined, { minimumFractionDigits: legendDecimals, maximumFractionDigits: legendDecimals });
+                const format = (v: number) => formatPrice(v, legendDecimals);
                 const formatVol = (v: number) => {
                     if (v >= 1000000) return (v / 1000000).toFixed(2) + 'M';
                     if (v >= 1000) return (v / 1000).toFixed(2) + 'K';

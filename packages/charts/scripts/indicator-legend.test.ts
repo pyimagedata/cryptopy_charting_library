@@ -24,7 +24,7 @@ class FakeEl {
     getBoundingClientRect(): any { return {}; }
 }
 (globalThis as any).document = {
-    getElementById: () => ({}),
+    getElementById: () => null,
     createElement: (tag: string) => new FakeEl(tag),
     head: new FakeEl('head'),
 };
@@ -42,6 +42,10 @@ list.update([ind], 0, 'dark');
 const row = list.element.children[0];
 const btns = row.children.find((c) => c.className === 'tvl-btns')!;
 const values = row.children.find((c) => c.className === 'tvl-values')!;
+// CSS contract (fake DOM has no layout): idle = no space, hover / focus / open menu = shown
+const css: string = (globalThis as any).document.head.children.map((c: any) => c.textContent).join('');
+assert.match(css, /\.tvl-btns \{ display: none;/, 'buttons take no space when idle');
+assert.match(css, /\.tvl-row:hover \.tvl-btns[^{]*\{ display: inline-flex; \}/, 'hover shows the buttons');
 const order = row.children.map((c) => c.className);
 assert.ok(order.indexOf('tvl-btns') < order.indexOf('tvl-values'), 'buttons must precede the values');
 for (const n of [0, 2, 0, 1, 3, 0]) {

@@ -3,6 +3,7 @@
  * filtresi, ok tuslari + Enter ile ekleme (pencere acik kalir), Esc ile kapanma.
  */
 
+import { t, getCurrentLanguage, onLanguageChange } from '../../helpers/translations';
 import { displaySymbol, displayExchange } from '../../helpers/display-aliases';
 import { WL_COLORS, WatchlistTheme } from './watchlist_theme';
 import { applyRpTokens, ensureRpStyles, rpEmptyState, RP_SEARCH_SVG, RP_FONT, RP_FONT_MONO } from '../right_panel/rp_tokens';
@@ -29,7 +30,23 @@ export function filterRows(rows: WatchlistRow[], query: string): WatchlistRow[] 
     return out;
 }
 
+/** Localized asset-class tag (crypto, forex, energy, index ...); unknown classes are shown as-is. */
+export function assetClassLabel(ac: string | undefined): string {
+    const raw = ac ?? '';
+    switch (raw.toLowerCase()) {
+        case 'crypto': return t('Crypto');
+        case 'forex': case 'fx': return t('Forex');
+        case 'energy': return t('Energy');
+        case 'index': case 'indices': return t('Index');
+        case 'metal': return t('Metal');
+        case 'stock': case 'stocks': case 'equity': return t('Stock');
+        case 'commodity': case 'commodities': return t('Commodity');
+        default: return raw;
+    }
+}
+
 export class WatchlistSearch {
+    private _unLang: (() => void) | null = null;
     private readonly _backdrop: HTMLElement;
     private readonly _input: HTMLInputElement;
     private readonly _results: HTMLElement;
@@ -48,10 +65,11 @@ export class WatchlistSearch {
         dlg.style.cssText = `width:520px;max-width:94%;max-height:70%;display:flex;flex-direction:column;background:${c.menu};color:${c.text};border:1px solid ${c.border};border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.35);font-family:${RP_FONT};font-size:13px;overflow:hidden;`;
         const head = document.createElement('div');
         head.style.cssText = `padding:16px 18px 10px;font-size:16px;font-weight:500;letter-spacing:-0.01em;`;
-        head.textContent = 'Sembol ekle';
+        head.textContent = t('Add symbol');
+        bd.lang = getCurrentLanguage();
         const input = document.createElement('input');
         input.className = 'wl-search-input';
-        input.placeholder = 'Sembol, ad veya borsa ara';
+        input.placeholder = t('Search by symbol, name or exchange');
         const inputWrap = document.createElement('div');
         inputWrap.className = 'rp-search';
         inputWrap.style.margin = '0 14px 10px';
@@ -80,6 +98,12 @@ export class WatchlistSearch {
         input.addEventListener('keydown', (e) => this._onKey(e));
         this.refresh();
         input.focus();
+        this._unLang = onLanguageChange((lang) => {
+            bd.lang = lang;
+            head.textContent = t('Add symbol');
+            input.placeholder = t('Search by symbol, name or exchange');
+            this.refresh();
+        });
     }
 
     /** Sonuclari yeniden cizer (ekleme sonrasi "eklendi" isaretleri icin de cagrilir). */
@@ -89,7 +113,7 @@ export class WatchlistSearch {
         this._index = Math.min(this._index, Math.max(0, this._filtered.length - 1));
         this._results.replaceChildren();
         if (this._filtered.length === 0) {
-            this._results.appendChild(rpEmptyState(RP_SEARCH_SVG, this._deps.getRows().length ? 'Sonuç bulunamadı' : 'Yükleniyor…'));
+            this._results.appendChild(rpEmptyState(RP_SEARCH_SVG, this._deps.getRows().length ? t('No results found') : t('Loading…')));
             return;
         }
         this._filtered.forEach((row, i) => {
@@ -107,7 +131,7 @@ export class WatchlistSearch {
             el.append(
                 cell(displaySymbol(row.code), 'font-size:14px;font-weight:500;letter-spacing:-0.005em;min-width:90px;'),
                 cell(row.display_name ?? '', `flex:1;color:${c.muted};font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`),
-                cell(row.asset_class ?? '', `color:${c.muted};font-family:${RP_FONT_MONO};font-size:11px;font-weight:400;`),
+                cell(assetClassLabel(row.asset_class), `color:${c.muted};font-family:${RP_FONT_MONO};font-size:11px;font-weight:400;`),
                 cell(displayExchange(row.exchange), `color:${c.muted};font-family:${RP_FONT_MONO};font-size:11px;font-weight:400;min-width:64px;text-align:right;`),
                 cell(added ? '✓' : '', `width:16px;color:${c.up};`),
             );
@@ -167,6 +191,8 @@ export class WatchlistSearch {
 
     close(): void {
         if (!this._backdrop.isConnected) return;
+        this._unLang?.();
+        this._unLang = null;
         this._backdrop.remove();
         this._deps.onClose();
     }

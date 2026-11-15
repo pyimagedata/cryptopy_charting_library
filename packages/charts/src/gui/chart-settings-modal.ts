@@ -1,6 +1,7 @@
 import { CandlestickSeriesOptions } from '../model/candlestick-series';
 import { HeikenAshiSeriesOptions } from '../series/heiken-ashi-series';
 import { ThemeType } from '../helpers/themes';
+import { t, onLanguageChange } from '../helpers/translations';
 import { getAlertSettings, setAlertSetting, AlertSettingKey } from '../alerts/alert-settings';
 import { CanvasChartApi, CanvasSnapshot, buildCanvasTab, restoreCanvas, snapshotCanvas } from './chart_settings/canvas-tab';
 
@@ -26,13 +27,13 @@ interface SidebarTab {
 }
 
 const SIDEBAR_TABS: SidebarTab[] = [
-    { id: 'symbol', label: 'Sembol', icon: '◫' },
-    { id: 'status-line', label: 'Durum satırı', icon: '≣' },
-    { id: 'scales', label: 'Ölçekler ve çizgiler', icon: '↕' },
-    { id: 'canvas', label: 'Tuval', icon: '✎' },
-    { id: 'trading', label: 'İşlem', icon: '≈' },
-    { id: 'alerts', label: 'Alarmlar', icon: '◷' },
-    { id: 'events', label: 'Etkinlikler', icon: '◫' },
+    { id: 'symbol', label: 'Symbol', icon: '◫' },
+    { id: 'status-line', label: 'Status line', icon: '≣' },
+    { id: 'scales', label: 'Scales and lines', icon: '↕' },
+    { id: 'canvas', label: 'Canvas', icon: '✎' },
+    { id: 'trading', label: 'Trading', icon: '≈' },
+    { id: 'alerts', label: 'Alerts', icon: '◷' },
+    { id: 'events', label: 'Events', icon: '◫' },
 ];
 
 export class ChartSettingsModal {
@@ -43,12 +44,14 @@ export class ChartSettingsModal {
     private readonly _footer: HTMLDivElement;
     private readonly _title: HTMLDivElement;
     private readonly _tabButtons = new Map<SettingsTabId, HTMLButtonElement>();
+    private readonly _tabLabels = new Map<SettingsTabId, HTMLElement>();
     private readonly _templateSelect: HTMLSelectElement;
     private readonly _cancelButton: HTMLButtonElement;
     private readonly _okButton: HTMLButtonElement;
     private _theme: ThemeType = 'dark';
     private _activeTab: SettingsTabId = 'symbol';
     private _renderContent: (() => void) | null = null;
+    private _unsubLang: (() => void) | null = null;
     private _pendingApply: (() => void) | null = null;
     private _chart: CanvasChartApi | null = null;
     private _canvasSnapshot: CanvasSnapshot | null = null;
@@ -91,7 +94,7 @@ export class ChartSettingsModal {
         `;
 
         this._title = document.createElement('div');
-        this._title.textContent = 'Ayarlar';
+        this._title.textContent = t('Settings');
         this._title.style.cssText = `
             font-size: 22px;
             font-weight: 650;
@@ -156,7 +159,8 @@ export class ChartSettingsModal {
             `;
 
             const label = document.createElement('span');
-            label.textContent = tab.label;
+            label.textContent = t(tab.label);
+            this._tabLabels.set(tab.id, label);
             label.style.cssText = `
                 font-size: 15px;
                 font-weight: 500;
@@ -194,9 +198,7 @@ export class ChartSettingsModal {
 
         this._templateSelect = document.createElement('select');
         this._templateSelect.style.cssText = this._selectStyle();
-        this._templateSelect.innerHTML = `
-            <option>Şablon</option>
-        `;
+        this._templateSelect.appendChild(document.createElement('option')).textContent = t('Template');
 
         const footerActions = document.createElement('div');
         footerActions.style.cssText = `
@@ -207,13 +209,13 @@ export class ChartSettingsModal {
 
         this._cancelButton = document.createElement('button');
         this._cancelButton.type = 'button';
-        this._cancelButton.textContent = 'İptal';
+        this._cancelButton.textContent = t('Cancel');
         this._cancelButton.style.cssText = this._actionButtonStyle(false);
         this._cancelButton.addEventListener('click', () => this.hide());
 
         this._okButton = document.createElement('button');
         this._okButton.type = 'button';
-        this._okButton.textContent = 'Tamam';
+        this._okButton.textContent = t('Ok');
         this._okButton.style.cssText = this._actionButtonStyle(true);
         this._okButton.addEventListener('click', () => {
             this._pendingApply?.();
@@ -241,6 +243,23 @@ export class ChartSettingsModal {
 
         this.setTheme('dark');
         this._updateSidebarState();
+        // Language switch while open: refresh static labels and re-render the active tab (draft values are kept)
+        this._unsubLang = onLanguageChange(() => {
+            this._applyLabels();
+            if (this._overlay.style.display !== 'none') this._renderContent?.();
+        });
+    }
+
+    private _applyLabels(): void {
+        this._title.textContent = t('Settings');
+        for (const tab of SIDEBAR_TABS) {
+            const el = this._tabLabels.get(tab.id);
+            if (el) el.textContent = t(tab.label);
+        }
+        const opt = this._templateSelect.options[0];
+        if (opt) opt.textContent = t('Template');
+        this._cancelButton.textContent = t('Cancel');
+        this._okButton.textContent = t('Ok');
     }
 
     setTheme(theme: ThemeType): void {
@@ -289,26 +308,26 @@ export class ChartSettingsModal {
             }
 
             this._content.innerHTML = '';
-            this._content.appendChild(this._createSectionTitle('MUMLAR'));
-            this._content.appendChild(this._createBodyRow('Gövde', true, draft.upColor, draft.downColor, (up, down) => {
+            this._content.appendChild(this._createSectionTitle(t('CANDLES')));
+            this._content.appendChild(this._createBodyRow(t('Body'), true, draft.upColor, draft.downColor, (up, down) => {
                 draft.upColor = up;
                 draft.downColor = down;
             }));
-            this._content.appendChild(this._createBodyRow('Kenarlık', draft.borderVisible, draft.borderUpColor, draft.borderDownColor, (up, down) => {
+            this._content.appendChild(this._createBodyRow(t('Borders'), draft.borderVisible, draft.borderUpColor, draft.borderDownColor, (up, down) => {
                 draft.borderUpColor = up;
                 draft.borderDownColor = down;
             }, (visible) => {
                 draft.borderVisible = visible;
             }));
-            this._content.appendChild(this._createBodyRow('Fitil', draft.wickVisible, draft.wickUpColor, draft.wickDownColor, (up, down) => {
+            this._content.appendChild(this._createBodyRow(t('Wick'), draft.wickVisible, draft.wickUpColor, draft.wickDownColor, (up, down) => {
                 draft.wickUpColor = up;
                 draft.wickDownColor = down;
             }, (visible) => {
                 draft.wickVisible = visible;
             }));
-            this._content.appendChild(this._createSectionTitle('VERİ'));
-            this._content.appendChild(this._createSelectRow('Hassasiyet', ['Varsayılan'], 'Varsayılan'));
-            this._content.appendChild(this._createSelectRow('Saat dilimi', ['(UTC+3) İstanbul'], '(UTC+3) İstanbul'));
+            this._content.appendChild(this._createSectionTitle(t('DATA')));
+            this._content.appendChild(this._createSelectRow(t('Precision'), [t('Default')], t('Default')));
+            this._content.appendChild(this._createSelectRow(t('Time zone'), ['(UTC+3) ' + t('Istanbul')], '(UTC+3) ' + t('Istanbul')));
         };
 
         this._updateSidebarState();
@@ -330,26 +349,26 @@ export class ChartSettingsModal {
             }
 
             this._content.innerHTML = '';
-            this._content.appendChild(this._createSectionTitle('HEIKEN ASHI'));
-            this._content.appendChild(this._createBodyRow('Gövde', true, draft.upColor, draft.downColor, (up, down) => {
+            this._content.appendChild(this._createSectionTitle(t('HEIKEN ASHI')));
+            this._content.appendChild(this._createBodyRow(t('Body'), true, draft.upColor, draft.downColor, (up, down) => {
                 draft.upColor = up;
                 draft.downColor = down;
             }));
-            this._content.appendChild(this._createBodyRow('Kenarlık', draft.borderVisible, draft.upColor, draft.downColor, (up, down) => {
+            this._content.appendChild(this._createBodyRow(t('Borders'), draft.borderVisible, draft.upColor, draft.downColor, (up, down) => {
                 draft.upColor = up;
                 draft.downColor = down;
             }, (visible) => {
                 draft.borderVisible = visible;
             }));
-            this._content.appendChild(this._createBodyRow('Fitil', draft.wickVisible, draft.upColor, draft.downColor, (up, down) => {
+            this._content.appendChild(this._createBodyRow(t('Wick'), draft.wickVisible, draft.upColor, draft.downColor, (up, down) => {
                 draft.upColor = up;
                 draft.downColor = down;
             }, (visible) => {
                 draft.wickVisible = visible;
             }));
-            this._content.appendChild(this._createSectionTitle('VERİ'));
-            this._content.appendChild(this._createSelectRow('Hassasiyet', ['Varsayılan'], 'Varsayılan'));
-            this._content.appendChild(this._createSelectRow('Saat dilimi', ['(UTC+3) İstanbul'], '(UTC+3) İstanbul'));
+            this._content.appendChild(this._createSectionTitle(t('DATA')));
+            this._content.appendChild(this._createSelectRow(t('Precision'), [t('Default')], t('Default')));
+            this._content.appendChild(this._createSelectRow(t('Time zone'), ['(UTC+3) ' + t('Istanbul')], '(UTC+3) ' + t('Istanbul')));
         };
 
         this._updateSidebarState();
@@ -364,7 +383,7 @@ export class ChartSettingsModal {
             if (this._renderCanvas() || this._renderAlerts()) return;
             this._content.innerHTML = '';
             const empty = document.createElement('div');
-            empty.textContent = message;
+            empty.textContent = t(message); // message is an English key (re-translated on language change)
             empty.style.cssText = `
                 font-size: 15px;
                 line-height: 1.6;
@@ -392,6 +411,8 @@ export class ChartSettingsModal {
     }
 
     dispose(): void {
+        this._unsubLang?.();
+        this._unsubLang = null;
         this._overlay.remove();
     }
 
@@ -412,12 +433,12 @@ export class ChartSettingsModal {
     private _renderAlerts(): boolean {
         if (this._activeTab !== 'alerts') return false;
         this._content.innerHTML = '';
-        this._content.appendChild(this._createSectionTitle('ALARMLAR'));
+        this._content.appendChild(this._createSectionTitle(t('ALERTS')));
         const rows: Array<[AlertSettingKey, string]> = [
-            ['lines', 'Alarm çizgilerini göster'],
-            ['axisLabels', 'Fiyat ekseninde alarm etiketlerini göster'],
-            ['toast', 'Alarm açılır penceresini göster'],
-            ['sound', 'Alarm sesini çal'],
+            ['lines', t('Show alert lines')],
+            ['axisLabels', t('Show alert labels on the price axis')],
+            ['toast', t('Show alert pop-up')],
+            ['sound', t('Play alert sound')],
         ];
         for (const [key, text] of rows) {
             const row = document.createElement('label');
@@ -429,7 +450,7 @@ export class ChartSettingsModal {
             box.style.cssText = 'width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: #2962ff;';
             box.addEventListener('change', () => setAlertSetting(key, box.checked));
             const span = document.createElement('span');
-            span.textContent = text;
+            span.textContent = t(text);
             row.appendChild(box);
             row.appendChild(span);
             this._content.appendChild(row);
@@ -441,7 +462,7 @@ export class ChartSettingsModal {
         if (this._renderCanvas() || this._renderAlerts()) return;
         this._content.innerHTML = '';
         const title = document.createElement('div');
-        title.textContent = this._activeTab === 'symbol' ? 'SEMBOL' : 'YAKINDA';
+        title.textContent = this._activeTab === 'symbol' ? t('SYMBOL') : t('COMING SOON');
         title.style.cssText = `
             font-size: 13px;
             font-weight: 600;
@@ -451,7 +472,7 @@ export class ChartSettingsModal {
         `;
 
         const text = document.createElement('div');
-        text.textContent = 'Bu bolum henuz bagli degil. Ilk asamada mum gorunumu ayarlari aktif.';
+        text.textContent = t('This section is not connected yet. For now, only the candle appearance settings are active.');
         text.style.cssText = `
             font-size: 15px;
             line-height: 1.7;

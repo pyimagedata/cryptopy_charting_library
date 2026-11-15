@@ -35,6 +35,11 @@ export const TVS_CSS = `
 .tvs-row > label, .tvs-row .tvs-label { color: var(--tvs-text); font-size: ${S.fontSize}px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tvs-row.tvs-row-wide { grid-template-columns: minmax(0, 1fr); }
 .tvs-row.tvs-row-wide > .tvs-label { margin-bottom: 6px; }
+.tvs-row.tvs-row-style { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+.tvs-row-style .tvs-check { min-width: 0; }
+.tvs-row-style .tvs-check > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tvs-row-style .tvs-controls { justify-content: flex-end; }
+.tvs-select.tvs-plotstyle { width: 118px; padding: 0 8px; }
 .tvs-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .tvs-input { height: ${S.controlHeight}px; border: 1px solid var(--tvs-input-border); border-radius: ${S.controlRadius}px; background: var(--tvs-input-bg);
     color: var(--tvs-text); font: inherit; padding: 0 12px; font-size: ${S.fontSize}px; outline: none; }

@@ -1,3 +1,4 @@
+import { t } from '../../helpers/translations';
 /**
  * Izleme listesi modeli (DOM'suz): birden fazla liste, bolumler, bayraklar ve
  * localStorage kaliciligi. Panel sadece bu modeli cizer; node'da test edilebilir.
@@ -45,16 +46,23 @@ export const DETAILS_DEFAULT = 190;
 const DETAILS_LEGACY_DEFAULT = 340;
 export const GROUPS_STORAGE = 'chart.watchlist.groups';
 export const FLAGGED_PREFIX = 'flag:';
-export const DEFAULT_LIST_NAME = 'İzleme Listesi';
+export const DEFAULT_LIST_NAME = 'Watchlist';
+/** Default name stored by older versions (Turkish, written as an escape to keep the source free of Turkish literals). */
+const LEGACY_DEFAULT_LIST_NAMES = ['\u0130zleme Listesi'];
+
+/** Name shown for a list: the default name follows the UI language, user-chosen names stay as typed. */
+export function displayListName(name: string): string {
+    return name === DEFAULT_LIST_NAME || LEGACY_DEFAULT_LIST_NAMES.includes(name) ? t('Watchlist') : name;
+}
 
 export const FLAG_COLORS: { id: string; label: string; hex: string }[] = [
-    { id: 'red', label: 'Kırmızı', hex: '#f23645' },
-    { id: 'blue', label: 'Mavi', hex: '#2962ff' },
-    { id: 'green', label: 'Yeşil', hex: '#089981' },
-    { id: 'orange', label: 'Turuncu', hex: '#ff9800' },
-    { id: 'purple', label: 'Mor', hex: '#9c27b0' },
-    { id: 'cyan', label: 'Camgöbeği', hex: '#00bcd4' },
-    { id: 'pink', label: 'Pembe', hex: '#e91e63' },
+    { id: 'red', label: 'Red', hex: '#f23645' },
+    { id: 'blue', label: 'Blue', hex: '#2962ff' },
+    { id: 'green', label: 'Green', hex: '#089981' },
+    { id: 'orange', label: 'Orange', hex: '#ff9800' },
+    { id: 'purple', label: 'Purple', hex: '#9c27b0' },
+    { id: 'cyan', label: 'Cyan', hex: '#00bcd4' },
+    { id: 'pink', label: 'Pink', hex: '#e91e63' },
 ];
 
 export function flagHex(color: string): string {
@@ -229,7 +237,7 @@ export class WatchlistModel {
     get activeName(): string {
         if (this.readOnly) {
             const c = FLAG_COLORS.find((f) => f.id === this._activeId.slice(FLAGGED_PREFIX.length));
-            return `Bayrak: ${c?.label ?? ''}`;
+            return `${t('Flag')}: ${c ? t(c.label) : ''}`;
         }
         return this._real().name;
     }
@@ -280,7 +288,7 @@ export class WatchlistModel {
         if (!l) return null;
         const copy: WatchlistData = {
             id: uid('l'),
-            name: `${l.name} (kopya)`,
+            name: `${displayListName(l.name)} (${t('copy')})`,
             items: l.items.map((it) => (it.type === 'section' ? { ...it, id: uid('c') } : { ...it })),
         };
         this._lists.splice(this._lists.indexOf(l) + 1, 0, copy);

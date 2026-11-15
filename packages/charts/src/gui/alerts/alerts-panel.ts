@@ -4,8 +4,9 @@
  * Data comes from the page-level alertsStore; the panel only needs the ACTIVE chart (via `getChart`) for price
  * formatting, the create / edit dialogs and symbol switching, so it works the same in single and multi-chart mode.
  */
+import { formatDate } from '../../helpers/format';
 import { Delegate } from '../../helpers/delegate';
-import { t } from '../../helpers/translations';
+import { t, onLanguageChange } from '../../helpers/translations';
 import { alertsStore, AlertsStoreEvent } from '../../alerts/alerts-store';
 import { alertErrorText, alertMatchesSymbol, alertTicker, conditionLabel, indicatorAlertSummary, exactPrice, isMovingCondition, movingSummary, scriptAlertSummary, triggerLabel, DEFAULT_ALERT_INTERVAL } from '../../alerts/alert-text';
 import { AlertsError } from '../../alerts/types';
@@ -189,6 +190,7 @@ export class AlertsPanel {
     private _renderQueued = false;
     private _selfRefresh = false;
     private _destroyed = false;
+    private _unsubLang: (() => void) | null = null;
 
     constructor(parent: HTMLElement, top: number, getChart: () => AlertsPanelChart | null) {
         this._parent = parent;
@@ -205,6 +207,7 @@ export class AlertsPanel {
         ensureRpStyles();
         parent.appendChild(this._el);
         this._unsubStore = alertsStore.onChange((ev) => this._onStore(ev));
+        this._unsubLang = onLanguageChange(() => { if (!this._destroyed) this._render(); });
         this._render();
     }
 
@@ -269,6 +272,8 @@ export class AlertsPanel {
         this._destroyed = true;
         this._unsubStore?.();
         this._unsubStore = null;
+        this._unsubLang?.();
+        this._unsubLang = null;
         if (this._tick) clearInterval(this._tick);
         this._tick = null;
         this._ctx?.dispose();
@@ -719,7 +724,7 @@ export class AlertsPanel {
         const stamp = st === 'triggered' && a.triggeredAt ? a.triggeredAt : a.createdAt;
         if (st === 'triggered' && a.triggeredAt) parts.push(relativeTime(a.triggeredAt, now));
         const line2 = h('div', '', parts.join(' · '), 'al-line2 al-cond');
-        line2.title = new Date(stamp).toLocaleString();
+        line2.title = formatDate(stamp, { time: true });
         el.appendChild(line2);
         const sub = a.name || a.message;
         if (sub) el.appendChild(h('div', '', sub, 'al-sub'));
