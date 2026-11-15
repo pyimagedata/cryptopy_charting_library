@@ -15,7 +15,7 @@ import {
     createSliderInput,
     createSelectInput
 } from '../components';
-import { t } from '../../../helpers/translations';
+import { t, getCurrentLanguage } from '../../../helpers/translations';
 
 export interface SectionContext {
     getValue: (key: string) => any;
@@ -217,7 +217,28 @@ function wallToMs(v: string, tz: string): number | null {
     } catch { return wall; }
 }
 
-const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // TradingView digits 1..7 = Sunday..Saturday
+const DAY_NAMES_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_CHEVRON = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5 5 6.5 8 3.5"/></svg>`;
+
+/** Localised weekday name; digit 1..7 = Sunday..Saturday (TradingView session days) */
+function dayName(n: number, width: 'short' | 'narrow' | 'long'): string {
+    try {
+        // 2024-01-07 is a Sunday
+        return new Intl.DateTimeFormat(getCurrentLanguage(), { weekday: width, timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, 6 + n)));
+    } catch {
+        const full = DAY_NAMES_EN[n - 1];
+        return width === 'long' ? full : width === 'short' ? full.slice(0, 3) : full[0];
+    }
+}
+
+/** "Every day" / "Weekdays" / "Weekends" / "Mon, Tue, ..." (Monday first) */
+function daysSummary(days: Set<number>): string {
+    if (days.size >= 7) return t('Every day');
+    const is = (list: number[]) => days.size === list.length && list.every((d) => days.has(d));
+    if (is([2, 3, 4, 5, 6])) return t('Weekdays');
+    if (is([1, 7])) return t('Weekends');
+    return [2, 3, 4, 5, 6, 7, 1].filter((d) => days.has(d)).map((d) => dayName(d, 'short')).join(', ');
+}
 
 function sessionControl(value: string, onChange: (v: string) => void): HTMLElement {
     const m = /^(\d{2})(\d{2})-(\d{2})(\d{2})(?::(\d+))?$/.exec(value.trim());
@@ -244,25 +265,46 @@ function sessionControl(value: string, onChange: (v: string) => void): HTMLEleme
         return i;
     };
     const dash = document.createElement('span');
+    dash.className = 'tvs-session-dash';
     dash.textContent = '\u2013';
     times.append(mk('start'), dash, mk('end'));
+
+    // Compact summary line; click expands the day chips (value semantics unchanged)
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'tvs-days-toggle';
+    toggle.setAttribute('aria-expanded', 'false');
+    const summary = document.createElement('span');
+    toggle.append(summary);
+    toggle.insertAdjacentHTML('beforeend', DAY_CHEVRON);
+
     const days = document.createElement('div');
     days.className = 'tvs-days';
-    WEEKDAYS.forEach((label, k) => {
-        const n = k + 1;
+    const refresh = () => { summary.textContent = daysSummary(state.days); toggle.title = summary.textContent; };
+    refresh();
+    toggle.addEventListener('click', () => {
+        const open = !days.classList.contains('tvs-open');
+        days.classList.toggle('tvs-open', open);
+        toggle.setAttribute('aria-expanded', String(open));
+    });
+    // Monday first for display; digits keep the Sunday = 1 meaning
+    [2, 3, 4, 5, 6, 7, 1].forEach((n) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'tvs-day' + (state.days.has(n) ? ' on' : '');
-        b.textContent = label;
-        b.title = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][k];
+        b.textContent = dayName(n, 'narrow');
+        b.title = dayName(n, 'long');
+        b.setAttribute('aria-pressed', String(state.days.has(n)));
         b.addEventListener('click', () => {
             if (state.days.has(n)) { if (state.days.size > 1) state.days.delete(n); } else state.days.add(n);
             b.classList.toggle('on', state.days.has(n));
+            b.setAttribute('aria-pressed', String(state.days.has(n)));
+            refresh();
             emit();
         });
         days.appendChild(b);
     });
-    wrap.append(times, days);
+    wrap.append(times, toggle, days);
     return wrap;
 }
 
@@ -287,6 +329,7 @@ function renderRow(row: AnyRow, context: SectionContext): HTMLElement {
         }
 
         case 'checkbox': {
+            rowEl.classList.add('tvs-row-wide');
             rowEl.appendChild(createCheckbox(
                 row.label ? (row.raw ? row.label : t(row.label)) : '',
                 (currentValue as boolean) ?? row.defaultValue ?? false,
@@ -329,6 +372,7 @@ function renderRow(row: AnyRow, context: SectionContext): HTMLElement {
         }
 
         case 'textarea': {
+            rowEl.classList.add('tvs-row-wide');
             if (row.label) rowEl.appendChild(labelEl(row.label as string, row.raw === true));
             const ta = document.createElement('textarea');
             ta.className = 'tvs-input tvs-textarea';

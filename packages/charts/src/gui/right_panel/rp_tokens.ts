@@ -25,6 +25,7 @@ export function applyRpTokens(el: HTMLElement, theme: RpTheme): void {
     el.style.setProperty('--rp-r-md', '10px');
     el.style.setProperty('--rp-r-sm', '8px');
     el.dataset.theme = theme === 'light' ? 'light' : 'dark';
+    el.style.colorScheme = theme === 'light' ? 'light' : 'dark';
 }
 
 /** Token reference with a dark fallback, e.g. `v('muted')` -> `var(--rp-muted,#787b86)`. */

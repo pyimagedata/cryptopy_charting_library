@@ -55,8 +55,8 @@ function ensureStyles(): void {
         .tvl-values { display: inline-flex; align-items: center; gap: ${m.gap}px; }
         .tvl-hidden .tvl-title { opacity: ${m.dimmedOpacity}; }
         .tvl-hidden .tvl-values { display: none; }
-        .tvl-btns { display: none; align-items: center; margin-right: -2px; }
-        .tvl-row:hover .tvl-btns, .tvl-row.tvl-menu-open .tvl-btns { display: inline-flex; }
+        .tvl-btns { display: inline-flex; visibility: hidden; align-items: center; flex: none; margin-right: -2px; }
+        .tvl-row:hover .tvl-btns, .tvl-row.tvl-menu-open .tvl-btns { visibility: visible; }
         .tvl-btn { width: ${m.buttonSize}px; height: ${m.buttonSize}px; padding: 0; border: 0; border-radius: ${m.radius}px; background: none; color: var(--tvl-muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
         .tvl-btn:hover { background: var(--tvl-hover); color: var(--tvl-text); }
         .tvl-toggle { color: var(--tvl-muted); }
@@ -67,6 +67,8 @@ function ensureStyles(): void {
 
 interface RowRef {
     indicator: Indicator;
+    /** Container of the value spans; spans are added / removed in place (never rebuild the row for them) */
+    valuesEl: HTMLElement;
     valueEls: HTMLElement[];
     lastText: string[];
     lastColor: string[];
@@ -126,7 +128,7 @@ export class IndicatorLegendList {
 
         const signature = [
             theme, collapsed ? 'c' : 'e', toggleShown ? 't' : '-',
-            ...indicators.map((ind, i) => `${ind.id}|${ind.visible ? 1 : 0}|${ind.hiddenByInterval ? 1 : 0}|${infos[i].title}|${infos[i].params.join(' ')}|${infos[i].plots.length}|${infos[i].error ?? ''}|${infos[i].busy ? 1 : 0}|${infos[i].alert ?? ''}`),
+            ...indicators.map((ind, i) => `${ind.id}|${ind.visible ? 1 : 0}|${ind.hiddenByInterval ? 1 : 0}|${infos[i].title}|${infos[i].params.join(' ')}|${infos[i].error ?? ''}|${infos[i].busy ? 1 : 0}|${infos[i].alert ?? ''}`),
         ].join('\n');
 
         if (signature !== this._signature) {
@@ -139,6 +141,19 @@ export class IndicatorLegendList {
             const row = this._rows[i];
             const info = infos[i];
             if (!info) continue;
+            // The number of values follows the crosshair bar (na values are hidden), so it must not
+            // rebuild the row: a rebuild destroys the hovered buttons and flickers / eats clicks.
+            while (row.valueEls.length < info.plots.length) {
+                const v = document.createElement('span');
+                v.className = 'tvl-value';
+                row.valuesEl.appendChild(v);
+                row.valueEls.push(v);
+            }
+            while (row.valueEls.length > info.plots.length) {
+                row.valueEls.pop()!.remove();
+                row.lastText.length = Math.min(row.lastText.length, row.valueEls.length);
+                row.lastColor.length = Math.min(row.lastColor.length, row.valueEls.length);
+            }
             for (let j = 0; j < row.valueEls.length; j++) {
                 const plot = info.plots[j];
                 if (!plot) continue;
@@ -256,7 +271,8 @@ export class IndicatorLegendList {
             valueEls.push(v);
             values.appendChild(v);
         }
-        row.appendChild(values);
+        // Buttons come BEFORE the values: the values text changes width with the crosshair bar, and the
+        // buttons (space always reserved, only visibility toggles) must never move under the pointer.
 
         const btns = document.createElement('span');
         btns.className = 'tvl-btns';
@@ -282,6 +298,7 @@ export class IndicatorLegendList {
         mk('remove', LEGEND_ICONS.remove, t('Remove'));
         mk('more', LEGEND_ICONS.more, t('More'));
         row.appendChild(btns);
+        row.appendChild(values);
 
         row.addEventListener('dblclick', (e) => {
             e.stopPropagation();
@@ -296,6 +313,6 @@ export class IndicatorLegendList {
         row.addEventListener('mousedown', (e) => e.stopPropagation());
 
         this.element.appendChild(row);
-        return { indicator: ind, valueEls, lastText: [], lastColor: [] };
+        return { indicator: ind, valuesEl: values, valueEls, lastText: [], lastColor: [] };
     }
 }

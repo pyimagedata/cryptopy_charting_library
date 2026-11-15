@@ -98,6 +98,7 @@ export class IndicatorSettingsModal {
     private _applyTheme(): void {
         if (!this._overlay || !this._element) return;
         for (const [k, v] of Object.entries(themeCssVars(this._theme))) this._element.style.setProperty(k, v);
+        this._element.style.colorScheme = this._theme;
         this._element.style.background = 'var(--tvs-bg)';
         this._element.style.borderColor = 'var(--tvs-border)';
         this._element.style.boxShadow = 'var(--shadow)';

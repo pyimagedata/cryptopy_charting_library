@@ -1143,6 +1143,11 @@ export class PaneWidget implements Disposable {
 
     private _currentTheme: 'dark' | 'light' = 'dark';
 
+    /** Re-sync the legend rows without a canvas render (legend actions, so rows never depend on a draw succeeding) */
+    refreshLegend(): void {
+        try { this._updateLegend(); } catch { /* the next render retries */ }
+    }
+
     private _updateLegend(): void {
         if (!this._legendElement) return;
 

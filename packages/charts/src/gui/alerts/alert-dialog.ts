@@ -241,6 +241,8 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     };
     const inputCss = `box-sizing: border-box; width: 100%; height: 36px; padding: 0 10px; font: 14px ${FONT}; color: ${p.text};
         background: ${p.inputBg}; border: 1px solid ${p.inputBorder}; border-radius: 4px; outline: none; color-scheme: ${p.scheme};`;
+    const optCss = document.createElement('style');
+    optCss.textContent = `.chart-alert-dialog select option{background:${p.inputBg};color:${p.text}}.chart-alert-dialog input::-webkit-calendar-picker-indicator{opacity:.75;cursor:pointer}.chart-alert-dialog input::-webkit-calendar-picker-indicator:hover{opacity:1}`;
     const focusRing = (e: HTMLElement) => {
         e.addEventListener('focus', () => { e.style.borderColor = p.accent; });
         e.addEventListener('blur', () => { e.style.borderColor = p.inputBorder; });
@@ -269,12 +271,14 @@ export function openAlertDialog(opts: AlertDialogOptions): AlertDialogHandle {
     const overlay = el('div', `position: fixed; inset: 0; z-index: 99000; display: flex; align-items: center; justify-content: center; background: ${p.backdrop}; font-family: ${FONT};`);
     overlay.className = 'chart-alert-dialog-overlay';
     overlay.dataset.theme = theme;
+    overlay.style.colorScheme = p.scheme;
     const panel = el('div', `box-sizing: border-box; width: ${showLeftSelect ? 540 : 480}px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); display: flex; flex-direction: column;
         background: ${p.bg}; color: ${p.text}; border: 1px solid ${p.border}; border-radius: 8px; box-shadow: ${p.shadow};`);
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-modal', 'true');
     panel.className = 'chart-alert-dialog';
     overlay.appendChild(panel);
+    overlay.appendChild(optCss);
 
     // header
     const header = el('div', `display: flex; align-items: center; justify-content: space-between; padding: 14px 12px 4px 20px;`);

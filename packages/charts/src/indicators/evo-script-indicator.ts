@@ -246,9 +246,7 @@ class EvoImpl {
 
     settingsConfig(): IndicatorSettingsConfig {
         const defs = this.core.output?.inputs ?? [];
-        const sections: Array<{ title?: string; raw?: boolean; rows: SettingRow[] }> = [
-            { rows: [{ type: 'text', key: 'name', label: 'Name', placeholder: this.core.output?.meta.title ?? '' }] },
-        ];
+        const sections: Array<{ title?: string; raw?: boolean; rows: SettingRow[] }> = [];
         const byGroup = new Map<string, EvoInputDef[]>();
         for (const def of defs) {
             const g = def.group || '';
@@ -268,6 +266,8 @@ class EvoImpl {
             // script text is shown as written: group names are not upper-cased by the UI language, titles are not translated
             sections.push({ title: g || undefined, raw: true, rows: ordered.map((def) => this.rowFor(def)) });
         }
+        // Rename field: kept (it is the only way to retitle a script) but last, so the script's own inputs come first
+        sections.push({ rows: [{ type: 'text', key: 'name', label: 'Name', placeholder: this.core.output?.meta.title ?? '' }] });
         return { name: this.displayName(), tabs: [{ id: 'inputs', label: 'Inputs', sections }, createVisibilityTab()] };
     }
 

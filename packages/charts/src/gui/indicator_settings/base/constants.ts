@@ -20,6 +20,8 @@ export interface SettingsPalette {
     accent: string;
     accentHover: string;
     accentText: string;
+    /** focus ring only (brand blue); `accent` is the neutral primary fill */
+    focus: string;
     shadow: string;
     overlay: string;
     tabActive: string;
@@ -31,14 +33,15 @@ export const TV_PALETTES: Record<SettingsTheme, SettingsPalette> = {
         bg: '#1E222D',
         border: '#2A2E39',
         text: '#D1D4DC',
-        muted: '#787B86',
-        inputBg: '#2A2E39',
-        inputBorder: '#363A45',
+        muted: '#9598A3',
+        inputBg: '#1E222D',
+        inputBorder: '#3A3E4A',
         hover: '#2A2E39',
-        accent: '#2962FF',
-        accentHover: '#1E53E5',
-        accentText: '#FFFFFF',
-        shadow: '0 2px 20px rgba(0, 0, 0, 0.55)',
+        accent: '#E8EAEE',
+        accentHover: '#FFFFFF',
+        accentText: '#131722',
+        focus: '#2962FF',
+        shadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
         overlay: 'rgba(0, 0, 0, 0.45)',
         tabActive: '#D1D4DC',
         checkboxBorder: '#5D606B',
@@ -47,14 +50,15 @@ export const TV_PALETTES: Record<SettingsTheme, SettingsPalette> = {
         bg: '#FFFFFF',
         border: '#E0E3EB',
         text: '#131722',
-        muted: '#787B86',
+        muted: '#6B6F7B',
         inputBg: '#FFFFFF',
-        inputBorder: '#D1D4DC',
-        hover: '#F0F3FA',
-        accent: '#2962FF',
-        accentHover: '#1E53E5',
+        inputBorder: '#D7DAE0',
+        hover: '#F3F4F7',
+        accent: '#131722',
+        accentHover: '#2A2E39',
         accentText: '#FFFFFF',
-        shadow: '0 2px 20px rgba(19, 23, 34, 0.18)',
+        focus: '#2962FF',
+        shadow: '0 8px 32px rgba(19, 23, 34, 0.16)',
         overlay: 'rgba(19, 23, 34, 0.35)',
         tabActive: '#131722',
         checkboxBorder: '#B2B5BE',
@@ -62,22 +66,24 @@ export const TV_PALETTES: Record<SettingsTheme, SettingsPalette> = {
 };
 
 export const TV_SIZES = {
-    dialogWidth: 460,
+    dialogWidth: 480,
     dialogMaxWidthVw: 95,
     dialogMaxHeightVh: 80,
-    radius: 8,
-    controlRadius: 4,
-    controlHeight: 32,
+    radius: 12,
+    controlRadius: 8,
+    controlHeight: 36,
+    /** width of the right-hand control column of a row */
+    controlColumn: 200,
     checkbox: 18,
-    headerPad: '16px 20px 0 20px',
-    bodyPad: '16px 20px',
-    footerPad: '12px 20px',
-    rowGap: 12,
+    headerPad: '18px 24px 0 24px',
+    bodyPad: '20px 24px',
+    footerPad: '14px 24px',
+    rowGap: 16,
     zIndex: 10000,
     fontFamily: FONT_SANS,
     fontSize: 14,
-    smallFontSize: 12,
-    titleFontSize: 18,
+    smallFontSize: 13,
+    titleFontSize: 17,
 } as const;
 
 /** CSS custom properties for a theme (set on the dialog element) */
@@ -94,6 +100,7 @@ export function themeCssVars(theme: SettingsTheme): Record<string, string> {
         '--tvs-accent': p.accent,
         '--tvs-accent-hover': p.accentHover,
         '--tvs-accent-text': p.accentText,
+        '--tvs-focus': p.focus,
         '--tvs-checkbox-border': p.checkboxBorder,
         // aliases used by shared popovers (settings_modal/components/popover.ts)
         '--modal-bg': p.bg,

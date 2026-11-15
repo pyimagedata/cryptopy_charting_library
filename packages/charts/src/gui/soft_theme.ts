@@ -77,8 +77,8 @@ const STYLE_ID = 'soft-theme-style';
 /** Global overrides that need no JS: they restyle the existing (inline-styled) widgets from the tokens. */
 function css(): string {
     return `
-:root{${vars(SOFT_GEOMETRY)}${vars(SOFT.dark)}}
-html[data-soft-theme="light"]{${vars(SOFT.light)}}
+:root{color-scheme:dark;${vars(SOFT_GEOMETRY)}${vars(SOFT.dark)}}
+html[data-soft-theme="light"]{color-scheme:light;${vars(SOFT.light)}}
 
 /* --- regions: surfaces separated by gaps of the app background, no hard lines --- */
 .tv-multi-chart-layout-shell{background:var(--app-bg) !important;padding-bottom:var(--region-gap);box-sizing:border-box}
@@ -124,6 +124,9 @@ html[data-soft-theme="light"]{${vars(SOFT.light)}}
 
 /* --- legend scrim: readable over candles --- */
 .tvl-row:not(:hover):not(.tvl-menu-open){background:var(--legend-scrim) !important}
+
+/* --- native controls: option lists keep theme colours where color-scheme alone does not style them --- */
+select option,select optgroup{background-color:var(--menu-bg);color:var(--text)}
 
 /* --- dialogs --- */
 .soft-dialog{border-radius:var(--dialog-radius) !important;border:var(--dialog-border) !important;box-shadow:var(--dialog-shadow) !important}

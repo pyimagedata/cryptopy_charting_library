@@ -4513,16 +4513,26 @@ export class ChartWidget implements Disposable {
     private _onLegendAction(action: LegendAction, indicator: Indicator, point: LegendPoint): void {
         switch (action) {
             case 'toggle':
-                indicator.setVisible(!indicator.visible);
-                this._scheduleDraw();
-                this._chartStateManager?.requestSave();
+                try {
+                    indicator.setVisible(!indicator.visible);
+                } finally {
+                    // a throwing dataChanged subscriber / canvas draw must not leave the rows stale (the next
+                    // click would then flip the state back): refresh the legend rows directly as well
+                    this._paneWidget?.refreshLegend();
+                    this._scheduleDraw();
+                    this._chartStateManager?.requestSave();
+                }
                 break;
             case 'settings':
                 this._openIndicatorSettings(indicator);
                 break;
             case 'remove':
-                this._indicatorManager.removeIndicator(indicator.id);
-                this._scheduleDraw();
+                try {
+                    this._indicatorManager.removeIndicator(indicator.id);
+                } finally {
+                    this._paneWidget?.refreshLegend();
+                    this._scheduleDraw();
+                }
                 break;
             case 'more':
                 this._showIndicatorMenu(indicator, point);

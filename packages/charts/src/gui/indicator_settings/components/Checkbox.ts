@@ -1,8 +1,8 @@
 /**
- * Checkbox Component (TradingView style: 18px box, blue when checked)
+ * Checkbox Component (TradingView style: 18px box, neutral fill when checked)
  */
 
-const CHECK_SVG = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 6.2 2.4 2.4 4.6-5"/></svg>`;
+const CHECK_SVG = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 6.2 2.4 2.4 4.6-5"/></svg>`;
 
 export function createCheckbox(
     label: string,
