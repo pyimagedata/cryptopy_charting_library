@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { groupThousands, formatPrice, formatNumber, formatPercent, formatDate, monthShort } from '../src/helpers/format';
 import { setLanguage } from '../src/helpers/translations';
-import { localizedEvoError } from '../src/indicators/evo-script-indicator';
+import { localizedEvoError, localizedEvoErrorParts } from '../src/indicators/evo-script-indicator';
 
 let passed = 0;
 function test(name: string, fn: () => void): void {
@@ -74,6 +74,28 @@ test('evo error label', () => {
     assert.equal(localizedEvoError({ message: 'x is not defined', kind: 'runtime' }), 'Çalışma hatası: x is not defined');
     setLanguage('en');
     assert.equal(localizedEvoError({ message: 'boom' }), 'Runtime error: boom');
+});
+
+test('evo error uses EvoDiag.summary when provided, falls back otherwise', () => {
+    const g = globalThis as unknown as { window?: unknown };
+    const prev = g.window;
+    try {
+        setLanguage('tr');
+        const e = { message: 'syntax error: Unexpected token', kind: 'syntax' };
+        g.window = { EvoDiag: { summary: (m: string) => (m.includes('Unexpected') ? 'Beklenmeyen simge' : null) } };
+        assert.equal(localizedEvoError(e), 'Derleme hatası: Beklenmeyen simge');
+        assert.equal(localizedEvoErrorParts(e).detail, 'Derleme hatası: syntax error: Unexpected token');
+        assert.equal(localizedEvoError({ message: 'x is not defined' }), 'Çalışma hatası: x is not defined');
+        g.window = { EvoDiag: { summary: () => { throw new Error('boom'); } } };
+        assert.equal(localizedEvoError(e), 'Derleme hatası: syntax error: Unexpected token');
+        g.window = { EvoDiag: {} };
+        assert.equal(localizedEvoError(e), 'Derleme hatası: syntax error: Unexpected token');
+        g.window = undefined;
+        assert.equal(localizedEvoError(e), 'Derleme hatası: syntax error: Unexpected token');
+    } finally {
+        g.window = prev;
+        setLanguage('en');
+    }
 });
 
 console.log(`${passed} passed`);

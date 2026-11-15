@@ -128,7 +128,7 @@ export class IndicatorLegendList {
 
         const signature = [
             theme, getCurrentLanguage(), collapsed ? 'c' : 'e', toggleShown ? 't' : '-',
-            ...indicators.map((ind, i) => `${ind.id}|${ind.visible ? 1 : 0}|${ind.hiddenByInterval ? 1 : 0}|${infos[i].title}|${infos[i].params.join(' ')}|${infos[i].error ?? ''}|${infos[i].busy ? 1 : 0}|${infos[i].alert ?? ''}`),
+            ...indicators.map((ind, i) => `${ind.id}|${ind.visible ? 1 : 0}|${ind.hiddenByInterval ? 1 : 0}|${infos[i].title}|${infos[i].params.join(' ')}|${infos[i].error ?? ''}|${infos[i].errorDetail ?? ''}|${infos[i].busy ? 1 : 0}|${infos[i].alert ?? ''}`),
         ].join('\n');
 
         if (signature !== this._signature) {
@@ -258,7 +258,7 @@ export class IndicatorLegendList {
             const err = document.createElement('span');
             err.className = 'tvl-err';
             err.textContent = '\u26A0 ' + (info.error.length > 48 ? info.error.slice(0, 47) + '\u2026' : info.error);
-            err.title = info.error;
+            err.title = info.errorDetail ?? info.error;
             row.appendChild(err);
         }
 

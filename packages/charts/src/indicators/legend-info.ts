@@ -25,6 +25,8 @@ export interface IndicatorLegendInfo {
     precision?: number;
     /** Script/compute error shown as a red badge next to the title */
     error?: string;
+    /** Full (untruncated, e.g. English engine) error text for the badge tooltip; defaults to `error` */
+    errorDetail?: string;
     /** A (re-)run is in progress; the legend shows a subtle running state */
     busy?: boolean;
     /** Tooltip text of the bell badge shown when the last bar fired alert() events */

@@ -24,10 +24,33 @@ import type { EvoTable, EvoOutput } from './evo-script-core';
 import { evoStyleItems, applyEvoStyles, resolveEvoStyle, EvoStyleItem, EVO_PLOT_STYLES, EVO_LINE_STYLES } from './evo-script-style';
 import { t } from '../helpers/translations';
 
-/** Localized label (compile / runtime) followed by the technical engine detail, which stays in English. */
-export function localizedEvoError(e: { message: string; kind?: string }): string {
+/** One-line localized summary from the page's `window.EvoDiag.summary` (null when absent, empty, or throwing). */
+function evoDiagSummary(message: string): string | null {
+    try {
+        const w = typeof window !== 'undefined' ? (window as unknown as { EvoDiag?: { summary?: (m: string) => unknown } }) : null;
+        const fn = w?.EvoDiag?.summary;
+        if (typeof fn !== 'function') return null;
+        const s = fn.call(w!.EvoDiag, message);
+        return typeof s === 'string' && s.trim() ? s.trim() : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Localized label (compile / runtime) followed by the technical engine detail, which stays in English.
+ * With a page-provided `EvoDiag.summary` the detail is the localized summary and the English message is
+ * returned separately as `detail` (legend tooltip).
+ */
+export function localizedEvoErrorParts(e: { message: string; kind?: string }): { text: string; detail: string } {
     const compile = /syntax|parse|compile|lex/i.test(e.kind ?? '') || /^\s*(syntax|parse|compile)/i.test(e.message);
-    return `${t(compile ? 'Compile error' : 'Runtime error')}: ${e.message}`;
+    const prefix = t(compile ? 'Compile error' : 'Runtime error');
+    const summary = evoDiagSummary(e.message);
+    return { text: `${prefix}: ${summary ?? e.message}`, detail: `${prefix}: ${e.message}` };
+}
+
+export function localizedEvoError(e: { message: string; kind?: string }): string {
+    return localizedEvoErrorParts(e).text;
 }
 
 const COMMON_TIMEFRAMES: Array<{ value: string; label: string }> = [
@@ -259,7 +282,11 @@ class EvoImpl {
         const info: IndicatorLegendInfo = {
             title: this.displayName(), params, plots, precision: out?.meta.precision,
         };
-        if (this.core.status === 'error' && this.core.error) info.error = localizedEvoError(this.core.error);
+        if (this.core.status === 'error' && this.core.error) {
+            const parts = localizedEvoErrorParts(this.core.error);
+            info.error = parts.text;
+            if (parts.detail !== parts.text) info.errorDetail = parts.detail;
+        }
         else if (this.core.busy && this.core.runCount > 0) info.busy = true;
         const alerts = this.core.lastBarAlerts;
         if (alerts.length > 0) info.alert = alerts.slice(0, 5).join('\n');
@@ -268,7 +295,7 @@ class EvoImpl {
 
     description(): string {
         const e = this.core.error;
-        return e ? `${this.displayName()}: ${localizedEvoError(e)}` : this.displayName();
+        return e ? `${this.displayName()}: ${localizedEvoErrorParts(e).detail}` : this.displayName();
     }
 
     // --- settings dialog (dynamic from the last run's input definitions) ---

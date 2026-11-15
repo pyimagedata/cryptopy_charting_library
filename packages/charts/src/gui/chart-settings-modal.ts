@@ -52,6 +52,7 @@ export class ChartSettingsModal {
     private _activeTab: SettingsTabId = 'symbol';
     private _renderContent: (() => void) | null = null;
     private _unsubLang: (() => void) | null = null;
+    private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
     private _pendingApply: (() => void) | null = null;
     private _chart: CanvasChartApi | null = null;
     private _canvasSnapshot: CanvasSnapshot | null = null;
@@ -401,6 +402,25 @@ export class ChartSettingsModal {
         // Snapshot for preview revert; kept if the dialog was already open
         if (this._chart && !this._canvasSnapshot) this._canvasSnapshot = snapshotCanvas(this._chart);
         this._overlay.style.display = 'flex';
+        this._installKeyHandler();
+    }
+
+    // Bubble phase on purpose (same as the indicator settings dialog): an open colour / line popover
+    // handles Esc in the capture phase and stops it, so the first Esc only closes the popover.
+    private _installKeyHandler(): void {
+        this._removeKeyHandler();
+        this._keyHandler = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape' || e.defaultPrevented) return;
+            e.stopPropagation();
+            e.preventDefault();
+            this.hide();
+        };
+        document.addEventListener('keydown', this._keyHandler);
+    }
+
+    private _removeKeyHandler(): void {
+        if (this._keyHandler) document.removeEventListener('keydown', this._keyHandler);
+        this._keyHandler = null;
     }
 
     /** Closes the dialog; unconfirmed live canvas changes are reverted (OK clears the snapshot first) */
@@ -408,11 +428,13 @@ export class ChartSettingsModal {
         if (this._chart && this._canvasSnapshot) restoreCanvas(this._chart, this._canvasSnapshot);
         this._canvasSnapshot = null;
         this._overlay.style.display = 'none';
+        this._removeKeyHandler();
     }
 
     dispose(): void {
         this._unsubLang?.();
         this._unsubLang = null;
+        this._removeKeyHandler();
         this._overlay.remove();
     }
 
