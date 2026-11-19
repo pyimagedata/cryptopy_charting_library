@@ -1,5 +1,5 @@
 import { WebSocketServer } from 'ws';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Binary frame: [uint32 LE headerLen][header JSON, space-padded so the payload
@@ -16,6 +16,55 @@ export function encodeBinaryFrame(headerJson, binary) {
     return Buffer.concat([lenBuf, header, body]);
 }
 
+const CLOCK_SKEW_SECONDS = 30;
+const MAX_TICKET_LIFETIME_SECONDS = 600;
+const DEFAULT_ALLOWED_EMAILS = ['ccryptopy@gmail.com'];
+const DEFAULT_ALLOWED_ORIGINS = ['https://evotrading.net', 'https://www.evotrading.net'];
+
+function b64urlDecode(str) {
+    return Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+}
+
+/**
+ * Verify a bridge ticket issued by Django (accounts.views.AgentBridgeTicketView):
+ * `base64url(payload).base64url(HMAC-SHA256(secret, payloadB64))`, payload JSON
+ * `{uid, email, exp}`. Returns `{ok: true, payload}` or `{ok: false, reason}`.
+ * `allowedEmails` (array of lowercase emails) is optional; when non-empty the
+ * ticket's email must be in it. Exported for tests.
+ */
+export function verifyBridgeTicket(ticket, secret, { allowedEmails = null, now = Date.now() / 1000 } = {}) {
+    if (!secret) return { ok: false, reason: 'no-secret' };
+    if (typeof ticket !== 'string' || ticket.length > 2048) return { ok: false, reason: 'malformed' };
+    const parts = ticket.split('.');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return { ok: false, reason: 'malformed' };
+    const [body, sig] = parts;
+    const expected = createHmac('sha256', secret).update(body).digest();
+    const given = b64urlDecode(sig);
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+        return { ok: false, reason: 'bad-signature' };
+    }
+    let payload;
+    try {
+        payload = JSON.parse(b64urlDecode(body).toString('utf-8'));
+    } catch {
+        return { ok: false, reason: 'malformed' };
+    }
+    if (!payload || !Number.isFinite(payload.exp)) return { ok: false, reason: 'malformed' };
+    if (payload.exp + CLOCK_SKEW_SECONDS < now) return { ok: false, reason: 'expired' };
+    if (payload.exp > now + MAX_TICKET_LIFETIME_SECONDS) return { ok: false, reason: 'exp-too-far' };
+    if (typeof payload.jti !== 'string' || !payload.jti) return { ok: false, reason: 'no-jti' };
+    const email = typeof payload.email === 'string' ? payload.email.toLowerCase() : '';
+    if (allowedEmails && allowedEmails.length > 0 && !allowedEmails.includes(email)) {
+        return { ok: false, reason: 'email-not-allowed' };
+    }
+    return { ok: true, payload: { ...payload, email } };
+}
+
+function parseList(value, fallback, lower = true) {
+    const list = (value || '').split(',').map((e) => e.trim()).filter(Boolean).map((e) => (lower ? e.toLowerCase() : e));
+    return list.length ? list : fallback;
+}
+
 /**
  * Holds WebSocket connections to one or more open chart tabs (browsers) and
  * dispatches tool commands to whichever is currently "active", matching
@@ -29,13 +78,27 @@ export function encodeBinaryFrame(headerJson, binary) {
  *
  * Mounted on an existing http.Server via `noServer: true` so it can share a
  * single port/tunnel with the MCP Streamable HTTP endpoint. Every upgrade
- * request must carry a matching `key` (shared bearer secret) and a `tab`
- * (client-generated id, persisted per-tab in sessionStorage) query param.
+ * request must carry a `tab` (client-generated id, persisted per-tab in
+ * sessionStorage) and a `ticket` (short-lived HMAC ticket minted by Django for
+ * the one allowed superuser account, verified with AGENT_BRIDGE_SECRET; see
+ * verifyBridgeTicket). The MCP bearer token does NOT authenticate the bridge.
+ * If AGENT_BRIDGE_SECRET is unset every upgrade is rejected.
  */
 export class ChartBridge {
-    constructor(httpServer, sharedSecret) {
-        this._sharedSecret = sharedSecret;
+    constructor(httpServer, {
+        secret = process.env.AGENT_BRIDGE_SECRET,
+        allowedEmails = parseList(process.env.AGENT_BRIDGE_ALLOWED_EMAILS, DEFAULT_ALLOWED_EMAILS),
+        allowedOrigins = parseList(process.env.AGENT_BRIDGE_ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS),
+        allowNoOrigin = process.env.AGENT_BRIDGE_ALLOW_NO_ORIGIN === '1', // dev only
+    } = {}) {
+        this._allowedOrigins = allowedOrigins.map((o) => o.toLowerCase());
+        this._allowNoOrigin = allowNoOrigin;
+        this._usedJti = new Map(); // jti -> exp (single-use tickets)
+        this._secret = secret;
+        this._allowedEmails = allowedEmails;
+        this._warnedNoSecret = false;
         this._connections = new Map(); // tabId -> WebSocket
+        this._emails = new Map(); // tabId -> account email
         this._activeTabId = null;
         this._pending = new Map(); // request id -> {resolve, reject, timeout}
         this._wss = new WebSocketServer({ noServer: true });
@@ -50,25 +113,52 @@ export class ChartBridge {
             }
             if (url.pathname !== '/agent-bridge') return; // not ours — let other listeners handle it
 
-            const key = url.searchParams.get('key');
+            if (!this._secret) {
+                if (!this._warnedNoSecret) {
+                    this._warnedNoSecret = true;
+                    console.error('[chart-bridge] AGENT_BRIDGE_SECRET is not set - rejecting all bridge connections');
+                }
+                socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+                return;
+            }
+
+            const origin = (req.headers.origin || '').toLowerCase();
+            if (origin ? !this._allowedOrigins.includes(origin) : !this._allowNoOrigin) {
+                socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+                return;
+            }
+
             const tabId = url.searchParams.get('tab');
-            if (key !== this._sharedSecret || !tabId) {
-                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                socket.destroy();
+            const result = verifyBridgeTicket(url.searchParams.get('ticket'), this._secret, { allowedEmails: this._allowedEmails });
+            if (!result.ok || !tabId || !this._consumeJti(result.payload)) {
+                socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
                 return;
             }
 
             this._wss.handleUpgrade(req, socket, head, (ws) => {
-                this._onConnection(ws, tabId);
+                this._onConnection(ws, tabId, result.payload.email);
             });
         });
 
         console.error('[chart-bridge] mounted at /agent-bridge (multi-tab)');
     }
 
-    _onConnection(socket, tabId) {
-        console.error(`[chart-bridge] tab connected: ${tabId}`);
+    /** Single use: remember each jti until its ticket expires; false on replay. */
+    _consumeJti(payload) {
+        const now = Date.now() / 1000;
+        for (const [jti, exp] of this._usedJti) {
+            if (exp + CLOCK_SKEW_SECONDS < now) this._usedJti.delete(jti);
+        }
+        if (this._usedJti.has(payload.jti)) return false;
+        if (this._usedJti.size >= 1000) return false; // savunma: tek sahip icin asla dolmaz
+        this._usedJti.set(payload.jti, payload.exp);
+        return true;
+    }
+
+    _onConnection(socket, tabId, email) {
+        console.error(`[chart-bridge] tab connected: ${tabId} (${email})`);
         this._connections.set(tabId, socket);
+        this._emails.set(tabId, email);
         this._activeTabId = tabId; // most-recently-connected tab becomes the AI's target
 
         socket.on('message', (data) => this._handleMessage(data));
@@ -83,6 +173,7 @@ export class ChartBridge {
             }
             if (this._connections.get(tabId) !== socket) return; // superseded by a newer socket with the same id
             this._connections.delete(tabId);
+            this._emails.delete(tabId);
             if (this._activeTabId === tabId) {
                 // Fall back to any other still-open tab, if one exists.
                 const remaining = [...this._connections.keys()];
@@ -157,6 +248,7 @@ export class ChartBridge {
     listConnections() {
         return [...this._connections.keys()].map((tabId) => ({
             tabId,
+            email: this._emails.get(tabId) || null,
             active: tabId === this._activeTabId,
         }));
     }

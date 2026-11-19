@@ -3941,8 +3941,21 @@ export class ChartWidget implements Disposable {
         requestAnimationFrame(() => this._draw());
     }
 
+    /** Live ticks / series.update() can add or replace bars without going through _applyData: keep the timestamp arrays in step. */
+    private _syncTimestampsWithSeries(): void {
+        const data = this._model.serieses[0]?.data as ReadonlyArray<{ time: number }> | undefined;
+        if (!data) return;
+        const ts = this._timestamps;
+        const n = data.length;
+        if (n === ts.length && (n === 0 || data[n - 1].time === ts[n - 1])) return;
+        this._timestamps = data.map(d => d.time as number);
+        this._timeAxisWidget?.updateTimestamps(this._timestamps);
+        this._drawingManager.setTimestamps(this._timestamps);
+    }
+
     private _draw(): void {
         this._drawScheduled = false;
+        this._syncTimestampsWithSeries();
 
         const crosshair = this._visibleCrosshair();
         let mainPaneLocalY: number | null = null;

@@ -6,6 +6,13 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
+import { createHmac, randomUUID } from 'node:crypto';
+
+const TEST_SECRET = 'test-bridge-secret';
+function makeTicket(email = 'ccryptopy@gmail.com') {
+    const body = Buffer.from(JSON.stringify({ uid: 1, email, jti: randomUUID(), exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url');
+    return `${body}.${createHmac('sha256', TEST_SECRET).update(body).digest('base64url')}`;
+}
 
 const dir = await mkdtemp(path.join(os.tmpdir(), 'bt-chart-'));
 process.env.BACKTEST_DATA_DIR = dir;
@@ -31,9 +38,9 @@ const N = 2500; // 1m bars from 2024-01-01T00:00Z
 // Fake tab: records the decoded binary frame and answers ok.
 async function setup() {
     const server = http.createServer();
-    const bridge = new ChartBridge(server, 'k');
+    const bridge = new ChartBridge(server, { secret: TEST_SECRET });
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
-    const ws = new WebSocket(`ws://127.0.0.1:${server.address().port}/agent-bridge?key=k&tab=t1`);
+    const ws = new WebSocket(`ws://127.0.0.1:${server.address().port}/agent-bridge?ticket=${makeTicket()}&tab=t1`, { headers: { Origin: 'https://evotrading.net' } });
     ws.binaryType = 'arraybuffer';
     await new Promise((r) => ws.on('open', r));
     await new Promise((r) => setTimeout(r, 50));
@@ -111,7 +118,7 @@ test('explicit from over cap: clear error, nothing sent; explicit range under ca
 
 test('no chart connected -> clear error', async () => {
     const server = http.createServer();
-    const bridge = new ChartBridge(server, 'k');
+    const bridge = new ChartBridge(server, { secret: TEST_SECRET });
     await assert.rejects(() => loadDatasetToChart(bridge, { dataset: 'X_1m', timeframe: '1h' }), /No chart connected/);
     server.close();
 });

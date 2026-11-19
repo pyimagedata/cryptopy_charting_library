@@ -2437,34 +2437,50 @@ export class DrawingManager {
         this._historyCommitted.destroy();
     }
 
+    /** Nominal bar length (ms) of the current timeframe; null for months/ticks/ranges/unknown. */
+    private _nominalIntervalMs(): number | null {
+        const tf = this._parsedTimeframe as { kind: string; mult?: number } | null;
+        if (!tf || !tf.mult) return null;
+        const unit: Record<string, number> = {
+            seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 7 * 86400000,
+        };
+        const u = unit[tf.kind];
+        return u ? u * tf.mult : null;
+    }
+
+    private _intervalCache: { len: number; last: number; first: number; tf: string; value: number } | null = null;
+
     /**
-     * Estimate the time interval (bar spacing) more robustly
-     * by looking at recent bars and finding the minimal positive difference.
-     * This avoids using large gaps (weekend/holidays) as the interval which causes drawing instability.
+     * Bar spacing (ms) used ONLY for extrapolating beyond the first/last bar.
+     * Robust: median of the last 50 positive diffs (DST duplicate stamps 1h apart, a forming bar or weekend
+     * gaps cannot drag it down the way the old minimum did). When the timeframe's nominal length is known and
+     * agrees with the data (within 2x) the nominal one wins; if they disagree (timeframe label already switched
+     * but data not yet reloaded) the data median is used.
      */
     private _estimateInterval(): number {
-        if (this._timestamps.length < 2) return 60 * 1000; // Default 1 min fallback
+        const ts = this._timestamps;
+        if (ts.length < 2) return 60 * 1000; // Default 1 min fallback
+        const lastIdx = ts.length - 1;
+        const c = this._intervalCache;
+        if (c && c.len === ts.length && c.last === ts[lastIdx] && c.first === ts[0] && c.tf === this._timeframe) return c.value;
 
-        // Look at last 50 bars to find minimal interval
-        let minDiff = Infinity;
-        const lookback = Math.min(this._timestamps.length - 1, 50);
-        let found = false;
-
+        const diffs: number[] = [];
+        const lookback = Math.min(lastIdx, 50);
         for (let i = 0; i < lookback; i++) {
-            const idx = this._timestamps.length - 1 - i;
-            const diff = this._timestamps[idx] - this._timestamps[idx - 1];
-            if (diff > 0 && diff < minDiff) {
-                minDiff = diff;
-                found = true;
-            }
+            const d = ts[lastIdx - i] - ts[lastIdx - i - 1];
+            if (d > 0) diffs.push(d);
         }
-
-        // If no valid diff found or it's still infinity, fallback to last diff
-        if (!found || minDiff === Infinity) {
-            const lastIdx = this._timestamps.length - 1;
-            return this._timestamps[lastIdx] - this._timestamps[lastIdx - 1];
+        let median = 0;
+        if (diffs.length > 0) {
+            diffs.sort((a, b) => a - b);
+            const m = diffs.length >> 1;
+            median = diffs.length % 2 ? diffs[m] : (diffs[m - 1] + diffs[m]) / 2;
         }
-
-        return minDiff;
+        let value = median;
+        const nominal = this._nominalIntervalMs();
+        if (nominal !== null && (median === 0 || (nominal / median <= 1.5 && median / nominal <= 1.5))) value = nominal;
+        if (!(value > 0)) value = ts[lastIdx] - ts[lastIdx - 1] || 60 * 1000;
+        this._intervalCache = { len: ts.length, last: ts[lastIdx], first: ts[0], tf: this._timeframe, value };
+        return value;
     }
 }

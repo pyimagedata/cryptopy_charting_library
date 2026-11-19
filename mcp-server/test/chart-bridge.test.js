@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import WebSocket from 'ws';
+import { createHmac, randomUUID } from 'node:crypto';
 import { ChartBridge, encodeBinaryFrame } from '../src/chart-bridge.js';
+
+const TEST_SECRET = 'test-bridge-secret';
+function makeTicket(email = 'ccryptopy@gmail.com') {
+    const body = Buffer.from(JSON.stringify({ uid: 1, email, jti: randomUUID(), exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url');
+    return `${body}.${createHmac('sha256', TEST_SECRET).update(body).digest('base64url')}`;
+}
 
 const HTML = '/Users/mac/Desktop/MY_PROJECTS/AI_CHARTS/EvoTrdading/frontend/public/demo-ts.html';
 
@@ -11,7 +18,7 @@ function browserDecode() {
     if (existsSync(HTML)) {
         const html = readFileSync(HTML, 'utf-8');
         const a = html.indexOf('function decodeBridgeMessage(data) {');
-        const b = html.indexOf('function connect()', a);
+        const b = html.indexOf('async function connect()', a);
         return new Function(`${html.slice(a, b)}\nreturn decodeBridgeMessage;`)();
     }
     return null;
@@ -19,10 +26,10 @@ function browserDecode() {
 
 async function setup() {
     const server = http.createServer();
-    const bridge = new ChartBridge(server, 'k');
+    const bridge = new ChartBridge(server, { secret: TEST_SECRET });
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
     const port = server.address().port;
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/agent-bridge?key=k&tab=t1`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/agent-bridge?ticket=${makeTicket()}&tab=t1`, { headers: { Origin: 'https://evotrading.net' } });
     ws.binaryType = 'arraybuffer';
     await new Promise((r) => ws.on('open', r));
     await new Promise((r) => setTimeout(r, 50));

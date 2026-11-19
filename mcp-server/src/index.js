@@ -1084,7 +1084,7 @@ app.delete('/mcp', requireBearerAuth, async (req, res) => {
 });
 
 const httpServer = http.createServer(app);
-bridge = new ChartBridge(httpServer, BEARER_TOKEN);
+bridge = new ChartBridge(httpServer);
 
 httpServer.listen(MCP_PORT, () => {
     console.error(`[ai-charts-mcp] MCP server (Streamable HTTP) listening on http://localhost:${MCP_PORT}/mcp`);
