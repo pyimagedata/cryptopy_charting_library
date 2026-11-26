@@ -64,6 +64,7 @@ export const TYPE_ID_TO_CATALOG_ID: Record<string, string> = {
     Divergence: 'divergence',
     SessionVolumeProfile: 'session-volume-profile',
     VisibleRangeVolumeProfile: 'visible-range-volume-profile',
+    Most: 'most',
     SMTDivergence: 'smt-divergence',
     SpecialForces: 'special-forces',
 };

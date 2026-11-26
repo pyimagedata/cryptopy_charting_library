@@ -54,6 +54,7 @@ import { CandlestickPatternsIndicator } from './candlestick-patterns-indicator';
 import { DivergenceIndicator } from './divergence-indicator';
 import { SessionVolumeProfileIndicator } from './session-volume-profile-indicator';
 import { VisibleRangeVolumeProfileIndicator } from './visible-range-volume-profile-indicator';
+import { MostIndicator } from './most-indicator';
 import { EvoScriptOverlayIndicator, EvoScriptPanelIndicator, isEvoScriptIndicator } from './evo-script-indicator';
 import { SMTDivergenceIndicator } from './smt-divergence-indicator';
 import { SpecialForcesIndicator } from './special-forces-indicator';
@@ -405,6 +406,7 @@ export class IndicatorManager {
         else if (indicator instanceof DivergenceIndicator) typeId = 'Divergence';
         else if (indicator instanceof SessionVolumeProfileIndicator) typeId = 'SessionVolumeProfile';
         else if (indicator instanceof VisibleRangeVolumeProfileIndicator) typeId = 'VisibleRangeVolumeProfile';
+        else if (indicator instanceof MostIndicator) typeId = 'Most';
         else if (indicator instanceof SMTDivergenceIndicator) typeId = 'SMTDivergence';
         else if (indicator instanceof SpecialForcesIndicator) typeId = 'SpecialForces';
         else if (isEvoScriptIndicator(indicator)) typeId = 'EvoScript';
@@ -596,6 +598,9 @@ export class IndicatorManager {
                 break;
             case 'VisibleRangeVolumeProfile':
                 indicator = new VisibleRangeVolumeProfileIndicator(item.options as any);
+                break;
+            case 'Most':
+                indicator = new MostIndicator(item.options as any);
                 break;
             case 'SMTDivergence':
                 indicator = new SMTDivergenceIndicator(item.options as any);

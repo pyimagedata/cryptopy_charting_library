@@ -115,6 +115,15 @@ const BASE_INDICATORS: BaseIndicator[] = [
         i18n: true
     },
     {
+        id: 'most',
+        name: 'MOST - Moving Stop Loss',
+        shortName: 'MOST',
+        description: 'Moving average with a percent- or ATR-based trailing stop. Marks BUY / SELL where the average crosses the stop, with trend fill and a summary HUD.',
+        category: 'standard',
+        type: 'overlay',
+        i18n: true
+    },
+    {
         id: 'alphatrend',
         name: 'AlphaTrend',
         shortName: 'AT',

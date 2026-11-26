@@ -75,6 +75,7 @@ export { CandlestickPatternsIndicator, CandlestickPatternsOptions, CANDLESTICK_P
 export { DivergenceIndicator, DivergenceIndicatorOptions } from './divergence-indicator';
 export { SessionVolumeProfileIndicator, SessionVolumeProfileOptions } from './session-volume-profile-indicator';
 export { VisibleRangeVolumeProfileIndicator, VisibleRangeVolumeProfileOptions } from './visible-range-volume-profile-indicator';
+export { MostIndicator, MostOptions } from './most-indicator';
 export { EvoScriptOverlayIndicator, EvoScriptPanelIndicator, EvoScriptIndicatorOptions, isEvoScriptIndicator } from './evo-script-indicator';
 export { EvoScriptCore, setEvoScriptRunner, getEvoScriptRunner, evoScriptEvents, evoScriptRunEvents, evoScriptCoreEvents, evoScriptCores, notifyEvoScriptCoresChanged } from './evo-script-core';
 export type { EvoScriptRunner, EvoRunRequest, EvoScriptState, EvoScriptSettings, EvoScriptError, EvoInputDef, EvoOutput, EvoStrategy, EvoStrategyTrade, EvoStrategyFill } from './evo-script-core';

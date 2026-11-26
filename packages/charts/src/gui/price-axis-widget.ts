@@ -89,7 +89,9 @@ export class PriceAxisWidget implements Disposable {
 
     updateWidth(): boolean {
         const width = this._calculateRequiredWidth();
-        if (width === this._width) {
+        // Grow immediately; shrink only when the axis would drop by at least 8px,
+        // so tick-by-tick label changes do not jitter the axis (and shift the candles).
+        if (width === this._width || (width < this._width && this._width - width < 8)) {
             return false;
         }
 
@@ -217,16 +219,17 @@ export class PriceAxisWidget implements Disposable {
             return this._width;
         }
 
+        // Measure with digits normalised to '0' so the width does not depend on which digits a tick shows.
         let maxTextWidth = 0;
 
         this._ctx.font = `${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
         for (const mark of this._priceScale.marks()) {
-            maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(mark.label).width);
+            maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(String(mark.label).replace(/[0-9]/g, '0')).width);
         }
 
         if (this._lastValue) {
             this._ctx.font = `bold ${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
-            maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(this._lastValue.text).width);
+            maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(String(this._lastValue.text).replace(/[0-9]/g, '0')).width);
         }
 
 
@@ -236,14 +239,14 @@ export class PriceAxisWidget implements Disposable {
             for (const label of this._drawingLabels) {
                 const ly = this._priceScale.priceToCoordinate(label.price);
                 if (ly < 0 || ly > this._height) continue;
-                maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(label.text).width);
+                maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(String(label.text).replace(/[0-9]/g, '0')).width);
             }
         }
 
         if (this._alertLabels.length) {
             this._ctx.font = `bold ${this._options.fontSize}px ${resolveFontFamily(this._options.fontFamily)}`;
             for (const label of this._alertLabels) {
-                maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(label.text).width + ALERT_GLYPH_W);
+                maxTextWidth = Math.max(maxTextWidth, this._ctx.measureText(String(label.text).replace(/[0-9]/g, '0')).width + ALERT_GLYPH_W);
             }
         }
 

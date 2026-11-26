@@ -138,6 +138,8 @@ export {
     SessionVolumeProfileOptions,
     VisibleRangeVolumeProfileIndicator,
     VisibleRangeVolumeProfileOptions,
+    MostIndicator,
+    MostOptions,
     LiqHeatmapIndicator,
     LiqHeatmapOptions,
     LiqHeatmapProvider,
